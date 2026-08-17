@@ -149,15 +149,15 @@ public enum StreamEvent: Equatable {
             for block in content where block["type"] as? String == "tool_use" {
                 guard let tool = block["name"] as? String else { continue }
                 let input = block["input"] as? [String: Any] ?? [:]
-                // The most human-meaningful argument, tool by tool.
-                let detail = (input["file_path"] as? String)
-                    ?? (input["path"] as? String)
-                    ?? (input["pattern"] as? String).map { "\"\($0)\"" }
-                    ?? (input["command"] as? String)
-                    ?? (input["url"] as? String)
-                    ?? (input["query"] as? String)
-                    ?? ""
-                let clipped = detail.count > 80 ? String(detail.prefix(80)) + "…" : detail
+                // The most human-meaningful argument, tool by tool. Kept as
+                // statements, not one ?? chain — newer Swift compilers time
+                // out type-checking the chained casts + .map closure (CI).
+                func str(_ key: String) -> String? { input[key] as? String }
+                var detail = str("file_path") ?? str("path")
+                if detail == nil, let pattern = str("pattern") { detail = "\"\(pattern)\"" }
+                detail = detail ?? str("command") ?? str("url") ?? str("query")
+                let detailText = detail ?? ""
+                let clipped = detailText.count > 80 ? String(detailText.prefix(80)) + "…" : detailText
                 return .toolActivity(clipped.isEmpty ? tool : "\(tool) \(clipped)")
             }
             return .ignored
