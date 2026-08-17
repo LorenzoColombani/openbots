@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: swift test (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show toolchain
+        run: swift --version && xcodebuild -version
+      - name: Run tests
+        # Live-data tests (real Messages database) are opt-in via
+        # AGENCY_LIVE_MESSAGES_TESTS=1 and skip here by design.
+        run: swift test
