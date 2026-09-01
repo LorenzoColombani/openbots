@@ -41,9 +41,9 @@ final class NormalAppPresentationTests: XCTestCase {
 
             let text = try await renderChatCleanupFixture(conversation: conversation, teammate: teammate,
                 scheme: scheme, filename: "chat-cleanup-completed-\(scheme == .dark ? "dark" : "light")-1080.png")
-            XCTAssertTrue(text.contains("Keep the source notes together"), "Missing actual user body: \(text)")
-            XCTAssertTrue(text.contains("The source notes are ready for review"), "Missing actual reply body: \(text)")
-            XCTAssertTrue(text.contains("Ask about the source notes"), "Missing actual composer draft: \(text)")
+            XCTAssertTrue(ocrContains(text, "Keep the source notes together"), "Missing actual user body: \(text)")
+            XCTAssertTrue(ocrContains(text, "The source notes are ready for review"), "Missing actual reply body: \(text)")
+            XCTAssertTrue(ocrContains(text, "Ask about the source notes"), "Missing actual composer draft: \(text)")
             for forbidden in ["Accepted by Claude", "Claude reply saved", "Prepared context:", "Read-only",
                               "Reply saved.", "Memory questions and explicit memory updates",
                               "Attachments, tools and connectors are not sent"] {
@@ -82,11 +82,11 @@ final class NormalAppPresentationTests: XCTestCase {
         conversation.setTextReplyContextDisclosure(disclosure)
         let text = try await renderChatCleanupFixture(conversation: conversation, teammate: teammate,
             scheme: .light, filename: "chat-cleanup-pending-context-omitted-light-1080.png")
-        XCTAssertTrue(text.contains("Please check the source notes"), "Missing actual pending message: \(text)")
-        XCTAssertTrue(text.contains("Keep this draft while waiting"), "Missing composer content: \(text)")
-        XCTAssertTrue(text.contains("Receiving response"), "Busy state disappeared: \(text)")
+        XCTAssertTrue(ocrContains(text, "Please check the source notes"), "Missing actual pending message: \(text)")
+        XCTAssertTrue(ocrContains(text, "Keep this draft while waiting"), "Missing composer content: \(text)")
+        XCTAssertTrue(ocrContains(text, "Receiving response"), "Busy state disappeared: \(text)")
         XCTAssertTrue(text.split(separator: " ").contains("Stop"), "Stop control disappeared from pixels: \(text)")
-        XCTAssertTrue(text.contains("Some earlier messages or saved memory were not included"), "Context omission warning disappeared: \(text)")
+        XCTAssertTrue(ocrContains(text, "Some earlier messages or saved memory were not included"), "Context omission warning disappeared: \(text)")
         XCTAssertEqual(conversation.messages, [message])
         XCTAssertEqual(conversation.textReplyPhase, .responding)
         XCTAssertEqual(conversation.textReplyContextDisclosure, disclosure)
@@ -179,7 +179,7 @@ final class NormalAppPresentationTests: XCTestCase {
                     filename: "normal-workspace-\(scheme == .dark ? "dark" : "light")-\(Int(width)).png"
                 )
                 XCTAssertTrue(
-                    renderedText.contains("Local only"),
+                    ocrContains(renderedText, "Local only"),
                     "Missing the visible local-delivery disclosure: \(renderedText)"
                 )
                 XCTAssertFalse(renderedText.contains("Send message"))
@@ -218,12 +218,12 @@ final class NormalAppPresentationTests: XCTestCase {
                 controller.view,
                 filename: "claude-setup-\(scheme == .dark ? "dark" : "light")-\(Int(width)).png"
             )
-            XCTAssertTrue(text.contains("Subscription access not verified"), "Missing honest setup state: \(text)")
-            XCTAssertTrue(text.contains("Check Installation"), "Missing explicit local setup action: \(text)")
-            XCTAssertTrue(text.contains("It does not sign you in or send saved messages"), "Local checks must remain distinct from authentication: \(text)")
-            XCTAssertTrue(text.contains("Live replies and tools remain unavailable"), "Missing live-runtime limitation: \(text)")
-            XCTAssertTrue(text.contains("not queued for automatic sending later"), "Local saves must not imply deferred sending: \(text)")
-            XCTAssertTrue(text.contains("Older sample messages and saved demo outcomes keep their original labels"))
+            XCTAssertTrue(ocrContains(text, "Subscription access not verified"), "Missing honest setup state: \(text)")
+            XCTAssertTrue(ocrContains(text, "Check Installation"), "Missing explicit local setup action: \(text)")
+            XCTAssertTrue(ocrContains(text, "It does not sign you in or send saved messages"), "Local checks must remain distinct from authentication: \(text)")
+            XCTAssertTrue(ocrContains(text, "Live replies and tools remain unavailable"), "Missing live-runtime limitation: \(text)")
+            XCTAssertTrue(ocrContains(text, "not queued for automatic sending later"), "Local saves must not imply deferred sending: \(text)")
+            XCTAssertTrue(ocrContains(text, "Older sample messages and saved demo outcomes keep their original labels"))
             XCTAssertFalse(text.contains("Development review mode"))
             assertNoDevelopmentControls(in: controller.view, renderedText: text)
             let controls = descendants(controller.view).compactMap { $0 as? NSControl }
@@ -249,7 +249,7 @@ final class NormalAppPresentationTests: XCTestCase {
         controller.view.frame = CGRect(x: 0, y: 0, width: 560, height: 560)
         try await settle(controller.view)
         let text = try captureRenderedText(controller.view, filename: "normal-startup-recovery-560.png")
-        XCTAssertTrue(text.contains("Try Opening Again"), "Missing normal recovery action in rendered pixels: \(text)")
+        XCTAssertTrue(ocrContains(text, "Try Opening Again"), "Missing normal recovery action in rendered pixels: \(text)")
         XCTAssertFalse(text.contains("Retry Check"))
         XCTAssertFalse(text.contains("Reset"))
         XCTAssertFalse(text.contains("Delete"))
@@ -341,6 +341,13 @@ final class NormalAppPresentationTests: XCTestCase {
             if let popup = view as? NSPopUpButton { values.append(contentsOf: popup.itemTitles) }
             return values.filter { !$0.isEmpty }
         }
+    }
+
+    /// Vision on 1x CI displays drops or merges spaces ("Localonly", "earller"). Phrase checks compare
+    /// with all whitespace removed; word-level checks (e.g. "Stop") stay exact.
+    private func ocrContains(_ rendered: String, _ phrase: String) -> Bool {
+        func squash(_ s: String) -> String { s.filter { !$0.isWhitespace }.lowercased() }
+        return squash(rendered).contains(squash(phrase))
     }
 
     private func descendants(_ view: NSView) -> [NSView] {
