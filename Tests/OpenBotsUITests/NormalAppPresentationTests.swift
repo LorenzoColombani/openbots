@@ -358,8 +358,18 @@ final class NormalAppPresentationTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700]
         )
-        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        // Capture at Retina density regardless of the host display. CI runners draw at 1x, and
+        // Vision then misreads small UI text ("earller", "Ston"); the dev machine is 2x.
+        let scale: CGFloat = 2
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(host.bounds.width * scale), pixelsHigh: Int(host.bounds.height * scale),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        bitmap.size = host.bounds.size
         host.cacheDisplay(in: host.bounds, to: bitmap)
+        XCTAssertEqual(bitmap.pixelsWide, Int(host.bounds.width * scale))
         let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         XCTAssertGreaterThan(data.count, 1_000, "An empty image is not render evidence.")
         // Preserve the original failing observation's images as evidence.
