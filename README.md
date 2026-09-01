@@ -2,6 +2,8 @@
 
 **Persistent, named AI teammates as a native macOS app — rebuilt.**
 
+[![CI](https://github.com/LorenzoColombani/openbots/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LorenzoColombani/openbots/actions/workflows/ci.yml) [![Latest release](https://img.shields.io/github/v/release/LorenzoColombani/openbots?label=release)](https://github.com/LorenzoColombani/openbots/releases/latest) ![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white) ![macOS 14+](https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-blue) ![Zero dependencies](https://img.shields.io/badge/dependencies-none-success) [![MIT](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+
 OpenBots turns Claude into a team of named teammates you hire, brief, and fence yourself. This is the second-generation codebase (the "Next" rebuild): a modular Swift 6 / macOS 14 SwiftUI + AppKit app with durable local state, explicit approvals, and honest uncertainty — a saved plan is never presented as an executed action.
 
 ![OpenBots — Scout's thread in a fresh workspace, with the teammate family in the sidebar](docs/assets/hero.gif)
