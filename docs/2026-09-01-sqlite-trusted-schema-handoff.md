@@ -99,6 +99,9 @@ Additional commits on `release/v0.5.0` (all cherry-pickable; none change app vie
 - `bd361d1` — OCR positive phrase checks ignore whitespace/case (`ocrContains`); negatives exact.
 - `cd172d9` — button assertions check `cell is NSButtonCell` instead of `accessibilityRole()`;
   geometry by `alignmentRect(forFrame:)`; CI uploads the rendered evidence PNGs as artifacts.
+- `1291bb5` — evidence upload works from the dot-directory (`include-hidden-files: true`).
+- `ab803e0` — Settings render evidence counts ink by contrast to the region's median, not an
+  absolute 0.55: on macOS 15 the never-key fixture window dims sidebar labels (~0.38 over 0.10).
 - `6ce21ba` — `OpenBotsNext.xcodeproj` gains the `SQLiteSchemaTrust.swift` entry. **Repo rule:**
   SwiftPM discovers sources; the preview-app xcodeproj lists them explicitly. A new source file
   needs 4 pbxproj lines (mirror `SQLiteC.swift`) or "Build the app (unsigned)" fails on CI.
@@ -115,9 +118,16 @@ Probe verdict (run 33560977997, both runners, matches the dev machine):
 - Pixel tests: 1x rendering made Vision misread "Stop"→"Ston", "earlier"→"earller",
   "Local only"→"Localonly". Fixed by 2x capture + whitespace-insensitive positives.
 
-Still open on `macos-15` after these commits: `ReferenceUtilitySurfaceTests` Settings sidebar
-bright-pixel count (0 > 150); `CharacterMotionVisibilityTests` window-subscription count (flaky:
-passed in one of four runs). The uploaded PNG artifacts (`ui-evidence-macos-15`) are the next step.
+**Gate result:** run 33565035649 @ `1291bb5`, `macos-26` job **success** — 513 XCTest + 981 Swift
+Testing, and "Build the app (unsigned)" green. Run 33565968927 @ `ab803e0`: `macos-26` **success** again;
+`macos-15` **1493/1494** (513 XCTest with 1 failure, 981 Swift Testing green). From 199 failures
+and a 3 h hang at the start of 2026-09-01 to one open test.
+
+Still open on `macos-15`, one test: `CharacterMotionVisibilityTests.testWindowSubscriptionsFollowOnlyTheOwningWindow`
+(failed 4 of 5 runs there, never on 26). After the view moves to another window, one resize
+notification from the OLD window still produces an assessment (count 2, expected 1). That is a
+macOS 15 ordering difference in the view's window-subscription handling, i.e. a real code path in
+`OpenBotsUI`, not a test artefact — deserves a deliberate look rather than a threshold change.
 Also flaky on the runner, unrelated: `LocalRunShutdownTests` "Grace drains…" (`.gateNotReached`),
 passed on rerun — the wall-clock family `ci.yml` already warns about.
 
