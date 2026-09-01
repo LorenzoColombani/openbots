@@ -67,6 +67,16 @@ jobs:
         # and flakes under parallel load (slower CI hardware makes it worse).
         # Do not switch to parallel without first widening those bounds in source.
         run: Scripts/swiftpm-public.sh test --no-parallel --scratch-path .build.noindex/ci
+      - name: Keep rendered UI evidence (PNG) for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-evidence-${{ matrix.runner }}
+          path: |
+            .build.noindex/reference-accessibility-evidence-*/**/*.png
+            .build.noindex/current-state-app-evidence-*/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Build the app (unsigned)
         run: /bin/zsh Scripts/build-preview.sh
 

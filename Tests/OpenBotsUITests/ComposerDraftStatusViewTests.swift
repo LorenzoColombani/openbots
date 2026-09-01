@@ -129,7 +129,9 @@ final class ComposerDraftStatusViewTests: XCTestCase {
 
             let controls = host.statusDescendants.compactMap { $0 as? NSControl }
             for control in controls {
-                let rect = control.convert(control.bounds, to: host)
+                // Alignment rect, not the bezel frame: macOS 15's hosted NSButton carries a ~6pt
+                // bezel shadow inset outside its alignment rect.
+                let rect = control.alignmentRect(forFrame: control.convert(control.bounds, to: host))
                 XCTAssertTrue(rect.width.isFinite && rect.height.isFinite)
                 XCTAssertGreaterThan(rect.width, 0)
                 XCTAssertGreaterThanOrEqual(rect.minX, -0.5)
@@ -144,7 +146,9 @@ final class ComposerDraftStatusViewTests: XCTestCase {
             if !buttons.isEmpty {
                 XCTAssertEqual(buttons.count, expectedActions.count)
                 XCTAssertEqual(buttons.filter { !$0.isEnabled }.count, expectedDisabledActions)
-                XCTAssertTrue(buttons.allSatisfy { $0.accessibilityRole() == .button })
+                // In-process `accessibilityRole()` is AXUnknown for every NSButton on every macOS
+                // (see Scripts/ci-ax-probe.swift); only an external AX client gets AXButton.
+                XCTAssertTrue(buttons.allSatisfy { $0.cell is NSButtonCell })
             }
             print("Draft status \(model.statusText), viewport \(width): measured \(measured), native buttons \(buttons.count), observable labels \(labels)")
         }
