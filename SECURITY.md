@@ -1,6 +1,6 @@
 # Security
 
-Agency's whole premise is running semi-trusted AI agents on a personal Mac, so
+OpenBots' whole premise is running semi-trusted AI agents on a personal Mac, so
 its threat model is documented in the open: see
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §3 (containment) and §4
 (network egress fence) for what the fences promise and — just as important —

@@ -1,0 +1,4 @@
+# Removed AFTER the manifest copy. (2026-09-01 ruling: the app's ACTUAL icon
+# ships — AppIcon.icns + AppIcon-source.png are included on Lorenzo's explicit
+# instruction, overriding the old v0.1.0 keep-public-artwork policy.)
+# Nothing currently excluded.

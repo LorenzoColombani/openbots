@@ -1,0 +1,141 @@
+name: OpenBotsNext
+options:
+  bundleIdPrefix: com.lorenzocolombani
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    CLANG_ENABLE_MODULES: YES
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_VERSION: "6.0"
+targets:
+  OpenBotsDomain:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsDomain
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.domain
+        SKIP_INSTALL: YES
+  OpenBotsPersistence:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsPersistence
+    dependencies:
+      - target: OpenBotsDomain
+      - sdk: libsqlite3.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.persistence
+        SKIP_INSTALL: YES
+  OpenBotsContent:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsContent
+    dependencies:
+      - target: OpenBotsDomain
+      - sdk: FileProvider.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.content
+        SKIP_INSTALL: YES
+  OpenBotsRuntime:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsRuntime
+    dependencies:
+      - target: OpenBotsDomain
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.runtime
+        SKIP_INSTALL: YES
+  OpenBotsSecurity:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsSecurity
+    dependencies:
+      - target: OpenBotsDomain
+      - sdk: Security.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.security
+        SKIP_INSTALL: YES
+  OpenBotsServices:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsServices
+    dependencies:
+      - target: OpenBotsDomain
+      - target: OpenBotsPersistence
+      - target: OpenBotsContent
+      - target: OpenBotsRuntime
+      - target: OpenBotsSecurity
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.services
+        SKIP_INSTALL: YES
+  OpenBotsUI:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsUI
+    dependencies:
+      - target: OpenBotsDomain
+      - target: OpenBotsServices
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.ui
+        SKIP_INSTALL: YES
+  OpenBotsPreviewApp:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    info:
+      path: Apps/OpenBotsPreviewApp/Info.plist
+      properties:
+        CFBundleIconFile: AppIcon
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+    sources:
+      - path: Apps/OpenBotsPreviewApp
+        excludes:
+          - Resources/AppIcon-source.png
+    dependencies:
+      - target: OpenBotsDomain
+      - target: OpenBotsPersistence
+      - target: OpenBotsContent
+      - target: OpenBotsRuntime
+      - target: OpenBotsSecurity
+      - target: OpenBotsServices
+      - target: OpenBotsUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview
+        PRODUCT_NAME: OpenBots Next Preview
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: OpenBots Next Preview
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSHumanReadableCopyright: Copyright © 2026 Lorenzo Colombani
+        CODE_SIGN_STYLE: Automatic
+        CURRENT_PROJECT_VERSION: 2026.8.30
+        MARKETING_VERSION: 0.1.0-preview
+schemes:
+  OpenBotsPreviewApp:
+    build:
+      targets:
+        OpenBotsPreviewApp: all
+    run:
+      config: Debug
+    archive:
+      config: Release

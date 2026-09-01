@@ -1,24 +1,39 @@
-.build/
 .DS_Store
-dist/
-agents/
-vault/
-roster.json
-.roster.lock
-.messages.lock
-.pending.lock
-connectors.json
-.connectors.lock
-shared/
-.queue.json
-*.xcodeproj
-.agent-config/
-.queue.lock
-.provenance.jsonl
-.provenance.lock
-.secrets/
-.google-account
-# Group-thread transcripts + cursors (R3) — runtime data, never committed.
-/teams/
-.cursors.lock
-*.xcuserdatad
+
+# Swift and Xcode build products. Preview builds intentionally stay in .noindex.
+.build/
+.build.noindex/
+.build.noindex*/
+.clean-build.noindex*/
+DerivedData/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+
+# Local runtime state must never enter source control.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.key
+*.p12
+*.p8
+*.pem
+.env
+.env.*
+.netrc
+
+# Machine-local assistant sessions/settings are not project source.
+/.codex/
+/.claude/
+
+# Generated private/public staging is recreated by fail-closed tooling.
+.runtime.noindex/
+.staging.noindex/
+PublicExport.noindex/

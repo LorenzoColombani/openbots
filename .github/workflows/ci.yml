@@ -2,18 +2,63 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
-    name: swift test (macOS)
+  forbidden-content:
+    name: Forbidden-content scan
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Show toolchain
-        run: swift --version && xcodebuild -version
-      - name: Run tests
-        # Live-data tests (real Messages database) are opt-in via
-        # AGENCY_LIVE_MESSAGES_TESTS=1 and skip here by design.
-        run: swift test
+      - name: Machine paths, competitor names, secrets, PII
+        run: |
+          set -eu
+          fail=0
+          # Machine paths: the real leak signature is the author's actual home
+          # directory. Synthetic fixture roots (/Users/x, /Users/example,
+          # /Users/lorenzo, /Users/private) are deliberate negative-test
+          # sentinels and are allowed. The bundle id com.lorenzocolombani.* is
+          # public by design and does not match a path.
+          if grep -rn --exclude-dir=.git "/Users/lorenzo""colombani" . ; then fail=1; fi
+          # Competitor / reference-product names must not appear.
+          if grep -rni --exclude-dir=.git --exclude-dir=.github --exclude=export-public.sh "grok" . ; then fail=1; fi
+          # Secret shapes.
+          if grep -rnE --exclude-dir=.git --exclude-dir=.github --exclude=export-public.sh "sk-ant-|BEGIN [A-Z]+ PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|xoxb-" . ; then fail=1; fi
+          # Real-looking emails: only fixture domains are allowed.
+          if grep -rhoE "[A-Za-z0-9._%+-]{2,}@[A-Za-z0-9.-]{3,}\.[A-Za-z]{2,}" --include="*.swift" . \
+            | grep -v "example.invalid" | grep -v "example.com" ; then fail=1; fi
+          exit $fail
+
+  tests:
+    name: Build + full test suite (XCTest + Swift Testing)
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+      - name: Enumerate test inventory
+        run: |
+          Scripts/swiftpm-public.sh test list --scratch-path .build.noindex/ci > ci-inventory.txt
+          wc -l ci-inventory.txt
+          # Guard against silent test loss: compare against the frozen inventory.
+          frozen=$(grep -c . Scripts/test-inventory.txt)
+          current=$(grep -c . ci-inventory.txt)
+          echo "frozen=$frozen current=$current"
+          [ "$current" -ge "$frozen" ] || { echo "Test inventory shrank ($current < $frozen)"; exit 1; }
+      - name: Run full suite (serial — the project's canonical gate)
+        # The canonical automated gate is deliberately serial: a family of
+        # wall-clock-bounded process/timing tests is honest about real deadlines
+        # and flakes under parallel load (slower CI hardware makes it worse).
+        # Do not switch to parallel without first widening those bounds in source.
+        run: Scripts/swiftpm-public.sh test --no-parallel --scratch-path .build.noindex/ci
+      - name: Build the app (unsigned)
+        run: /bin/zsh Scripts/build-preview.sh
+
+# Live-provider probes are never ordinary CI: no job here logs in, calls Claude,
+# or touches real user data. Anything live is opt-in, manual, and separately approved.

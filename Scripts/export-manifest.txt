@@ -1,0 +1,15 @@
+# What the PUBLIC tree contains. INCLUDE list, not exclude: a new private file
+# is never exported by accident. Paths relative to the private repo root;
+# directories are copied whole, then export-exclude.txt entries are removed.
+# Public-owned files (README.md, install.sh, LICENSE, SECURITY.md, TERMS.md,
+# PRIVACY.md, .github/, scripts/) are authored on the public side and never
+# copied from the private tree.
+Package.swift
+.gitignore
+Sources
+Tests
+Apps
+Scripts/build-preview.sh
+Scripts/swiftpm-public.sh
+OpenBotsNext.xcodeproj
+project.yml
