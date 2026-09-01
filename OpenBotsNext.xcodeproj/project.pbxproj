@@ -81,6 +81,7 @@
 		4400EC05C489429E6BC83B30 /* ClaudeTextPolicyInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3292F189133CB70BFC0C2374 /* ClaudeTextPolicyInspector.swift */; };
 		44F2DF83CA444EB6A5DC9D26 /* SQLiteConversationContextRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61B3ED98D652882825B900D8 /* SQLiteConversationContextRepository.swift */; };
 		45DC87BD603C8465D13B8CD9 /* SQLiteC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 250B9463DA0776935C7D8697 /* SQLiteC.swift */; };
+		F4C2B411A9E93736CA4930A8 /* SQLiteSchemaTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A66EC121F605CE2D353E457 /* SQLiteSchemaTrust.swift */; };
 		46C1C06CBC729242E0A2F7E7 /* MemoryClaimCodec.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD941FFB892FE686D842E265 /* MemoryClaimCodec.swift */; };
 		46D5336C6EA57D24C3F9EFED /* ClaudeConnectionCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6167AE4F7E3B58BE0EFB071A /* ClaudeConnectionCommand.swift */; };
 		472FE99C5A3F9EAB5FA9FD64 /* SQLiteMemoryPublicationIntentRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05598AE72945B19465A52E88 /* SQLiteMemoryPublicationIntentRepository.swift */; };
@@ -454,6 +455,7 @@
 		23F285A308F59A74B97F5A56 /* ConversationCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationCards.swift; sourceTree = "<group>"; };
 		240497FEF17C416ACDE78023 /* SQLiteOnlineBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteOnlineBackup.swift; sourceTree = "<group>"; };
 		250B9463DA0776935C7D8697 /* SQLiteC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteC.swift; sourceTree = "<group>"; };
+		5A66EC121F605CE2D353E457 /* SQLiteSchemaTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteSchemaTrust.swift; sourceTree = "<group>"; };
 		253FE07B29A09B5F8F0517D1 /* KnowledgeWorkspaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeWorkspaceModel.swift; sourceTree = "<group>"; };
 		25E7533B8B55A4D4BD014765 /* SQLiteDirectChatRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteDirectChatRepository.swift; sourceTree = "<group>"; };
 		26511B15015F9DA93DB2648A /* ClaudeSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSetupView.swift; sourceTree = "<group>"; };
@@ -1074,6 +1076,7 @@
 				80C40317D922D90F388E9F19 /* SQLiteAttachmentRepository.swift */,
 				B39395869A6148BC6334F5ED /* SQLiteBotSidebarOrderRepository.swift */,
 				250B9463DA0776935C7D8697 /* SQLiteC.swift */,
+				5A66EC121F605CE2D353E457 /* SQLiteSchemaTrust.swift */,
 				037CF416DA9C63D4B1006962 /* SQLiteClaudeExecutionEvidenceRepository.swift */,
 				51B193703C22E427DFBAA655 /* SQLiteControlledMemoryTextTurnRepository.swift */,
 				61B3ED98D652882825B900D8 /* SQLiteConversationContextRepository.swift */,
@@ -1435,6 +1438,7 @@
 				07D804C2FE91A4C3E9FD7B4C /* SQLiteAttachmentRepository.swift in Sources */,
 				378BF600F57F89CC73648D5B /* SQLiteBotSidebarOrderRepository.swift in Sources */,
 				45DC87BD603C8465D13B8CD9 /* SQLiteC.swift in Sources */,
+				F4C2B411A9E93736CA4930A8 /* SQLiteSchemaTrust.swift in Sources */,
 				B67750FC15D4C14FF0B68444 /* SQLiteClaudeExecutionEvidenceRepository.swift in Sources */,
 				5C7562572DC59A5727EA5AAA /* SQLiteControlledMemoryTextTurnRepository.swift in Sources */,
 				44F2DF83CA444EB6A5DC9D26 /* SQLiteConversationContextRepository.swift in Sources */,
