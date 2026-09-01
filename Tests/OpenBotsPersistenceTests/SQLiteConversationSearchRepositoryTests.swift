@@ -43,7 +43,11 @@ struct SQLiteConversationSearchRepositoryTests {
         #expect(target.currentTitle == "Renamed conversation" && target.sequence == 1)
         #expect(target.conversationID == fixture.conversationID && target.teammateID == fixture.teammateID)
         #expect(try await reopened.resolveMessage(id: MessageID(UUID())) == nil)
-        #expect(try await reopened.query(sql: "PRAGMA trusted_schema;").first?.integer("trusted_schema") == 0)
+        // Schema trust follows the linked SQLite: OFF once FTS5 may run inside triggers (>= 3.44.0),
+        // ON on the older system libraries of macOS 14/15. See SQLiteSchemaTrust.
+        let expectedTrust: Int64 = SQLiteSchemaTrust.requiresTrustedSchema(
+            libraryVersionNumber: SQLiteSchemaTrust.linkedLibraryVersionNumber) ? 1 : 0
+        #expect(try await reopened.query(sql: "PRAGMA trusted_schema;").first?.integer("trusted_schema") == expectedTrust)
     }
 
     @Test("Migration nine backfills ordered text without changing prior durable state")
