@@ -1,0 +1,29 @@
+name: AX probe
+
+# Diagnostic only. Answers one question per runner: does a plain SwiftUI Button hosted in AppKit
+# report AXButton, and does text render to pixels? Not a release gate.
+on:
+  workflow_dispatch:
+  push:
+    branches: [release/v0.5.0]
+    paths: [Scripts/ci-ax-probe.swift, .github/workflows/ax-probe.yml]
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    name: AX probe on ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version | head -n 1
+          swift --version 2>&1 | head -n 1
+          sqlite3 --version | cut -d' ' -f1
+      - name: Probe
+        run: swift Scripts/ci-ax-probe.swift
