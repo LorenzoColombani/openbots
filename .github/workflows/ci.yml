@@ -37,9 +37,15 @@ jobs:
   tests:
     name: Build + full test suite (XCTest + Swift Testing)
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+      - name: Cache Swift build products
+        uses: actions/cache@v4
+        with:
+          path: .build.noindex/ci
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Sources/**', 'Tests/**') }}
+          restore-keys: swiftpm-${{ runner.os }}-
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.4.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
       - name: Enumerate test inventory
