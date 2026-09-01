@@ -72,10 +72,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ui-evidence-${{ matrix.runner }}
-          path: |
-            .build.noindex/reference-accessibility-evidence-*/**/*.png
-            .build.noindex/current-state-app-evidence-*/**/*.png
+          path: .build.noindex/*evidence*/**/*.png
           if-no-files-found: ignore
+          include-hidden-files: true   # .build.noindex is a dot-directory; v4 skips hidden paths by default
           retention-days: 7
       - name: Build the app (unsigned)
         run: /bin/zsh Scripts/build-preview.sh

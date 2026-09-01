@@ -89,7 +89,39 @@ Out-of-app reproduction (kept for the record, not in the repo): SQLite 3.43.2 am
 with `-DSQLITE_ENABLE_FTS5`; FTS5 table + insert trigger; `trusted_schema=OFF` →
 `unsafe use of virtual table`; `trusted_schema=ON` → row indexed. Same script on 3.51.0 → both pass.
 
-## Pre-existing, unrelated: 8–9 UI tests fail on the `macos-15` runner
+## Follow-through, 2026-09-01 evening → 09-02: the UI failures, probed and fixed on the test side
+
+Additional commits on `release/v0.5.0` (all cherry-pickable; none change app views):
+
+- `619c063` — `Scripts/ci-ax-probe.swift` + `.github/workflows/ax-probe.yml` (diagnostic, matrix
+  macos-15/26); `ci.yml` test job becomes a matrix on `macos-15` and `macos-26`.
+- `e4bebd4` — OCR evidence captured at 2x (`NormalAppPresentationTests.captureRenderedText`).
+- `bd361d1` — OCR positive phrase checks ignore whitespace/case (`ocrContains`); negatives exact.
+- `cd172d9` — button assertions check `cell is NSButtonCell` instead of `accessibilityRole()`;
+  geometry by `alignmentRect(forFrame:)`; CI uploads the rendered evidence PNGs as artifacts.
+- `6ce21ba` — `OpenBotsNext.xcodeproj` gains the `SQLiteSchemaTrust.swift` entry. **Repo rule:**
+  SwiftPM discovers sources; the preview-app xcodeproj lists them explicitly. A new source file
+  needs 4 pbxproj lines (mirror `SQLiteC.swift`) or "Build the app (unsigned)" fails on CI.
+
+Probe verdict (run 33560977997, both runners, matches the dev machine):
+- Neither runner is headless: window-server session present, window visible, text renders,
+  `AXIsProcessTrusted` true. Backing scale is 1.0 on both runners (dev machine 2.0).
+- macOS 15: a SwiftUI `Button` in `NSHostingController` becomes a `SwiftUIAppKitButton`
+  (NSButton subclass). macOS 26: no NSButton at all — so the role assertions never ran on 26.
+- `accessibilityRole()` returns AXUnknown for every NSButton in-process, on 15, 26 and the dev
+  machine, even inside an ordered-front window after `finishLaunching`. Only an external AX client
+  (VoiceOver — verified by hand on the real app) receives AXButton. The assertion was invalid;
+  the app's buttons are fine.
+- Pixel tests: 1x rendering made Vision misread "Stop"→"Ston", "earlier"→"earller",
+  "Local only"→"Localonly". Fixed by 2x capture + whitespace-insensitive positives.
+
+Still open on `macos-15` after these commits: `ReferenceUtilitySurfaceTests` Settings sidebar
+bright-pixel count (0 > 150); `CharacterMotionVisibilityTests` window-subscription count (flaky:
+passed in one of four runs). The uploaded PNG artifacts (`ui-evidence-macos-15`) are the next step.
+Also flaky on the runner, unrelated: `LocalRunShutdownTests` "Grace drains…" (`.gateNotReached`),
+passed on rerun — the wall-clock family `ci.yml` already warns about.
+
+## Pre-existing, unrelated: 8–9 UI tests fail on the `macos-15` runner (state as of 2026-09-01 20:55Z)
 Not caused by this change and not touched by it. They fail identically in runs
 33513822221 (13:30Z) and 33533182168 (16:40Z), both before any persistence change, and none of
 them imports or references SQLite (all `@testable import OpenBotsUI`, AppKit/SwiftUI render tests):
