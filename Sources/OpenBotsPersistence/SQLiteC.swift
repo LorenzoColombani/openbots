@@ -139,3 +139,6 @@ let sqliteOpenNoFollow: Int32 = 0x0100_0000
 func sqliteTransientDestructor() -> SQLiteDestructor? {
     unsafeBitCast(-1, to: SQLiteDestructor?.self)
 }
+
+@_silgen_name("sqlite3_libversion_number")
+func sqlite3_libversion_number() -> Int32

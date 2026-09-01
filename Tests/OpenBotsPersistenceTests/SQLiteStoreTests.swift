@@ -511,6 +511,49 @@ final class SQLiteStoreTests: XCTestCase {
         }
     }
 
+    // MARK: - Schema trust vs. the linked SQLite version
+
+    /// SQLite refuses virtual tables inside triggers under `trusted_schema=OFF` unless the module is
+    /// tagged SQLITE_VTAB_INNOCUOUS. FTS5 received that tag in 3.44.0. The message search index is
+    /// maintained by triggers, so every message insert fails on older system libraries
+    /// (macOS 14 ships 3.39.x, macOS 15 ships 3.43.2) with "unsafe use of virtual table".
+    func testSchemaIsTrustedOnlyOnSQLiteOlderThanInnocuousFTS5() {
+        XCTAssertTrue(SQLiteSchemaTrust.requiresTrustedSchema(libraryVersionNumber: 3_039_005))   // macOS 14
+        XCTAssertTrue(SQLiteSchemaTrust.requiresTrustedSchema(libraryVersionNumber: 3_043_002))   // macOS 15
+        XCTAssertTrue(SQLiteSchemaTrust.requiresTrustedSchema(libraryVersionNumber: 3_043_999))
+        XCTAssertFalse(SQLiteSchemaTrust.requiresTrustedSchema(libraryVersionNumber: 3_044_000))  // first innocuous FTS5
+        XCTAssertFalse(SQLiteSchemaTrust.requiresTrustedSchema(libraryVersionNumber: 3_051_000))  // macOS 26
+        XCTAssertEqual(SQLiteSchemaTrust.firstVersionWithInnocuousFTS5, 3_044_000)
+    }
+
+    func testOpenedConnectionTrustsSchemaExactlyWhenTheLinkedSQLiteNeedsIt() async throws {
+        let linked = SQLiteSchemaTrust.linkedLibraryVersionNumber
+        XCTAssertGreaterThan(linked, 3_000_000, "libversion_number must read the real linked library")
+        let expected: Int64 = SQLiteSchemaTrust.requiresTrustedSchema(libraryVersionNumber: linked) ? 1 : 0
+        try await withStore { store, _ in
+            let rows = try await store.query(sql: "PRAGMA trusted_schema;")
+            let row = try XCTUnwrap(rows.first)
+            XCTAssertEqual(try row.integer("trusted_schema"), expected)
+        }
+    }
+
+    /// Whatever the trust decision, the trigger-maintained search index must accept a message on the
+    /// linked library. This is the exact statement shape that failed on the macOS 15 runner.
+    func testTriggerMaintainedSearchIndexAcceptsInsertsOnTheLinkedSQLite() async throws {
+        try await withStore { store, _ in
+            _ = try await store.execute(sql: "CREATE VIRTUAL TABLE trust_probe_search USING fts5(body, tokenize='unicode61 remove_diacritics 2');")
+            _ = try await store.execute(sql: "CREATE TABLE trust_probe(id INTEGER PRIMARY KEY, body TEXT NOT NULL);")
+            _ = try await store.execute(sql: """
+                CREATE TRIGGER trust_probe_insert AFTER INSERT ON trust_probe BEGIN
+                    INSERT INTO trust_probe_search(rowid, body) VALUES (NEW.id, NEW.body);
+                END;
+                """)
+            _ = try await store.execute(sql: "INSERT INTO trust_probe(body) VALUES ('café résumé');")
+            let rows = try await store.query(sql: "SELECT COUNT(*) AS n FROM trust_probe_search WHERE trust_probe_search MATCH 'cafe';")
+            XCTAssertEqual(try XCTUnwrap(rows.first).integer("n"), 1)
+        }
+    }
+
     private func withStore(
         _ body: (SQLiteStore, URL) async throws -> Void
     ) async throws {

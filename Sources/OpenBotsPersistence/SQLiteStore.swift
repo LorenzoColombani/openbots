@@ -229,7 +229,10 @@ public actor SQLiteStore {
             try Self.execute(connection: opened, sql: "PRAGMA foreign_keys=ON;")
             try Self.execute(connection: opened, sql: "PRAGMA journal_mode=WAL;")
             try Self.execute(connection: opened, sql: "PRAGMA synchronous=FULL;")
-            try Self.execute(connection: opened, sql: "PRAGMA trusted_schema=OFF;")
+            // OFF wherever the linked SQLite lets FTS5 run inside triggers (>= 3.44.0); ON on the
+            // older system libraries of macOS 14/15, where OFF makes every message insert fail.
+            // See SQLiteSchemaTrust.
+            try Self.execute(connection: opened, sql: SQLiteSchemaTrust.trustedSchemaPragma)
             try Self.execute(connection: opened, sql: "PRAGMA secure_delete=ON;")
             try SchemaMigrator.migrate(connection: opened)
             if !existedBeforeOpen {
