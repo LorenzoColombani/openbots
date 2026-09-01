@@ -207,19 +207,27 @@ private final class UtilitySurfaceHost {
         print("Reference utility hidden-window render: \(destination.path)")
     }
 
+    /// Counts "ink" pixels: those clearly brighter than the region's own background. An absolute
+    /// 0.55 bar was tuned on macOS 26, where sidebar labels render near-white; on macOS 15 the
+    /// same labels in this never-key fixture window render dimmed (min component ≈ 0.38 over a
+    /// 0.10 background — see the ui-evidence-macos-15 CI artifact) and vanished from the count
+    /// although they are plainly visible. Contrast against the region's median keeps the intent
+    /// (a black or divider-only image still counts 0) on both systems.
     private func brightPixels(in bitmap: NSBitmapImageRep, horizontal: ClosedRange<Double>) -> Int {
         let lower = Int(Double(bitmap.pixelsWide) * horizontal.lowerBound)
         let upper = Int(Double(bitmap.pixelsWide) * horizontal.upperBound)
-        var count = 0
+        var minima: [CGFloat] = []
+        minima.reserveCapacity((upper - lower) * bitmap.pixelsHigh)
         for y in 0..<bitmap.pixelsHigh {
             for x in lower..<upper {
                 guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                if min(color.redComponent, color.greenComponent, color.blueComponent) > 0.55 {
-                    count += 1
-                }
+                minima.append(min(color.redComponent, color.greenComponent, color.blueComponent))
             }
         }
-        return count
+        guard !minima.isEmpty else { return 0 }
+        let background = minima.sorted()[minima.count / 2]
+        let threshold = max(background + 0.2, 0.3)
+        return minima.filter { $0 > threshold }.count
     }
 }
 
