@@ -7,7 +7,7 @@ OpenBots Next is built on your Mac from source. There is no downloadable app: a 
 made on your own Mac is not quarantined, so macOS opens it without a Gatekeeper
 warning.
 
-Prefer pictures? The same steps as 16 short cards: [the install cards](guides/install-cards/README.md).
+Prefer an easier read? The [install guide](https://lorenzocolombani.github.io/openbots/guides/install-guide.html) has the same steps as 16 short cards, with a Copy button on every command (also as [pictures](guides/install-cards/README.md)).
 
 ## Before you start
 

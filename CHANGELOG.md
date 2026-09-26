@@ -2,8 +2,8 @@
 
 ## v1.0.1 — 26 September 2026
 
-- **Install cards.** The install steps as 16 short picture cards, with every
-  command underneath as text you can copy: [docs/guides/install-cards](docs/guides/install-cards/README.md).
+- **Install guide.** The install steps as 16 short cards: a [web page](https://lorenzocolombani.github.io/openbots/guides/install-guide.html)
+  with a Copy button on every command, and the same cards as [pictures](docs/guides/install-cards/README.md).
 - **Older Macs.** The workspace loads projects and teams one after the other,
   no longer through the `async let` pattern that, on macOS 15, kept a test's
   database open long after it finished.

@@ -58,6 +58,12 @@ Every connector and what it needs: **[docs/CONNECTORS.md](docs/CONNECTORS.md)**.
 
 ## Install
 
+<a href="https://lorenzocolombani.github.io/openbots/guides/install-guide.html"><img src="docs/guides/install-cards/01-cover.png" width="260" align="right" alt="The install guide's cover card: One line builds OpenBots Next on your own Mac."></a>
+
+**New to this? Start with the [install guide](https://lorenzocolombani.github.io/openbots/guides/install-guide.html):** the steps as 16 short cards, with a Copy button on every command. The same cards as [pictures](docs/guides/install-cards/README.md), and every detail in [docs/INSTALL.md](docs/INSTALL.md).
+
+The one line:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/LorenzoColombani/openbots/main/install.sh | sh
 ```

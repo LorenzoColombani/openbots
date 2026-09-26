@@ -4,7 +4,7 @@ Read the cards in order. Every command on a card is repeated under it as text, s
 
 Without Google, skip cards 5, 8 and 14.
 
-Prepared by an AI (Claude) from the OpenBots v1 docs (commit 968e6ce). The docs are the full reference: [README](https://github.com/LorenzoColombani/openbots/blob/main/README.md), [docs/INSTALL.md](https://github.com/LorenzoColombani/openbots/blob/main/docs/INSTALL.md), [docs/CONNECTORS.md](https://github.com/LorenzoColombani/openbots/blob/main/docs/CONNECTORS.md), [docs/guides/google-setup.md](https://github.com/LorenzoColombani/openbots/blob/main/docs/guides/google-setup.md), [PRIVACY.md](https://github.com/LorenzoColombani/openbots/blob/main/PRIVACY.md). The same cards as one scrolling page, with Copy buttons: [../install-guide.html](../install-guide.html) (download it and open it in your browser).
+Prepared by an AI (Claude) from the OpenBots v1 docs (commit 968e6ce). The docs are the full reference: [README](https://github.com/LorenzoColombani/openbots/blob/main/README.md), [docs/INSTALL.md](https://github.com/LorenzoColombani/openbots/blob/main/docs/INSTALL.md), [docs/CONNECTORS.md](https://github.com/LorenzoColombani/openbots/blob/main/docs/CONNECTORS.md), [docs/guides/google-setup.md](https://github.com/LorenzoColombani/openbots/blob/main/docs/guides/google-setup.md), [PRIVACY.md](https://github.com/LorenzoColombani/openbots/blob/main/PRIVACY.md). The same cards as one scrolling page, with Copy buttons: [the install guide](https://lorenzocolombani.github.io/openbots/guides/install-guide.html).
 
 ## 1 of 16 · Install OpenBots Next on your Mac
 

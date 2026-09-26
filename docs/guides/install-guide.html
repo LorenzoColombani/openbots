@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en" class="page"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Install OpenBots Next</title>
+<meta name="description" content="How to install OpenBots Next on your Mac, in 16 cards: what you need first, the one line, the optional Google step, approval cards, your data, and what to do when something goes wrong.">
+<script>if(/[?&]export(&|$)/.test(location.search))document.documentElement.className='export'</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500&family=Atkinson+Hyperlegible+Next:wght@400;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,800&display=block" rel="stylesheet">
+<style>
+:root{
+  --cream:#FFF4E0; --ink:#1B1B1F; --bone:#FFFDF7; --paper:#FFFFFF;
+  --sun:#FFD447; --sun-soft:#FFEFB3; --lilac:#C9B8FF; --lilac-soft:#ECE6FF; --sky-soft:#E4F2FF; --sky:#9FD8FF;
+  --font-display:'Bricolage Grotesque',system-ui,sans-serif;
+  --font-text:'Atkinson Hyperlegible Next',system-ui,sans-serif;
+  --font-mono:'Atkinson Hyperlegible Mono',ui-monospace,Menlo,monospace;
+  --u:1px;
+  --line-bold:max(3px,calc(8 * var(--u))); --line:max(2px,calc(4 * var(--u)));
+  --shadow-1:max(4px,calc(12 * var(--u))) max(4px,calc(12 * var(--u))) 0 0 var(--ink);
+  --shadow-2:max(5px,calc(16 * var(--u))) max(5px,calc(16 * var(--u))) 0 0 var(--ink);
+  --swipe:linear-gradient(transparent 12%,var(--sun) 12%,var(--sun) 88%,transparent 88%);
+  --underline:linear-gradient(transparent 64%,var(--sun) 64%,var(--sun) 92%,transparent 92%);
+  --field:var(--cream);
+}
+html.page{--u:0.35px}
+@media (min-width:700px){html.page{--u:0.5px}}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--font-text);color:var(--ink);-webkit-font-smoothing:antialiased;background:#777}
+html.page body{background:var(--bone);padding:16px 0}
+p,h2,ul,ol{margin:0}
+.card{position:relative;width:calc(1200 * var(--u));height:calc(1500 * var(--u));padding:calc(40 * var(--u)) calc(72 * var(--u));display:flex;flex-direction:column;background:var(--field);overflow:hidden}
+html.export .card{margin-bottom:24px}
+html.page .card{height:auto;min-height:calc(1500 * var(--u));margin:0 auto 24px;border:var(--line) solid var(--ink);border-radius:calc(24 * var(--u));box-shadow:var(--shadow-1)}
+@media (max-width:699px){html.page .card{width:auto;min-height:0;margin:0 16px 20px;padding:calc(40 * var(--u)) calc(48 * var(--u))}}
+html.export .page-only{display:none!important}
+html.page .export-only{display:none!important}
+.strip-top{display:flex;justify-content:space-between;align-items:center;gap:calc(24 * var(--u));min-height:calc(48 * var(--u));font:700 calc(40 * var(--u))/calc(48 * var(--u)) var(--font-text);flex:none}
+.card>.rule{flex:none;height:calc(4 * var(--u));background:var(--ink);margin-top:calc(16 * var(--u))}
+.card>.rule.b{margin-top:calc(32 * var(--u))}
+.body{flex:none;margin-top:calc(32 * var(--u));height:calc(1172 * var(--u));display:flex;flex-direction:column}
+html.page .body{height:auto}
+.body>*{flex-shrink:0}
+.body>*+*{margin-top:calc(24 * var(--u))}
+.body>.gap-lg{margin-top:calc(40 * var(--u))}
+.body>.gap-sm{margin-top:calc(8 * var(--u))}
+.strip-bottom{margin-top:calc(16 * var(--u));font:400 calc(40 * var(--u))/calc(48 * var(--u)) var(--font-text);flex:none}
+/* type */
+.headline{font:800 calc(88 * var(--u))/calc(92 * var(--u)) var(--font-display);letter-spacing:-.01em}
+.big{font:800 calc(112 * var(--u))/calc(112 * var(--u)) var(--font-display);letter-spacing:-.01em}
+.lead{font:800 calc(64 * var(--u))/calc(80 * var(--u)) var(--font-text)}
+.text{font:400 calc(52 * var(--u))/calc(72 * var(--u)) var(--font-text)}
+.text b{font-weight:700}
+.small{font:700 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text)}
+.small.reg{font-weight:400}
+mark{color:inherit;padding:0 calc(8 * var(--u));-webkit-box-decoration-break:clone;box-decoration-break:clone}
+mark.swipe{background:var(--swipe)} mark.underline{background:var(--underline)}
+/* clipping (copied words) */
+.clip{position:relative;display:inline-block;isolation:isolate;max-width:100%;padding:calc(4 * var(--u)) calc(26 * var(--u));font:400 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text);transform:rotate(-1deg);overflow-wrap:anywhere}
+.clip::before,.clip::after{content:'';position:absolute;z-index:-1;
+ -webkit-mask-image:conic-gradient(from 51.3deg at 0 50%,#000 77.4deg,#0000 0),conic-gradient(from 231.3deg at 100% 50%,#000 77.4deg,#0000 0),linear-gradient(#000,#000);
+ -webkit-mask-size:max(4px,calc(10 * var(--u))) max(6px,calc(16 * var(--u))),max(4px,calc(10 * var(--u))) max(6px,calc(16 * var(--u))),calc(100% - 2*max(4px,calc(10 * var(--u)))) 100%;
+ -webkit-mask-repeat:repeat-y,repeat-y,no-repeat;
+ mask-image:conic-gradient(from 51.3deg at 0 50%,#000 77.4deg,#0000 0),conic-gradient(from 231.3deg at 100% 50%,#000 77.4deg,#0000 0),linear-gradient(#000,#000);
+ mask-size:max(4px,calc(10 * var(--u))) max(6px,calc(16 * var(--u))),max(4px,calc(10 * var(--u))) max(6px,calc(16 * var(--u))),calc(100% - 2*max(4px,calc(10 * var(--u)))) 100%;
+ mask-repeat:repeat-y,repeat-y,no-repeat}
+.clip::before{inset:0;background:var(--ink);-webkit-mask-position:left top,right top,center;mask-position:left top,right top,center}
+.clip::after{inset:var(--line) max(3px,calc(6 * var(--u)));background:var(--paper);-webkit-mask-position:left -4px,right -4px,center;mask-position:left -4px,right -4px,center}
+/* pair box: you may see */
+.pair{background:var(--sky-soft);border:var(--line-bold) solid var(--ink);border-radius:calc(24 * var(--u));padding:calc(20 * var(--u)) calc(32 * var(--u)) calc(24 * var(--u));box-shadow:var(--shadow-1)}
+.pair .see{font:700 calc(40 * var(--u))/calc(48 * var(--u)) var(--font-text);margin-bottom:calc(8 * var(--u))}
+.pair .meaning{margin-top:calc(12 * var(--u));font:400 calc(52 * var(--u))/calc(72 * var(--u)) var(--font-text)}
+.pair .meaning.s{font:400 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text)}
+.pair .clips{display:flex;flex-direction:column;align-items:flex-start;gap:calc(12 * var(--u))}
+/* command frame */
+.cmdwrap{display:block;margin-left:calc(-24 * var(--u));margin-right:calc(-24 * var(--u))}
+@media (max-width:699px){html.page .cmdwrap{margin-left:0;margin-right:0}}
+.cmdhead{display:flex;align-items:flex-end;justify-content:space-between;gap:calc(24 * var(--u));margin:0 0 calc(8 * var(--u)) calc(8 * var(--u))}
+.cmdhead .lbl{font:700 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text)}
+.cmdhead .lbl .res{font-weight:700} .cmdhead .lbl .how{font-weight:400}
+.cmdhead .tag{font:800 calc(56 * var(--u))/calc(60 * var(--u)) var(--font-display);letter-spacing:-.01em;margin-right:calc(20 * var(--u))}
+.cmd{background:var(--paper);border:var(--line-bold) solid var(--ink);border-radius:calc(24 * var(--u));padding:calc(20 * var(--u)) calc(28 * var(--u));box-shadow:var(--shadow-1)}
+.cmd code{display:block;font:500 max(15px,calc(44 * var(--u)))/calc(60 * var(--u)) var(--font-mono);white-space:pre-wrap;overflow-wrap:anywhere;-webkit-user-select:all;user-select:all}
+.cmd code .ln{display:block;padding-left:2ch;text-indent:-2ch}
+.cmd code .ln+.ln{margin-top:calc(12 * var(--u))}
+.cmd.one{box-shadow:var(--shadow-2);padding:calc(24 * var(--u)) calc(28 * var(--u))}
+.cmd.one code{font-size:max(17px,calc(52 * var(--u)));line-height:1.31}
+.cmd.g code{font-size:max(15px,calc(40 * var(--u)));line-height:1.4}
+.cmd code{line-height:1.36}
+
+.ph{border:var(--line) dotted var(--ink);border-radius:calc(6 * var(--u));padding:0 calc(4 * var(--u));-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.key{display:flex;align-items:center;gap:calc(16 * var(--u));margin-top:calc(12 * var(--u)) !important;font:700 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text)}
+.key .sw{flex:none;width:calc(56 * var(--u));height:calc(40 * var(--u));border:var(--line) dotted var(--ink);border-radius:calc(6 * var(--u));background:var(--paper)}
+/* claude note */
+.note{font:400 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text)}
+.note .tag{display:inline-block;margin-right:calc(16 * var(--u));padding:0 calc(14 * var(--u));background:var(--lilac-soft);border:var(--line) solid var(--ink);border-radius:calc(8 * var(--u));font:700 calc(40 * var(--u))/calc(48 * var(--u)) var(--font-text);transform:translateY(-2px)}
+/* place label */
+.place{font:700 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text);display:flex;align-items:center;gap:calc(16 * var(--u))}
+.place::before{content:'';width:calc(24 * var(--u));height:var(--line-bold);background:var(--ink);flex:none}
+/* path line (Google cards) */
+.path{font:700 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text);border-left:var(--line-bold) solid var(--ink);padding-left:calc(24 * var(--u))}
+/* boxes */
+.box{background:var(--sky-soft);border:var(--line-bold) solid var(--ink);border-radius:calc(24 * var(--u));padding:calc(20 * var(--u)) calc(32 * var(--u)) calc(24 * var(--u));box-shadow:var(--shadow-1)}
+.box.plain{background:var(--paper);box-shadow:none}
+.box.bone{background:var(--bone)}
+.box h3{margin:0 0 calc(8 * var(--u));font:800 calc(52 * var(--u))/calc(60 * var(--u)) var(--font-display)}
+.box p+p{margin-top:calc(8 * var(--u))}
+/* fork */
+.fork{display:grid;grid-template-columns:1fr 1fr;border:var(--line-bold) solid var(--ink);border-radius:calc(24 * var(--u));background:var(--paper);overflow:hidden}
+.fork>div{padding:calc(24 * var(--u)) calc(28 * var(--u))}
+.fork>div+div{border-left:var(--line) solid var(--ink)}
+.fork h3{margin:0 0 calc(8 * var(--u));font:800 calc(64 * var(--u))/calc(72 * var(--u)) var(--font-display)}
+/* six labels */
+.steps{list-style:none;padding:0;counter-reset:s}
+.steps li{counter-increment:s;position:relative;padding-left:calc(76 * var(--u));font:400 calc(48 * var(--u))/calc(64 * var(--u)) var(--font-text)}
+.steps li+li{margin-top:calc(8 * var(--u))}
+.steps li::before{content:counter(s);position:absolute;left:0;top:calc(2 * var(--u));width:calc(56 * var(--u));height:calc(56 * var(--u));border:var(--line) solid var(--ink);border-radius:calc(8 * var(--u));font:800 calc(40 * var(--u))/calc(48 * var(--u)) var(--font-display);text-align:center;background:var(--bone)}
+/* rows (card 11) */
+.rows{background:var(--sky-soft);border:var(--line-bold) solid var(--ink);border-radius:calc(24 * var(--u));box-shadow:var(--shadow-1);overflow:hidden}
+.rows>div{padding:calc(12 * var(--u)) calc(24 * var(--u)) calc(14 * var(--u))}
+.rows>div+div{border-top:var(--line) solid var(--ink)}
+.rows .fix{margin-top:calc(6 * var(--u));font:400 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text)}
+.rows .sit{font:700 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text)}
+/* list */
+.later{list-style:none;padding:0}
+.later li{position:relative;padding-left:calc(44 * var(--u));font:400 calc(52 * var(--u))/calc(72 * var(--u)) var(--font-text)}
+.later li+li{margin-top:calc(8 * var(--u))}
+.later li::before{content:'';position:absolute;left:calc(6 * var(--u));top:calc(28 * var(--u));width:calc(16 * var(--u));height:calc(16 * var(--u));border-radius:50%;background:var(--ink)}
+/* stamp */
+.stamp{display:inline-block;margin-left:calc(16 * var(--u));padding:calc(2 * var(--u)) calc(16 * var(--u));font:800 calc(44 * var(--u))/calc(44 * var(--u)) var(--font-display);border:var(--line) solid var(--ink);border-radius:calc(8 * var(--u));transform:rotate(-6deg)}
+/* cover */
+.cover{--field:var(--lilac)}
+.cover .slab{position:relative;margin:calc(8 * var(--u)) calc(-24 * var(--u)) 0;padding:calc(32 * var(--u)) calc(40 * var(--u));isolation:isolate}
+.cover .slab::before{content:'';position:absolute;inset:0;z-index:-1;background:var(--bone);border:var(--line-bold) solid var(--ink);border-radius:calc(24 * var(--u));box-shadow:var(--shadow-2);transform:rotate(-1.5deg)}
+.cover .body{margin-top:calc(56 * var(--u))}
+.sun{--field:var(--sun)}
+/* page-only controls */
+.copy{font:700 max(16px,calc(40 * var(--u)))/1 var(--font-text);min-height:44px;min-width:88px;padding:0 max(12px,calc(28 * var(--u)));background:var(--paper);color:var(--ink);border:var(--line) solid var(--ink);border-radius:calc(12 * var(--u));box-shadow:max(4px,calc(8 * var(--u))) max(4px,calc(8 * var(--u))) 0 0 var(--ink);cursor:pointer;flex:none}
+.copy:hover{background:var(--sun-soft)}
+.copy:active{transform:translate(max(4px,calc(8 * var(--u))),max(4px,calc(8 * var(--u))));box-shadow:none}
+.copy:focus-visible{outline:max(3px,calc(6 * var(--u))) solid var(--ink);outline-offset:max(3px,calc(6 * var(--u)))}
+.idf label{display:block;font:700 max(15px,calc(44 * var(--u)))/1.3 var(--font-text);margin-bottom:calc(12 * var(--u))}
+.idf input{display:block;width:100%;min-height:48px;padding:calc(12 * var(--u)) calc(20 * var(--u));font:500 max(16px,calc(44 * var(--u)))/1.3 var(--font-mono);color:var(--ink);background:var(--paper);border:var(--line-bold) solid var(--ink);border-radius:calc(16 * var(--u))}
+.idf input:focus-visible{outline:max(3px,calc(6 * var(--u))) solid var(--ink);outline-offset:max(3px,calc(6 * var(--u)))}
+.idf .err{margin-top:calc(12 * var(--u));padding:calc(12 * var(--u)) calc(20 * var(--u));background:var(--paper);border:var(--line) solid var(--ink);border-left:max(8px,calc(20 * var(--u))) solid var(--ink);border-radius:calc(12 * var(--u));font:700 max(15px,calc(44 * var(--u)))/1.3 var(--font-text)}
+.idf .keep{margin-top:calc(12 * var(--u));font:400 max(15px,calc(44 * var(--u)))/1.3 var(--font-text)}
+@media (max-width:699px){
+  .fork{grid-template-columns:1fr}
+  .fork>div+div{border-left:0;border-top:var(--line) solid var(--ink)}
+  .cover .slab{margin-left:0;margin-right:0}
+  .cmdhead{flex-wrap:wrap}
+}
+.path{font:400 calc(40 * var(--u))/calc(48 * var(--u)) var(--font-text)}
+
+.copy{margin-left:auto}
+.steps li{font:400 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text);padding-left:calc(72 * var(--u))}
+.steps li::before{width:calc(52 * var(--u));height:calc(52 * var(--u));font:800 calc(36 * var(--u))/calc(44 * var(--u)) var(--font-display);top:calc(2 * var(--u))}
+.cue{display:flex;align-items:center;gap:calc(24 * var(--u))}
+.stack{width:calc(200 * var(--u));height:calc(150 * var(--u));flex:none}
+.cmd{padding:calc(20 * var(--u)) calc(20 * var(--u))}
+.cmd.one{padding:calc(24 * var(--u)) calc(20 * var(--u))}
+.ph{border:0;padding:0;outline:var(--line) dotted var(--ink);outline-offset:calc(2 * var(--u));border-radius:calc(4 * var(--u))}
+.steps li{line-height:calc(52 * var(--u))}
+.steps li::before{height:calc(48 * var(--u));line-height:calc(40 * var(--u));top:calc(2 * var(--u))}
+
+html.export .ph,html.export .nb{white-space:nowrap}
+@media (min-width:700px){html.page .ph,html.page .nb{white-space:nowrap}}
+@media (max-width:699px){html.page .ph{outline:0;text-decoration:underline dotted var(--ink);text-decoration-thickness:2px;text-underline-offset:4px}
+ html.page .key .sw{border:0;border-bottom:2px dotted var(--ink);border-radius:0;height:12px;background:none}
+ .strip-bottom p,.strip-top{text-wrap:balance}}
+.pair .row1{display:flex;flex-wrap:wrap;align-items:center;gap:calc(16 * var(--u))}
+.pair .row1 .see{margin:0}
+.oneline{--field:var(--sky-soft)}
+.body > .pointer{margin-top:calc(16 * var(--u))}
+
+/* ---- build additions (orchestrator) ---- */
+html.page body{padding:24px 0 40px}
+.note .tag{border-radius:0}
+.cover{display:flex;flex-direction:column}
+.cover .kicker{flex:none}
+.cover .body{flex:1 1 auto}
+.cover .strip-bottom{margin-top:auto}
+html.page .cover .body{flex:none}
+.cover .strip-bottom{border-top:0}
+.idf{margin-top:calc(24 * var(--u))!important}
+.idf[hidden],.idf .err[hidden],.idf .mine[hidden]{display:none}
+.idf .mine{margin-top:calc(24 * var(--u))}
+.cmdwrap .copy{margin-left:auto}
+.rows .fix b{font-weight:700}
+.rows .note{margin-top:calc(8 * var(--u))}
+.rows>div>.clip+.clip{margin-top:calc(8 * var(--u))}
+.big.key-line{margin-top:calc(40 * var(--u))}
+.pair .text + .clips{margin-top:calc(12 * var(--u))}
+.box .small,.box .lead{margin-top:calc(8 * var(--u))}
+.pointer{font:400 calc(44 * var(--u))/calc(56 * var(--u)) var(--font-text)}
+.fork a{color:inherit;text-decoration-thickness:3px;text-underline-offset:4px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.pair .row1.inline{margin-top:calc(12 * var(--u));gap:calc(12 * var(--u)) calc(16 * var(--u))}
+.pair .row1.inline .meaning{margin:0}
+html.export .fork a{text-decoration:none}
+.strip-top{height:calc(48 * var(--u));min-height:0}.strip-top .stamp{line-height:calc(40 * var(--u))}
+@media (max-width:699px){html.page .cmdhead{flex-wrap:nowrap;align-items:flex-end}}
+html.page .card .body{flex:1 0 auto}
+.cmd code .nl{display:none}
+
+</style></head><body>
+<main>
+<section id="card-1" class="card cover" data-file="01-cover" aria-label="Card 1 of 16"><p class="small kicker">Install OpenBots Next on your Mac</p><div class="body">
+<p class="lead">There is no app to download.</p>
+<div class="slab"><p class="big">One line builds OpenBots Next <mark class="swipe">on your own Mac.</mark></p></div>
+<p class="text gap-lg">Every step that sends, changes or clicks waits on a card you approve. <b>Read each card before you approve it.</b></p>
+<div class="cue gap-lg"><svg class="stack" viewBox="0 0 200 150" aria-hidden="true"><rect x="44" y="8" width="104" height="130" rx="12" transform="rotate(8 96 73)" fill="#FFFDF7" stroke="#1B1B1F" stroke-width="8"/><rect x="40" y="10" width="104" height="130" rx="12" transform="rotate(-4 92 75)" fill="#FFFDF7" stroke="#1B1B1F" stroke-width="8"/></svg>
+<p class="small"><span class="page-only">16 cards · scroll down</span><span class="export-only">16 cards, in order</span></p></div>
+</div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-2" class="card " data-file="02-your-mac-and-xcode" aria-label="Card 2 of 16"><div class="strip-top"><span>2 of 16</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Your Mac and Xcode</h2>
+<div class="pair"><p class="text"><b>An Apple Silicon Mac, macOS 14 or later.</b> Control this Mac needs macOS 15 or later.</p><div class="row1 inline"><span class="clip" data-quote>Apple menu → About This Mac</span><p class="meaning s">is where to check.</p></div></div>
+<div class="pair gap-lg"><p class="text"><b>Full Xcode 16.3 or later</b>, from the App Store. Command Line Tools alone cannot build it.</p><div class="row1 inline"><span class="clip" data-quote>/<wbr>Applications/<wbr>Xcode.<wbr>app</span><p class="meaning s">is where it must be.</p></div></div>
+<p class="lead gap-lg"><mark class="underline">Open Xcode once</mark>, so it finishes its own setup.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-3" class="card " data-file="03-claude-code" aria-label="Card 3 of 16"><div class="strip-top"><span>3 of 16</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Claude Code</h2>
+<div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="res">Installs Claude Code</span> <span class="how">· paste in Terminal</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd "><code data-cmd><span class="ln">curl -fsSL https:/<wbr>/<wbr>claude.<wbr>ai/<wbr>install.<wbr>sh | bash</span></code></div></div>
+<p class="text"><b><mark class="swipe">Anthropic's own installer.</mark></b> An npm or Homebrew install is refused.</p>
+<div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="res">Checks that it is there</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd "><code data-cmd><span class="ln">ls -l ~/<wbr>.<wbr>local/<wbr>bin/<wbr>claude</span></code></div></div>
+<p class="text"><b>A Claude Pro or Max plan.</b> An API key, a Team or an Enterprise login is not accepted.</p>
+<p class="small reg">Node.js (connectors only): Homebrew or nodejs.org.</p>
+<p class="note"><span class="tag">Claude&#39;s note</span>Terminal is in Applications → Utilities. Copy from this page or the README, on your Mac.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-4" class="card " data-file="04-google-or-not" aria-label="Card 4 of 16"><div class="strip-top"><span>4 of 16</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Gmail, Google Calendar or Google Drive?</h2>
+<p class="text">Your Google Client ID goes into the app when it is built.</p>
+<p class="lead"><mark class="swipe">Decide before you install.</mark></p>
+<div class="fork"><div><h3>Yes</h3><p class="text">About fifteen minutes more, once. <a href="#card-5">Card 5</a> first.</p></div><div><h3>No</h3><p class="text">Go to <a href="#card-6">card 6</a>. Skip cards 5, 8 and 14.</p></div></div>
+<p class="note"><span class="tag">Claude&#39;s note</span>Not sure? Start without Google. To add it later, run the Google line: it builds the app again with your ID, and your data is kept.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-5" class="card " data-file="05-google-sign-in" aria-label="Card 5 of 16"><div class="strip-top"><span>5 of 16</span><span>Google</span></div><div class="rule"></div><div class="body"><p class="path">Only if you want Gmail, Google Calendar or Google Drive</p>
+<h2 class="headline">Your own Google sign-in</h2>
+<p class="lead"><mark class="swipe">Use a separate Google account.</mark></p>
+<p class="small reg gap-sm">Give it only what you want bots to see.</p>
+<p class="place">In your browser</p>
+<ol class="steps gap-sm"><li>A Google Cloud project</li><li>Turn on three APIs</li><li>Consent screen: Testing, you as test user</li><li>A Desktop client</li><li>Its ID into the install line (card 6)</li><li>The JSON file into the app (card 8)</li></ol>
+<p class="small">Keep that JSON file private: it holds the secret.</p>
+<div class="pair"><div class="row1"><p class="see">You may see</p><span class="clip" data-quote>unverified app</span></div><p class="meaning s">This is your own app, so continue.</p></div>
+<p class="small reg">Every click: docs/guides/google-setup.md</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-6" class="card oneline" data-file="06-the-one-line" aria-label="Card 6 of 16"><div class="strip-top"><span>6 of 16</span><span>Install</span></div><div class="rule"></div><div class="body"><div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="tag">the one line</span><span class="how">Paste in Terminal</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd one"><code data-cmd><span class="ln">curl -fsSL https:/<wbr>/<wbr>raw.<wbr>githubusercontent.<wbr>com/<wbr>LorenzoColombani/<wbr>openbots/<wbr>main/<wbr>install.<wbr>sh | sh</span></code></div></div>
+<p class="text">A few minutes later, <mark class="underline"><b>it opens.</b></mark></p>
+<div class="cmdwrap" data-google><div class="cmdhead"><p class="lbl"><span class="res">With Google</span> <span class="how">· instead of the one line</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd g"><code data-cmd><span class="ln">curl -fsSL https:/<wbr>/<wbr>raw.<wbr>githubusercontent.<wbr>com/<wbr>LorenzoColombani/<wbr>openbots/<wbr>main/<wbr>install.<wbr>sh \</span><span class="nl">
+</span><span class="ln">  <span class="nb">| OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=</span><wbr><span class="ph">1234-abcd.apps.googleusercontent.com</span> sh</span></code></div></div>
+<p class="key"><span class="sw"></span>replace with your Client ID, all of it</p>
+<div class="idf page-only"><label for="cid">Your Client ID (ends in .apps.googleusercontent.com) — not the secret, not the JSON file</label><input id="cid" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+<p class="err" id="cid-err" role="alert" hidden></p>
+<div class="mine" id="cid-out" hidden><div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="res">Your command</span> <span class="how">· paste in Terminal</span></p><button class="copy" type="button">Copy</button></div><div class="cmd g"><code id="cid-code"></code></div></div></div>
+<p class="keep">This page keeps your ID nowhere and sends it nowhere.</p></div>
+<p class="small reg">It asks nothing. Built on your own Mac, so no Gatekeeper warning.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-7" class="card " data-file="07-first-run" aria-label="Card 7 of 16"><div class="strip-top"><span>7 of 16</span><span>Install</span></div><div class="rule"></div><div class="body"><h2 class="headline">Check, sign in, say hello</h2>
+<p class="place">In OpenBots Next</p>
+<div class="pair gap-sm"><div class="clips"><span class="clip" data-quote>Settings → General &amp; Claude Code → Check Claude</span></div><p class="meaning s">The app looks at Claude Code on this Mac and at your plan.</p></div>
+<p class="text">The app opens Claude Code in Terminal. Sign in with your Pro or Max account, then check again.</p>
+<p class="small reg gap-sm">Your usual Claude login in Terminal is not reused or touched.</p>
+<p class="text">Press <span class="clip" data-quote>+ New</span> and say hello.</p>
+<p class="lead gap-lg">Everything beyond chat is <mark class="swipe">off until you turn it on for that bot.</mark></p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-8" class="card " data-file="08-google-in-the-app" aria-label="Card 8 of 16"><div class="strip-top"><span>8 of 16</span><span>Google</span></div><div class="rule"></div><div class="body"><p class="path">Only if you want Gmail, Google Calendar or Google Drive</p>
+<h2 class="headline">Connect Google in the app</h2>
+<div class="pair"><div class="clips"><span class="clip" data-quote>Settings → Connectors &amp; Skills</span><span class="clip" data-quote>Choose the Google sign-in file…</span><span class="clip" data-quote>Sign in to Google…</span></div><p class="meaning s">Pick the JSON file. Then sign in as the separate account, within five minutes. Turn Google on per bot, under Access.</p></div>
+<p class="small reg">Reading mail, drafts, Calendar, Drive: no card. Sending a mail: a card every time.</p>
+<p class="small reg"><b>Seven days:</b> Google ends the sign-in of an app in Testing. Then sign in again.</p>
+<p class="lead"><mark class="swipe">Pass your Client ID again at every update.</mark></p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-9" class="card " data-file="09-approval-cards" aria-label="Card 9 of 16"><div class="strip-top"><span>9 of 16</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">Approval cards</h2>
+<div class="box"><p class="text"><b>The switch lets a bot read. The card asks before it acts.</b></p><p class="small reg">Control Chrome cards everything, reading included.</p></div>
+<div class="box plain"><p class="text">A card shows exactly what will be sent, run or clicked.</p><p class="small reg">Nothing guarantees a bot is not fooled: a mail or web page can try to steer it. Outside text is marked untrusted: less risk, not none.</p><p class="lead"><mark class="swipe">Read each card before you approve it.</mark></p></div>
+<p class="small reg">A bot cannot turn on its own connectors, hiring or Control this Mac.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-10" class="card " data-file="10-control-this-mac" aria-label="Card 10 of 16"><div class="strip-top"><span>10 of 16</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">Control this Mac</h2>
+<div class="box bone"><h3>A trial</h3><p class="text">It lets a bot look at your screen, click and type. What it needs: docs/CONNECTORS.md</p></div>
+<p class="text">The first action of a reply waits on a card. On it, <span class="clip" data-quote>Allow for this turn</span> lets the rest of that reply go on without asking again.</p>
+<p class="lead">While any card is open, no screen action runs, so <mark class="swipe">a bot cannot press Approve for you.</mark></p>
+<p class="small reg">After 64 rounds in one reply, the bot asks on a card to keep going. Deny ends the reply and keeps what it wrote.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-11" class="card " data-file="11-macos-will-ask" aria-label="Card 11 of 16"><div class="strip-top"><span>11 of 16</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">macOS will ask</h2>
+<div class="pair"><div class="clips"><span class="clip" data-quote>System Settings → Privacy &amp; Security</span></div><p class="meaning s">Asked only when a feature first needs it: Automation for Mail, Messages, Contacts, Notes and Chrome; Calendars for Calendar; Contacts for names in the Messages chat picker; Accessibility and Screen Recording for Control this Mac.</p></div>
+<p class="text"><b>Full Disk Access</b>, for your Messages history, is never asked. Add OpenBots Next yourself, then quit and reopen it.</p>
+<p class="lead"><mark class="swipe">You can refuse or withdraw any of them.</mark></p>
+<p class="small reg">After a rebuild, macOS may ask again. If it asks whether the Google helper may use your Keychain, allow it.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-12" class="card " data-file="12-in-terminal" aria-label="Card 12 of 16"><div class="strip-top"><span>12 of 16</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">In Terminal</h2>
+<div class="rows"><div><span class="clip" data-quote>This installer is for macOS.</span><br><span class="clip" data-quote>This build targets Apple Silicon (arm64).</span><p class="fix">It needs a Mac with Apple Silicon.</p></div>
+<div><span class="clip" data-quote>This build needs full Xcode 16.3+ (Swift 6.1 toolchain) at /Applications/Xcode.app.</span><p class="fix">Get Xcode, open it once, run the line again.</p></div>
+<div><span class="clip" data-quote>The build failed. Nothing was installed.</span><p class="fix">Check Xcode, then <mark class="underline"><b>run the line again.</b></mark></p><p class="note"><span class="tag">Claude&#39;s note</span>The installer checks only that Xcode is there, not its version or its first open.</p></div>
+<div><span class="clip" data-quote>OPENBOTS_GOOGLE_OAUTH_CLIENT_ID must look like 1234-abc.apps.googleusercontent.com (the Client ID, not the secret).</span><p class="fix">Put in the Client ID, not the secret.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-13" class="card " data-file="13-in-the-app" aria-label="Card 13 of 16"><div class="strip-top"><span>13 of 16</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">In the app</h2>
+<div class="rows"><div><p class="sit">It could not confirm your subscription</p><p class="fix">Only a claude.ai Pro or Max login counts.</p></div>
+<div><span class="clip" data-quote>not the official one</span><p class="fix">Install Claude Code with Anthropic's line (card 3).</p></div>
+<div><span class="clip" data-quote>needs setup</span><br><span class="clip" data-quote>This build needs a new Google Desktop OAuth client before the account can be connected.</span><p class="fix">Built without a Client ID: use the Google line.</p></div>
+<div><p class="sit">A connector says something is missing</p><p class="fix">Its row in Settings → Connectors &amp; Skills says what, and how to fix it.</p></div>
+<div><p class="sit">Replies start failing</p><p class="fix">A Claude Code update is the likely reason. Settings says when one is installed.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-14" class="card " data-file="14-at-google" aria-label="Card 14 of 16"><div class="strip-top"><span>14 of 16</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">At Google</h2>
+<div class="rows"><div><span class="clip" data-quote>That file describes a Web OAuth client</span><p class="fix">Create a Desktop app client (card 5).</p></div>
+<div><span class="clip" data-quote>…belongs to a different Google OAuth client</span><p class="fix">Pick the right file, or rebuild with its ID.</p></div>
+<div><span class="clip" data-quote>Google sign-in timed out. Nothing was connected.</span><p class="fix">Start again; finish within five minutes.</p></div>
+<div><span class="clip" data-quote>is switched off</span><p class="fix">Enable it in APIs &amp; Services → Library.</p></div>
+<div><p class="sit">Access denied at Google</p><p class="fix">Add the account as a test user.</p></div>
+<div><p class="sit">Worked for a week, then stopped</p><p class="fix">The Testing sign-in expired. Sign in again.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-15" class="card sun" data-file="15-what-stays-on-your-mac" aria-label="Card 15 of 16"><div class="strip-top"><span>15 of 16</span><span>Your data</span></div><div class="rule"></div><div class="body"><h2 class="headline">What stays on your Mac</h2>
+<div class="rows"><div><span class="clip" data-quote>~/<wbr>OpenBots Next Preview Content</span><p class="fix">Your bots' files, in your home folder.</p></div><div><span class="clip" data-quote>~/<wbr>Library/<wbr>Application Support/<wbr>com.<wbr>lorenzocolombani.<wbr>openbotsnext.<wbr>preview</span><p class="fix">The app's records and its own Claude sign-in.</p></div></div>
+<p class="small reg">Google keys: your Mac's Keychain, not iCloud. PRIVACY.md is a draft, not yet reviewed by a lawyer.</p>
+<p class="big">What leaves your Mac is what you switch on.</p>
+<p class="small reg">Nothing is sent to the developer. The app quits with its last window; nothing runs in the background.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<section id="card-16" class="card " data-file="16-updating" aria-label="Card 16 of 16"><div class="strip-top"><span>16 of 16<span class="stamp">the end</span></span><span>Later</span></div><div class="rule"></div><div class="body"><h2 class="headline">Updating</h2>
+<p class="big"><mark class="swipe">Run the same line again. Your data is kept.</mark></p>
+<p class="small reg">It replaces the older copy in Applications.</p>
+<p class="small">Later:</p>
+<ul class="later gap-sm"><li>Google: pass your Client ID at every update.</li><li>Google: sign in again every seven days.</li><li>After a rebuild, macOS may ask again.</li></ul>
+<p class="text">To remove it, follow docs/INSTALL.md. Copy out your bots' files first.</p>
+<p class="small reg">One line built it on your own Mac. Read each card before you approve it.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+</main>
+<script>
+(function(){
+  if (document.documentElement.classList.contains('export')) return;
+  function copyText(text, btn, codeEl){
+    function done(){ btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = 'Copy'; }, 2000); }
+    function fallback(){
+      var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.left = '-9999px'; document.body.appendChild(ta);
+      ta.select(); var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      if (ok) { done(); return; }
+      var r = document.createRange(); r.selectNodeContents(codeEl); var s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      btn.textContent = 'Press ⌘C';
+    }
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+  }
+  document.querySelectorAll('.cmdwrap').forEach(function(w){
+    var b = w.querySelector('.copy'), c = w.querySelector('code');
+    if (b && c) b.addEventListener('click', function(){ copyText(c.textContent, b, c); });
+  });
+  var SAMPLE = '1234-abcd.apps.googleusercontent.com';
+  var RULE = /^[A-Za-z0-9-]+\.apps\.googleusercontent\.com$/;
+  var MSG = 'OPENBOTS_GOOGLE_OAUTH_CLIENT_ID must look like 1234-abc.apps.googleusercontent.com (the Client ID, not the secret).';
+  var inp = document.getElementById('cid'), err = document.getElementById('cid-err'), out = document.getElementById('cid-out'), code = document.getElementById('cid-code');
+  var src = document.querySelector('[data-google] code').textContent;
+  function check(show){
+    var v = inp.value.replace(/\s+/g, '');
+    if (!v) { err.hidden = true; out.hidden = true; return; }
+    if (v === SAMPLE) { out.hidden = true; if (show) { err.textContent = 'That is the sample from the guide. Paste your own Client ID.'; err.hidden = false; } return; }
+    if (RULE.test(v)) { err.hidden = true; code.textContent = src.replace(SAMPLE, v); out.hidden = false; return; }
+    out.hidden = true; if (show) { err.textContent = MSG; err.hidden = false; }
+  }
+  inp.addEventListener('input', function(){ check(false); });
+  inp.addEventListener('change', function(){ check(true); });
+  inp.addEventListener('blur', function(){ check(true); });
+  inp.addEventListener('paste', function(){ setTimeout(function(){ check(true); }, 0); });
+})();
+</script>
+</body></html>
