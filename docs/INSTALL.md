@@ -7,6 +7,8 @@ OpenBots Next is built on your Mac from source. There is no downloadable app: a 
 made on your own Mac is not quarantined, so macOS opens it without a Gatekeeper
 warning.
 
+Prefer pictures? The same steps as 16 short cards: [the install cards](guides/install-cards/README.md).
+
 ## Before you start
 
 | You need | Why | Check |
@@ -15,7 +17,7 @@ warning.
 | Full **Xcode 16.3 or later** at `/Applications/Xcode.app` | The app is built with Swift 6.1. Command Line Tools alone cannot build it. | Open Xcode once, so it finishes its own setup. |
 | **Claude Code**, installed with Anthropic's native installer | Every reply runs through it. | `ls -l ~/.local/bin/claude` |
 | A **Claude Pro or Max** plan | Replies count against your plan. | — |
-| **Node.js** at `/opt/homebrew/bin/node` or `/usr/local/bin/node` | Only for connectors (every connector runs behind a small Node fence). Chat, work in folders and the web need no Node. | `ls /opt/homebrew/bin/node` |
+| **Node.js** at `/opt/homebrew/bin/node` or `/usr/local/bin/node` | Only for connectors (every connector runs behind a small Node fence). Chat, work in folders and the web need no Node. | `ls /opt/homebrew/bin/node /usr/local/bin/node` (one of the two is enough) |
 
 Things that surprise people:
 
@@ -59,11 +61,6 @@ Scripts/build-preview.sh
 open ".build.noindex/preview/DerivedData/Build/Products/Debug/OpenBots Next.app"
 ```
 
-The build signs the app with your **Apple Development** certificate if you have one
-in your keychain, and ad hoc otherwise. An ad-hoc build is a new program to macOS
-every time: permissions you granted (Automation, Accessibility and so on) and the
-Google helper's Keychain access may be asked for again after each rebuild.
-
 ## First run
 
 1. **Settings → General & Claude Code → Check Claude.** The app looks at Claude
@@ -93,6 +90,11 @@ You can refuse or withdraw any of them. The rest of the app keeps working.
 
 ## Good to know
 
+- **An ad-hoc build can ask for permissions again.** The one-line installer and a
+  clone build both sign the app with your **Apple Development** certificate if you
+  have one in your keychain, and ad hoc otherwise. An ad-hoc build is a new program
+  to macOS every time: permissions you granted (Automation, Accessibility and so on)
+  and the Google helper's Keychain access may be asked for again after each rebuild.
 - **Closing the last window quits the app.** Bots do not run in the background, and
   the app installs no login item or background service.
 - **Your bots' files** live in `~/OpenBots Next Preview Content` (each bot's
@@ -107,14 +109,15 @@ new build has no Google client.
 
 ## Remove completely
 
-1. Quit OpenBots Next and delete `/Applications/OpenBots Next.app`.
-2. Delete its data. **Copy out anything you want to keep first**, especially your
+1. If you connected Google, use **Disconnect Google account** in Settings while the
+   app is still installed, or remove the app at
+   <https://myaccount.google.com/permissions>.
+2. Quit OpenBots Next and delete `/Applications/OpenBots Next.app`.
+3. Delete its data. **Copy out anything you want to keep first**, especially your
    bots' files:
    - `~/OpenBots Next Preview Content`
    - `~/Library/Application Support/com.lorenzocolombani.openbotsnext.preview`
    - `~/Library/Caches/com.lorenzocolombani.openbotsnext.preview.noindex`
-3. If you connected Google, first use **Disconnect Google account** in Settings, or
-   remove the app at <https://myaccount.google.com/permissions>. Then, in Keychain
-   Access, delete the items whose name starts with
-   `com.lorenzocolombani.openbotsnext.preview`.
-4. Remove the permissions you gave it under System Settings → Privacy & Security.
+4. If you connected Google, in Keychain Access, delete the items whose name starts
+   with `com.lorenzocolombani.openbotsnext.preview`.
+5. Remove the permissions you gave it under System Settings → Privacy & Security.

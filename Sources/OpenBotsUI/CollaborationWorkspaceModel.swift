@@ -131,9 +131,11 @@ public final class CollaborationWorkspaceModel: ObservableObject {
     public func load() async {
         loadState = .loading
         do {
-            async let projectSnapshots = directoryService.activeProjects()
-            async let teamSnapshots = directoryService.activeTeams()
-            let (loadedProjects, loadedTeams) = try await (projectSnapshots, teamSnapshots)
+            // Two awaits, not `async let`: on macOS 15 a throwing `async let`
+            // kept what it captured alive long after it finished, and the
+            // service answers one read at a time anyway.
+            let loadedProjects = try await directoryService.activeProjects()
+            let loadedTeams = try await directoryService.activeTeams()
             projects = Self.sortedProjects(
                 loadedProjects.map(CollaborationProjectSnapshot.init)
             )

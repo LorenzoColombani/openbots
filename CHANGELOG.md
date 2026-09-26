@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.1 — 26 September 2026
+
+- **Install cards.** The install steps as 16 short picture cards, with every
+  command underneath as text you can copy: [docs/guides/install-cards](docs/guides/install-cards/README.md).
+- **Older Macs.** The workspace loads projects and teams one after the other,
+  no longer through the `async let` pattern that, on macOS 15, kept a test's
+  database open long after it finished.
+- **Docs.** The Google install line in the README no longer breaks when pasted
+  into zsh; removal starts by disconnecting Google; the Node check covers both
+  install locations; the privacy page says what the Contacts permission is for.
+
 ## v1.0.0 — 25 September 2026
 
 v0.5.0 rebuilt the foundation. v1 brings the old app's abilities back on it, each

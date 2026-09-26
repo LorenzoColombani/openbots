@@ -47,7 +47,7 @@ OpenBots turns Claude into a team of named teammates you hire, brief, and fence 
   key, a Team or an Enterprise login is not accepted. OpenBots Next signs in to Claude
   with its own profile, separate from your Terminal login.
 - For connectors, **Node.js** from Homebrew or nodejs.org (at `/opt/homebrew/bin/node`
-  or `/usr/local/bin/node`; nvm and volta installs are not found), plus what each
+  or `/usr/local/bin/node`; nvm, volta or asdf installs are not found), plus what each
   connector needs.
 - **Google needs your own sign-in client.** Gmail, Google Calendar and Google Drive
   work only after you create a Google Desktop OAuth client and build its ID in:
@@ -64,11 +64,12 @@ curl -fsSL https://raw.githubusercontent.com/LorenzoColombani/openbots/main/inst
 
 It checks your Mac, downloads the latest release, builds it locally (a few minutes
 the first time), puts **OpenBots Next.app** in `/Applications` and opens it. A
-locally built app is not quarantined, so there is no Gatekeeper warning. With Google:
+locally built app is not quarantined, so there is no Gatekeeper warning. With Google,
+replace the sample ID below with your own Client ID:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/LorenzoColombani/openbots/main/install.sh \
-  | OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=<your-client-id>.apps.googleusercontent.com sh
+  | OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=1234-abcd.apps.googleusercontent.com sh
 ```
 
 Or from a clone:
@@ -102,7 +103,7 @@ v0.5.0 was the rebuild's midpoint: a new foundation (durable SQLite persistence 
 
 ## Design credits
 
-Some of OpenBots' team features were shaped by studying xAI's Grok Bot app. Earlier releases credited these ideas in code comments: teams of two to six bots, a 4,000-character limit on a bot's instructions, saving a message before it is sent, a read-only mode for side conversations, and copying a bot. The list of actions a bot must ask about before doing them follows safety guidance xAI has published.
+Some of OpenBots' team features were shaped by studying xAI's Grok Bot app. Earlier releases credited these ideas in code comments: teams of two to six bots, a 4,000-character limit on a bot's instructions, saving a message before it is sent, a read-only mode for side conversations, and copying a bot. The list of actions a bot had to ask about before doing them followed safety guidance xAI has published.
 
 Later sources use neutral names for the tests and notes that grew out of that study. No code, text or screens from Grok Bot are included.
 

@@ -35,7 +35,7 @@ fail() { printf '\n!! %s\n' "$1" >&2; exit 1; }
 [ "$(uname -m)" = arm64 ] || fail "This build targets Apple Silicon (arm64)."
 if [ -n "$GOOGLE_CLIENT_ID" ]; then
   printf '%s\n' "$GOOGLE_CLIENT_ID" | grep -Eq '^[A-Za-z0-9-]+\.apps\.googleusercontent\.com$' \
-    || fail "OPENBOTS_GOOGLE_OAUTH_CLIENT_ID must look like 1234-abc.apps.googleusercontent.com (the Client ID, not the secret)."
+    || fail "OPENBOTS_GOOGLE_OAUTH_CLIENT_ID must look like 1234-abcd.apps.googleusercontent.com (the Client ID, not the secret)."
 fi
 
 # 1. Full Xcode ---------------------------------------------------------------

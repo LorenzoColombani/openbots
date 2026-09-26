@@ -20,7 +20,7 @@ Everything runs and is stored **locally on your Mac**. OpenBots sends **no telem
 - **Nothing else.** No telemetry, no analytics, no crash reporting, nothing sent to the developer.
 
 ## Permissions
-macOS asks for a permission only when you use the feature that needs it: Contacts and Calendars for those connectors, Automation to drive Mail, Messages, Contacts, Notes or Chrome, Full Disk Access to read your Messages history, and Accessibility plus Screen Recording for Control this Mac. You can refuse or withdraw any of them in System Settings; the rest of the app keeps working.
+macOS asks for a permission only when you use the feature that needs it: Calendars for the Calendar connector, Contacts only to show names in the Messages chat picker, Automation to drive Mail, Messages, Contacts, Notes or Chrome, Full Disk Access to read your Messages history, and Accessibility plus Screen Recording for Control this Mac. You can refuse or withdraw any of them in System Settings; the rest of the app keeps working.
 
 ## Contact
 Open an issue on the project's GitHub repository.
