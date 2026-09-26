@@ -2,7 +2,9 @@ import Darwin
 import Foundation
 
 public enum OpenBotsPreviewIdentity {
-    public static let applicationName = "OpenBots Next Preview"
+    public static let applicationName = "OpenBots Next"
+    // Display branding changed; retain the established namespaces so existing
+    // chats, owned-root markers and the subscription profile remain usable.
     public static let bundleIdentifier = "com.lorenzocolombani.openbotsnext.preview"
     public static let contentDirectoryName = "OpenBots Next Preview Content"
     /// Repository-relative; build tooling resolves this against its checked-out source root.

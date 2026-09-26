@@ -396,3 +396,116 @@ func claudeSetupProductionGuardDoesNotLaunchOrInferAuthentication() async {
     #expect(model.localFindings == checkedSetupMetadata)
     #expect(await inspector.calls == 1)
 }
+
+// The setup screen once spoke build vocabulary
+// ("the Preview-owned Claude profile is missing", "the earlier one-shot status
+// exception is spent and inconclusive") and a "not installed" state that named
+// no route. The words are the app's own now, and the not-installed state offers
+// the command and the page.
+@Test("Setup wording carries no build vocabulary and each problem names what did not happen")
+func setupWordingCarriesNoBuildVocabulary() {
+    for problem in ClaudeSetupProblem.allCases {
+        let sentence = ClaudeSetupWording.explanation(problem)
+        for word in ClaudeSetupWording.bannedWords {
+            #expect(!sentence.localizedCaseInsensitiveContains(word), "\(problem): \(word)")
+        }
+        #expect(sentence.contains("not") || sentence.contains("Nothing"), "\(problem) must say what did not happen: \(sentence)")
+    }
+    let states: [ClaudeSetupState] = [.notChecked, .readyToConnect, .needsSignIn, .checking,
+        .actionRequired(.correctedStatusCheckApproval), .actionRequired(.tracedOfficialSignIn)]
+    for state in states {
+        let details = ClaudeSetupWording.details(for: state)
+        for word in ClaudeSetupWording.bannedWords {
+            #expect(!details.localizedCaseInsensitiveContains(word), "\(state): \(word)")
+        }
+    }
+    #expect(ClaudeSetupWording.explanation(.installationMissing).hasPrefix("Claude Code is not on this Mac."))
+}
+
+// The rest of the setup screen once still said "Preview", "official CLI",
+// "metadata" and "teammates": those sentences sat in the view, where the sweep above could not reach them.
+@Test("Every sentence on the setup screen is in the wording and carries no build vocabulary")
+@MainActor
+func everySetupScreenSentenceCarriesNoBuildVocabulary() throws {
+    for word in ["official CLI", "Claude CLI", "teammate"] {
+        #expect(ClaudeSetupWording.bannedWords.contains(word), "\(word) is not swept")
+    }
+    let states: [ClaudeSetupState] = [.notChecked, .checking, .readyToConnect, .needsSignIn, .signingIn,
+        .signedInNeedsVerification, .handedOffNeedsVerification, .checkingSubscription,
+        .verified(try setupSubscriptionEvidence()), .cancelled,
+        .actionRequired(.correctedStatusCheckApproval), .actionRequired(.tracedOfficialSignIn)]
+        + ClaudeSetupProblem.allCases.map { .problem($0) }
+    var sentences: [String] = []
+    for state in states {
+        sentences.append(ClaudeSetupWording.title(for: state, localInstallationChecked: true))
+        sentences.append(ClaudeSetupWording.title(for: state, localInstallationChecked: false))
+        sentences.append(ClaudeSetupWording.status(for: state))
+        sentences.append(ClaudeSetupWording.details(for: state))
+    }
+    for finding in [ClaudeInstallationFinding.notChecked, .missing, .verified, .rejected, .unavailable] {
+        sentences.append(ClaudeSetupWording.installationLabel(finding))
+    }
+    for finding in [ClaudeProfileFinding.notChecked, .missing, .metadataVerified, .rejected, .unavailable] {
+        sentences.append(ClaudeSetupWording.profileLabel(finding))
+    }
+    sentences += [ClaudeSetupWording.signInHelp, ClaudeSetupWording.signInNote, ClaudeSetupWording.checkHelp,
+                  ClaudeSetupWording.inspectHelp, ClaudeSetupWording.findingsNote,
+                  ClaudeSetupWording.textRepliesNote, ClaudeSetupWording.localWorkNote]
+    for sentence in sentences {
+        #expect(!sentence.isEmpty)
+        for word in ClaudeSetupWording.bannedWords {
+            #expect(!sentence.localizedCaseInsensitiveContains(word), "\(word): \(sentence)")
+        }
+    }
+    #expect(ClaudeSetupWording.explanation(.installationMissing).contains("Bots are Claude Code sessions"))
+    #expect(ClaudeSetupWording.localWorkNote.contains("choose bots"))
+}
+
+// Sign-in finishes in Terminal and the browser, and nothing noticed it.
+// Coming back to the app now runs the same check Check Claude runs, and only
+// while the screen is waiting on a sign-in.
+@Test("Coming back to the app checks Claude only while a sign-in waits to be checked")
+@MainActor
+func comingBackToTheAppChecksAWaitingSignIn() async throws {
+    for waiting in [ClaudeSetupOutcome.handedOffNeedsVerification, .signedInNeedsVerification] {
+        let service = SetupServiceSpy(reports: [
+            .signIn: .init(outcome: waiting),
+            .subscription: .init(outcome: .verified(try setupSubscriptionEvidence()))
+        ])
+        let model = ClaudeSetupModel(service: service)
+        model.beginOfficialSignIn()
+        await model.actionTask?.value
+        #expect(await service.calls == [.signIn])
+        model.appBecameActive()
+        await model.actionTask?.value
+        #expect(await service.calls == [.signIn, .subscription], "\(waiting)")
+        #expect(model.state == .verified(try setupSubscriptionEvidence()))
+        model.appBecameActive()
+        await model.actionTask?.value
+        #expect(await service.calls == [.signIn, .subscription], "a checked result is not checked again")
+    }
+    for other in [ClaudeSetupOutcome.needsSignIn, .readyToConnect, .problem(.connectionCheckInconclusive),
+                  .verified(try setupSubscriptionEvidence())] {
+        let service = SetupServiceSpy(reports: [.subscription: .init(outcome: other)])
+        let model = ClaudeSetupModel(service: service)
+        model.appBecameActive()
+        #expect(model.actionTask == nil, "not checked yet stays unchecked")
+        model.checkSubscription()
+        await model.actionTask?.value
+        model.appBecameActive()
+        await model.actionTask?.value
+        #expect(await service.calls == [.subscription], "\(other)")
+    }
+}
+
+@Test("The not-installed state offers the exact install command and the official page, and no other state does")
+@MainActor func theNotInstalledStateOffersTheCommandAndThePage() {
+    #expect(ClaudeSetupWording.installCommand == "curl -fsSL https://claude.ai/install.sh | bash")
+    #expect(ClaudeSetupWording.installPageURL.scheme == "https")
+    #expect(ClaudeSetupWording.installPageURL.host?.hasSuffix("anthropic.com") == true)
+    #expect(ClaudeSetupWording.installOffer == "Paste it in Terminal, then press Check Claude.")
+    #expect(ClaudeSetupView.offersInstall(for: .problem(.installationMissing)))
+    for state in [ClaudeSetupState.problem(.profileMissing), .problem(.installationRejected), .needsSignIn, .notChecked, .checking] {
+        #expect(!ClaudeSetupView.offersInstall(for: state), "\(state)")
+    }
+}

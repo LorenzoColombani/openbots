@@ -81,6 +81,17 @@ public final class WorkspaceSidebarOrderCoordinator {
         }
     }
 
+    /// Shows the saved order again after a pin or unpin: the flag alone moves a bot
+    /// between the pinned bots and the rest, without writing a position. A drag
+    /// still being saved may have read the order before the pin landed, so its end
+    /// is awaited and the order read after it.
+    public func refresh() async {
+        if let operation { await operation.value }
+        guard !isSaving, !isShuttingDown, let order = try? await service.loadOrder(),
+              !isSaving, !isShuttingDown else { return }
+        applyConfirmed(order)
+    }
+
     private func applyConfirmed(_ order: BotSidebarOrder) {
         let rows = sidebar.rows
         let byID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })

@@ -119,7 +119,7 @@ struct AttachmentPreviewImage: @unchecked Sendable {
 
 private enum AttachmentPreviewReceiptError: Error { case invalid }
 
-private actor AttachmentPreviewDecoder {
+actor AttachmentPreviewDecoder {
     func prepare(_ receipt: AttachmentPreview, requestedPage: Int) throws -> AttachmentPreviewContent {
         try Task.checkCancellation()
         try receipt.validate(requestedPage: requestedPage)

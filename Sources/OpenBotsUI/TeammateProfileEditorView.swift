@@ -47,7 +47,7 @@ public struct TeammateProfileEditorView: View {
                         profileFields
                             .disabled(!model.isEditingEnabled)
                         modelFields(original: original)
-                        unavailableSettings
+                        notificationSettings
                         DisclosureGroup("Appearance", isExpanded: $model.isAppearanceExpanded) {
                             creatureFields(original: original)
                                 .disabled(!model.isEditingEnabled)
@@ -56,8 +56,6 @@ public struct TeammateProfileEditorView: View {
                         .id("bot-appearance-controls")
                         DisclosureGroup("Advanced", isExpanded: $model.isAdvancedExpanded) {
                             VStack(alignment: .leading, spacing: 8) {
-                                textField("Short role", text: $model.role, error: model.roleValidationMessage)
-                                    .disabled(!model.isEditingEnabled)
                                 Text("Profile revision \(original.profile.revision)")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
@@ -129,7 +127,7 @@ public struct TeammateProfileEditorView: View {
             Spacer(minLength: 0)
             if let onClose {
                 Button(action: onClose) {
-                    Image(systemName: "sidebar.right")
+                    Image(systemName: "xmark")
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
@@ -171,9 +169,21 @@ public struct TeammateProfileEditorView: View {
         VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing12) {
             textField("Name", accessibilityName: "Bot name", text: $model.displayName, error: model.nameValidationMessage)
             textField("Label (optional)", accessibilityName: "Bot label", text: $model.title, error: model.titleValidationMessage)
+            // The same paragraph the New Bot sheet asks for, under the same name: the
+            // role. It once sat over the instructions, with the role folded away
+            // under Advanced as "Short role", so the words typed at creation never
+            // showed here.
             VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing4) {
                 Text("What this bot does").font(.callout.weight(.medium))
-                Text("Describe its role, working style, and ongoing instructions.")
+                TextField("What this bot does", text: $model.role, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(2...5)
+                    .accessibilityLabel("What this bot does")
+                validation(model.roleValidationMessage)
+            }
+            VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing4) {
+                Text("Instructions (optional)").font(.callout.weight(.medium))
+                Text("How it should work and anything it should always keep in mind.")
                     .font(.caption).foregroundStyle(.secondary)
                 TextEditor(text: $model.detailedInstructions)
                     .font(.body)
@@ -183,26 +193,24 @@ public struct TeammateProfileEditorView: View {
                             .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                             .allowsHitTesting(false)
                     }
-                    .accessibilityLabel("Bot description")
-                    .accessibilityHint("Describe what this bot does, how it should work, and any ongoing instructions.")
+                    .accessibilityLabel("Bot instructions")
+                    .accessibilityHint("How this bot should work and anything it should always keep in mind.")
                 validation(model.instructionsValidationMessage)
             }
         }
     }
 
-    private var unavailableSettings: some View {
+    private var notificationSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            HStack {
-                Text("Notifications")
-                Spacer()
-                Text("Unavailable").foregroundStyle(.secondary)
+            Picker("Notifications", selection: $model.notificationPreference) {
+                Text("Use app default").tag(NotificationPreference.inherit)
+                Text("On").tag(NotificationPreference.enabled)
+                Text("Off").tag(NotificationPreference.disabled)
             }
-            Text("Delivery is not connected.")
-                .font(.caption).foregroundStyle(.secondary)
-            Button("Share as template") {}
-                .disabled(true)
-            Text("Templates unavailable.")
+            .disabled(!model.isEditingEnabled)
+            .accessibilityIdentifier("bot.notification-preference")
+            Text("Requires Allow notifications in Settings. Message contents never appear in notifications.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

@@ -1,5 +1,6 @@
 import Foundation
 import OpenBotsDomain
+import SwiftUI
 import Testing
 @testable import OpenBotsUI
 
@@ -166,7 +167,8 @@ func creatureTransitionHasBoundedMotionAndUnchangedEndpoints() {
                 #expect(transform != held)
                 #expect(abs(transform.scale / held.scale - 1) <= 0.031)
                 #expect(abs(transform.rotation - held.rotation) <= 2)
-                #expect(abs(transform.verticalOffsetFactor - held.verticalOffsetFactor) <= 0.025)
+                // Up to 0.1: the hop is meant to be seen.
+                #expect(abs(transform.verticalOffsetFactor - held.verticalOffsetFactor) <= 0.1)
             } else {
                 #expect(transform == held)
             }
@@ -224,14 +226,14 @@ func creatureIdleMotionHasBoundedDistinctCycles() {
     #expect(firstMovingPhases.count == 2)
 }
 
-@Test("Idle loops require a visible active creature and never animate photos or other activity states")
+@Test("Body loops include a speaking bot still at work and never animate photos or attention")
 func creatureIdleMotionRequiresEveryEligibilityGate() {
     for activity in TeammateActivityState.allCases {
         for mode in [CharacterRenderMode.creature, .photo] {
             for reduceMotion in [false, true] {
                 for sceneIsActive in [false, true] {
                     for isVisible in [false, true] {
-                        let eligible = activity == .idle && mode == .creature
+                        let eligible = (activity == .idle || activity == .thinkingOrWorking || activity == .speaking) && mode == .creature
                             && !reduceMotion && sceneIsActive && isVisible
                         #expect(CharacterIdleMotion.isEnabled(
                             activity: activity, mode: mode, reduceMotion: reduceMotion,
@@ -248,6 +250,59 @@ func creatureIdleMotionRequiresEveryEligibilityGate() {
             }
         }
     }
+}
+
+@Test("Working motion is faster, selected motion is quieter, and every loop starts at a seeded offset")
+func creatureWorkingAndSelectedMotionPreserveCalmBounds() {
+    var offsets: Set<TimeInterval> = []
+    for seed in [UInt64(41), 815, 9_039, 724_212] {
+        let idle = CharacterIdleMotion.keyframes(seed: seed)
+        let working = CharacterIdleMotion.keyframes(seed: seed, activity: .thinkingOrWorking)
+        #expect(working.duration < idle.duration)
+        #expect(working.duration >= 1.6 && working.duration <= 2)
+        #expect(idle.phaseOffset >= 0 && idle.phaseOffset < idle.duration)
+        #expect(idle.phaseOffset == CharacterIdleMotion.keyframes(seed: seed).phaseOffset)
+        offsets.insert(idle.phaseOffset)
+        for activity in [TeammateActivityState.idle, .thinkingOrWorking] {
+            let normal = CharacterIdleMotion.keyframes(seed: seed, activity: activity)
+            let selected = CharacterIdleMotion.keyframes(seed: seed, activity: activity, isSelected: true)
+            for (full, quiet) in zip(normal.transforms.dropFirst().dropLast(), selected.transforms.dropFirst().dropLast()) {
+                #expect(abs(quiet.scale - 1) < abs(full.scale - 1))
+                #expect(abs(quiet.rotation) < abs(full.rotation))
+                #expect(abs(quiet.verticalOffsetFactor) < abs(full.verticalOffsetFactor))
+                #expect(abs(full.scale - 1) <= 0.012_001)
+                #expect(abs(full.rotation) <= 1.2)
+            }
+        }
+    }
+    #expect(offsets.count == 4)
+}
+
+@Test("Vector eyes blink briefly and glance rarely; both end in their unchanged open pose")
+func creatureEyeMotionUsesBoundedIndependentLayers() {
+    for isWorking in [false, true] {
+        let configuration = CharacterEyeMotion.Configuration(seed: 815, isWorking: isWorking)
+        let blink = CharacterEyeMotion.keyframes(part: .eyelids, configuration: configuration)
+        let glance = CharacterEyeMotion.keyframes(part: .pupils, configuration: configuration)
+        for keyframes in [blink, glance] {
+            #expect(keyframes.transforms.first == .identity)
+            #expect(keyframes.transforms.last == .identity)
+            #expect(keyframes.keyTimes == keyframes.keyTimes.sorted())
+            #expect(keyframes.phaseOffset >= 0 && keyframes.phaseOffset < keyframes.duration)
+        }
+        #expect(blink.transforms.map(\.verticalScale).min() == 0.08)
+        #expect(blink.transforms.allSatisfy { $0.horizontalOffsetFactor == 0 && $0.scale == 1 })
+        #expect((blink.keyTimes[4] - blink.keyTimes[1]) * blink.duration < 0.4)
+        #expect(glance.transforms.allSatisfy { abs($0.horizontalOffsetFactor) <= 0.012 && $0.verticalScale == 1 })
+        #expect(blink.phaseOffset == glance.phaseOffset)
+        #expect(blink.duration == glance.duration)
+    }
+    var environment = EnvironmentValues()
+    #expect(environment.characterEyeMotion == nil)
+    environment.characterEyeMotion = .init(seed: 1, isWorking: false)
+    #expect(environment.characterEyeMotion != nil)
+    environment.characterEyeMotion = nil
+    #expect(environment.characterEyeMotion == nil)
 }
 
 @Test("Covered semantic content disables idle and finite artwork animation")
@@ -272,5 +327,55 @@ func creatureMotionStopsWhenItsRetainedContentIsCovered() {
                 sceneIsActive: true, isVisible: true, isAllowed: false
             ) == .identity)
         }
+    }
+}
+
+@Test("Idle keyframes replay the seeded phases once per cycle and close on the held pose")
+func creatureIdleKeyframesFollowTheSeededCycle() {
+    for index in 1...32 {
+        let id = UUID(uuidString: String(format: "EB000000-0000-0000-0000-%012x", index))!
+        let seed = CharacterIdleMotion.seed(identityID: id, appearanceSeed: 42)
+        let keyframes = CharacterIdleMotion.keyframes(seed: seed)
+        let phases = CharacterIdleMotion.phases(seed: seed)
+        let expectedCount = phases.count + 1
+        let identity = CharacterArtworkTransform.identity
+        #expect(keyframes.transforms.count == expectedCount)
+        #expect(keyframes.transforms.first == identity)
+        #expect(keyframes.transforms.last == identity)
+        for (offset, phase) in phases.enumerated() {
+            let expected = CharacterIdleMotion.transform(
+                activity: .idle, mode: .creature, phase: phase,
+                reduceMotion: false, sceneIsActive: true, isVisible: true)
+            let actual = keyframes.transforms[offset]
+            #expect(actual == expected)
+        }
+        let thirds: [Double] = [0, 1.0 / 3, 2.0 / 3, 1]
+        let expectedDuration = CharacterIdleMotion.cycleDuration(seed: seed)
+        #expect(keyframes.keyTimes == thirds)
+        #expect(keyframes.duration == expectedDuration)
+        let moving = Array(keyframes.transforms.dropFirst().dropLast())
+        #expect(moving.allSatisfy { $0 != identity })
+    }
+}
+
+/// Watching Scriptsmith on the installed app, nothing seemed to move, though
+/// the head should float and move a bit. The idle loop moved 0.17 points and tilted 0.15
+/// degrees, and the attention hop rose 1 point for a tenth of a second. The
+/// idle float and the hop must now be big enough to see at sidebar size.
+@Test("The idle float and the attention hop are big enough to see")
+func creatureMotionIsVisible() {
+    let size: CGFloat = 42
+    for phase in [CharacterIdlePhase.upperLeft, .lowerRight] {
+        let pose = CharacterIdleMotion.transform(activity: .idle, mode: .creature, phase: phase,
+                                                 reduceMotion: false, sceneIsActive: true, isVisible: true)
+        #expect(abs(pose.verticalOffsetFactor * size) >= 1.5, "float \(pose.verticalOffsetFactor * size) pt")
+        #expect(abs(pose.rotation) >= 1)
+    }
+    for activity in [TeammateActivityState.waitingForUser, .errorOrAttention] {
+        let held = CharacterTransitionMotion.transform(activity: activity, mode: .creature, phase: .held,
+                                                      reduceMotion: false, sceneIsActive: true)
+        let hop = CharacterTransitionMotion.transform(activity: activity, mode: .creature, phase: .accent,
+                                                     reduceMotion: false, sceneIsActive: true)
+        #expect((held.verticalOffsetFactor - hop.verticalOffsetFactor) * size >= 3, "hop \((held.verticalOffsetFactor - hop.verticalOffsetFactor) * size) pt")
     }
 }

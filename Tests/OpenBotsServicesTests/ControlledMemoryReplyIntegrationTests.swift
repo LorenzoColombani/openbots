@@ -59,7 +59,7 @@ struct ControlledMemoryReplyIntegrationTests {
         #expect(reply.sequence == user.sequence + 1)
         #expect(replyText.contains("I may have this wrong:"))
         #expect(replyText.contains("I prefer quiet libraries."))
-        #expect(replyText.contains("Does that apply here?"))
+        #expect(!replyText.contains("Does that apply here?"))
         #expect(replyText != candidate && !replyText.contains("\"references\""))
 
         let runID = RunID(request.runID)
@@ -81,6 +81,7 @@ struct ControlledMemoryReplyIntegrationTests {
         let saved = try #require(try await store.memoryConversationPublication(messageID: reply.id, conversationID: f.chat))
         #expect(saved.providerRunID == runID && saved.publication.receipt.runID == runID)
         #expect(saved.publication.receipt.messageID == reply.id)
+        #expect(saved.publication.receipt.policyVersion == MemoryPublicationReceipt.currentPolicyVersion)
         #expect(saved.userMessage == user && saved.replyMessage == reply)
         #expect(saved.publication.text == replyText)
         #expect(saved.publication.receipt.dependencies.map(\.reference) == [reference])
@@ -92,6 +93,8 @@ struct ControlledMemoryReplyIntegrationTests {
         let provenance = try await store.textTurnProvenance(conversationID: f.chat, messageIDs: [user.id, reply.id])
         #expect(provenance.count == 1 && provenance.first?.inputState == .acknowledged)
         #expect(provenance.first?.state == .succeeded && provenance.first?.runID == runID)
+        // The reply row is authored `.system`; only this record still names the bot.
+        #expect(provenance.first?.teammateID == f.bot)
         let events = await progress.events
         let savedEvents = events.compactMap { event -> Message? in
             if case .assistantMessageSaved(let message) = event { return message }; return nil
@@ -122,6 +125,31 @@ struct ControlledMemoryReplyIntegrationTests {
             teammateID: f.secondBot, profileRevision: 1, selection: otherSelection, beforeSequence: other.source.sequence + 1))
         #expect(!otherHistory.recentMessages.contains { $0.id == user.id || $0.id == reply.id })
         #expect(!otherHistory.memoryDocuments.contains { $0.id == retained.record.intent.document.id || $0.id == global.id })
+    }
+
+    @Test("A memory turn to a bot with a session runs fresh and keeps no session")
+    func memoryTurnKeepsNoSession() async throws {
+        // Its publication format and reference list are this turn's alone,
+        // and the CLI keeps the first turn's prompt for the whole session.
+        let f = try LocalMemoryFixture(); defer { f.remove() }
+        let store = try f.open(); try await f.seed(store)
+        let authority = try await f.authority()
+        let retained = try await f.publish(store, root: authority, body: "I prefer quiet libraries.")
+        let candidate = try controlledCandidate(try controlledReference(retained))
+        let submission = f.submission("Could quiet libraries be relevant here?")
+        try await store.storeClaudeSession(StoredClaudeSession(sessionID: UUID(), startedAt: f.now, lastUsedAt: f.now,
+            isRefused: false, systemPromptDigest: String(repeating: "0", count: 64)),
+            conversationID: submission.conversationID, teammateID: submission.teammateID)
+        let progress = ControlledProgress()
+        let runner = ControlledCandidateRunner(store: store, progress: progress, candidate: candidate)
+        let service = try controlledService(f, store: store, authority: authority, runner: runner, sessions: store)
+        let result = await service.sendText(submission) { await progress.append($0) }
+        #expect(result.outcome == .completed)
+        let request = try #require(await runner.requests.first)
+        #expect(request.systemPrompt.contains("controlled memory publication format"))
+        #expect(!request.resumesSession && !request.persistsSession)
+        #expect(try await store.storedClaudeSession(conversationID: submission.conversationID,
+            teammateID: submission.teammateID) == nil)
     }
 
     @Test("Malformed, prose-bearing and foreign-reference candidates never become saved text or a retry",
@@ -229,7 +257,8 @@ private func controlledCandidate(_ reference: MemoryClaimReference) throws -> St
 }
 
 private func controlledService(_ f: LocalMemoryFixture, store: SQLiteStore,
-    authority: VerifiedAuthoritativeMarkdownRoot, runner: ControlledCandidateRunner) throws -> OfficialClaudeTextReplyService {
+    authority: VerifiedAuthoritativeMarkdownRoot, runner: ControlledCandidateRunner,
+    sessions: (any ClaudeSessionRepository)? = nil) throws -> OfficialClaudeTextReplyService {
     let target = try ClaudeConnectionTarget(executableURL: f.root.appending(path: "inert-claude"),
         expectedExecutableSHA256: String(repeating: "a", count: 64),
         profileURL: f.root.appending(path: "CLIProfile"), workingDirectoryURL: f.root.appending(path: "Work"),
@@ -241,7 +270,9 @@ private func controlledService(_ f: LocalMemoryFixture, store: SQLiteStore,
         messages: store, preparer: ControlledInertPreparer(target: target), runner: runner,
         appOwnerID: runner.appOwnerID, clock: ControlledFixedClock(instant: time),
         context: store, contextReader: store, contextAssembler: ClaudeContextAssemblyService(memoryAuthority: authority),
-        controlledMemory: preparation)
+        controlledMemory: preparation, sessions: sessions, resumesSessions: sessions != nil,
+        sessionTranscriptExists: { _, _ in true },
+        sessionTranscriptRemove: { _, _ in ClaudeSessionTranscriptRemoval(removedPaths: [], droppedHistoryLines: 0) })
 }
 
 private struct ControlledInertPreparer: ClaudeTextLaunchPreparing {

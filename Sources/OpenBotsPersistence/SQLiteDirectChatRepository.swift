@@ -32,6 +32,28 @@ extension SQLiteStore: DirectChatProvisioningRepository, ChatSelectionRepository
         }
     }
 
+    public func provisionSelfSettingChat(
+        teammate: Teammate,
+        conversation: Conversation,
+        question: Message,
+        selectConversation: Bool
+    ) async throws {
+        try validateDirectChatAggregate(teammate: teammate, conversation: conversation, fixtureGreeting: question)
+        try transaction {
+            try insertTeammateGraph(teammate)
+            try insertConversationGraph(conversation, participantIDs: [teammate.id])
+            try placeNewBotAtTopOfSidebarOrder(teammate.id)
+            try appendMessageGraph(question, expectedPreviousSequence: 0)
+            try writePendingSelfSetup(teammateID: teammate.id, placeholderName: teammate.profile.displayName)
+            if selectConversation {
+                try writeSelectedConversationID(
+                    conversation.id,
+                    updatedAt: max(teammate.updatedAt, conversation.updatedAt)
+                )
+            }
+        }
+    }
+
     public func selectedConversationID() async throws -> ConversationID? {
         let rows = try query(
             sql: """
@@ -51,11 +73,11 @@ extension SQLiteStore: DirectChatProvisioningRepository, ChatSelectionRepository
         switch (selectedValue, selectedKind) {
         case (nil, nil):
             return nil
-        case let (.some(value), .some(kind)) where kind == "direct":
+        case let (.some(value), .some(kind)) where kind == "direct" || kind == "team":
             return try parseID(ConversationID.self, value)
         default:
             throw RepositoryError.unavailable(
-                reason: "The saved chat selection does not reference a direct conversation."
+                reason: "The saved chat selection does not reference a direct or team conversation."
             )
         }
     }
@@ -104,7 +126,7 @@ extension SQLiteStore: DirectChatProvisioningRepository, ChatSelectionRepository
         }
     }
 
-    private func writeSelectedConversationID(
+    func writeSelectedConversationID(
         _ conversationID: ConversationID?,
         updatedAt: Date
     ) throws {
@@ -118,17 +140,26 @@ extension SQLiteStore: DirectChatProvisioningRepository, ChatSelectionRepository
                     id: conversationID.persistedValue
                 )
             }
-            guard try row.text("kind") == "direct" else {
+            switch try row.text("kind") {
+            case "direct":
+                guard try !query(sql: """
+                    SELECT 1 AS active FROM conversations c JOIN teammates t ON t.id=c.subject_id
+                    WHERE c.id=? AND c.lifecycle='active' AND t.lifecycle='active';
+                    """, bindings: [.text(conversationID.persistedValue)]).isEmpty else {
+                    throw TeammateArchiveError.invalidTransition
+                }
+            case "team":
+                guard try !query(sql: """
+                    SELECT 1 AS active FROM conversations c JOIN teams tm ON tm.id=c.subject_id
+                    WHERE c.id=? AND c.lifecycle='active' AND tm.lifecycle='active';
+                    """, bindings: [.text(conversationID.persistedValue)]).isEmpty else {
+                    throw TeammateArchiveError.invalidTransition
+                }
+            default:
                 throw DomainValidationError.invalid(
                     field: "selected conversation",
-                    reason: "must reference a direct conversation"
+                    reason: "must reference a direct or team conversation"
                 )
-            }
-            guard try !query(sql: """
-                SELECT 1 AS active FROM conversations c JOIN teammates t ON t.id=c.subject_id
-                WHERE c.id=? AND c.lifecycle='active' AND t.lifecycle='active';
-                """, bindings: [.text(conversationID.persistedValue)]).isEmpty else {
-                throw TeammateArchiveError.invalidTransition
             }
         }
 

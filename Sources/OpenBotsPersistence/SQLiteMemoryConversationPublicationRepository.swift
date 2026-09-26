@@ -139,7 +139,8 @@ extension SQLiteStore {
 
     func validateConversationPublicationShape(_ record: MemoryConversationPublicationRecord) throws {
         let p = record.publication, r = p.receipt, a = record.authority
-        guard r.policyVersion == 1, r.teammateID == a.teammateID, r.selectedProjectID == a.selectedProjectID,
+        guard MemoryPublicationReceipt.supportsPolicyVersion(r.policyVersion),
+              r.teammateID == a.teammateID, r.selectedProjectID == a.selectedProjectID,
               (1...145).contains(p.completeUnits.count), p.completeUnits.allSatisfy({ !$0.isEmpty }),
               (1...MemoryPublicationLimits.renderedBytes).contains(p.text.utf8.count),
               r.renderedTextDigest == MemoryClaimDigests.bytes(Data(p.text.utf8)),
@@ -243,7 +244,7 @@ extension SQLiteStore {
                         throw MemoryConversationPublicationRepositoryError.invalidSource
                     }
                 case .appObservation:
-                    // The only registered app predicate in this increment.
+                    // The only registered app predicate.
                     let id = record.authority.teammateID
                     guard source.sourceID == "teammate.saved-name:" + id.persistedValue,
                           let row = try query(sql: "SELECT display_name,profile_revision,updated_at FROM teammates WHERE id=?;",

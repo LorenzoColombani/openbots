@@ -1,0 +1,15 @@
+claude_code_version: 2.1.280
+$ echo TMPDIR=$TMPDIR; touch "$TMPDIR/probe" && echo TOUCH_OK; touch /tmp/claude-501/obn-leak 2>&1 && echo SHARED_WRITABLE
+Exit code 1
+TMPDIR=/tmp/obn-336f36e9
+touch: /tmp/obn-336f36e9/probe: Operation not permitted
+touch: /tmp/claude-501/obn-leak: Operation not permitted
+
+$ swift --version 2>&1 | head -1; echo EXIT=$?
+error: permissionDenied
+EXIT=0
+
+$ printf 'print(1+1)\n' > hello.swift && swift hello.swift 2>&1; echo EXIT=$?
+error: permissionDenied
+EXIT=1
+

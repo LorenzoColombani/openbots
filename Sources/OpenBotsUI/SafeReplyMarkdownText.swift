@@ -94,12 +94,61 @@ struct SafeReplyMarkdownText: NSViewRepresentable {
     final class Coordinator {
         var source: String?
         var formatted = NSAttributedString(string: "")
+        /// What this row is showing, for the label to declare. Set beside the
+        /// parse, so it always describes the value actually installed rather
+        /// than the body font of the moment.
+        private(set) var declaration: TranscriptTextDeclaration?
+        private(set) var digest: TranscriptTextDigest?
 
         func value(for content: String) -> NSAttributedString {
-            if source?.utf8.elementsEqual(content.utf8) != true {
-                source = content
-                formatted = SafeReplyMarkdown.attributedText(content)
+            guard source?.utf8.elementsEqual(content.utf8) != true else { return formatted }
+            // Whether this row's text is still arriving. A reply is delivered in
+            // chunks appended to what is already there, so a snapshot that
+            // extends the last one is an intermediate state of one reply rather
+            // than a different reply: two hundred of them for a long answer, each
+            // with its own digest, its own parse and its own height. The
+            // equal-length case cannot reach here — the guard above returned on
+            // identical bytes.
+            let isStillArriving = source.map {
+                content.utf8.count > $0.utf8.count && content.utf8.starts(with: $0.utf8)
+            } ?? false
+            source = content
+            let font = NSFont.preferredFont(forTextStyle: .body)
+            let digest = TranscriptTextDigest.make(TranscriptTextDeclaration(
+                kind: .markdown, tone: 0, font: font, content: content
+            ))
+            // A rebuilt row is a brand-new coordinator with an empty parse, so
+            // scrolling back to a reply already read used to re-parse the whole
+            // thing. The parse depends on the source and the body font alone,
+            // both of which the digest covers.
+            if let shared = SharedTranscriptTextCaches.parsedMarkdown(for: digest) {
+                LayoutStormCounters.hit("markdown.parseShared")
+                formatted = shared
+            } else {
+                LayoutStormCounters.hit("markdown.parse")
+                // Immutable, and copied once: one instance now answers for every
+                // row showing this reply, and `attributedText` builds a mutable
+                // string that a caller could still hold a reference to.
+                let parsed = NSAttributedString(attributedString: SafeReplyMarkdown.attributedText(content))
+                if !isStillArriving { SharedTranscriptTextCaches.rememberParsedMarkdown(parsed, for: digest) }
+                formatted = parsed
             }
+            // A row whose text is still arriving says nothing about what it is
+            // showing, so its label neither reads from nor writes to the stores
+            // shared with every other row. It pays its own parse and its own
+            // layout, which it was going to pay anyway because its text really
+            // did change; what it no longer does is push two hundred answers
+            // nothing will ask for again through stores holding a few dozen, and
+            // evict the answers the rows above it were read at. The finished
+            // reply is declared by the next row built to show it.
+            //
+            // The markers are gone by the time the label holds this, so the
+            // declaration carries the rendered length the label can check itself
+            // against, not the length of the source.
+            self.digest = isStillArriving ? nil : digest
+            declaration = isStillArriving ? nil : TranscriptTextDeclaration(
+                kind: .markdown, tone: 0, font: font, content: content, renderedLength: formatted.length
+            )
             return formatted
         }
     }
@@ -107,25 +156,29 @@ struct SafeReplyMarkdownText: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(wrappingLabelWithString: "")
-        field.isEditable = false
-        field.isSelectable = true
-        field.isBezeled = false
-        field.drawsBackground = false
-        field.focusRingType = .none
-        field.lineBreakMode = .byWordWrapping
-        field.usesSingleLineMode = false
-        field.maximumNumberOfLines = 0
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.required, for: .vertical)
+        // The same wrapping label as plain transcript text, so its intrinsic
+        // size follows the frame it is given instead of its widest line (a
+        // formatted reply can hold lines over a thousand points wide).
+        let field = StableSelectableText.makeField("")
         updateNSView(field, context: context)
         return field
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
-        let value = context.coordinator.value(for: content)
+        apply(to: field, coordinator: context.coordinator)
+    }
+
+    /// The write SwiftUI performs on every update pass, without a `Context`, so a
+    /// benchmark can build the row AppKit actually receives.
+    func apply(to field: NSTextField, coordinator: Coordinator) {
+        LayoutStormCounters.hit("markdown.update")
+        let value = coordinator.value(for: content)
         if !field.attributedStringValue.isEqual(to: value) { field.attributedStringValue = value }
+        // Last, after the write that would drop it, and with the digest the
+        // coordinator already computed rather than a second hash of the reply.
+        if let declaration = coordinator.declaration, let digest = coordinator.digest {
+            (field as? StableWrappingLabel)?.declare(declaration, digest: digest)
+        }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView field: NSTextField, context: Context) -> CGSize? {

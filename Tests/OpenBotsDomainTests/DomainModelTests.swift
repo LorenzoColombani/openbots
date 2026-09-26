@@ -129,4 +129,35 @@ final class DomainModelTests: XCTestCase {
         try approval.apply(.executionSucceeded, at: instant)
         XCTAssertEqual(approval.state, .succeeded)
     }
+
+    func testTwoBotNamesAreTheSameNameWithoutCaseAndAnArchivedBotGivesItsNameUp() throws {
+        XCTAssertTrue(TeammateProfile.namesMatch("Ada", "ada"))
+        XCTAssertTrue(TeammateProfile.namesMatch("  ADA \n", "Ada"))
+        XCTAssertFalse(TeammateProfile.namesMatch("Ada", "Ada B"))
+        XCTAssertFalse(TeammateProfile.namesMatch("", "Ada"))
+
+        func bot(_ id: Int, _ name: String, _ lifecycle: TeammateLifecycle = .active) throws -> Teammate {
+            try Teammate(
+                id: TeammateID(UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", id))!),
+                profile: TeammateProfile(displayName: name, role: "Research"),
+                appearance: AgentAppearance(
+                    mode: .creature, grammarVersion: 1, deterministicSeed: UInt64(id), silhouette: "round",
+                    paletteToken: "mint", eyeDialect: "calm", nonColorIdentityCue: "leaf ears",
+                    accessibleIdentityDescription: "Round creature"
+                ),
+                lifecycle: lifecycle, createdAt: instant, updatedAt: instant
+            )
+        }
+        let ada = try bot(1, "Ada")
+        let rook = try bot(2, "Rook", .archivePendingRunResolution)
+        let goneMira = try bot(3, "Mira", .archived)
+        let roster = [ada, rook, goneMira]
+
+        XCTAssertEqual(roster.activeBot(named: " ada ")?.id, ada.id)
+        XCTAssertEqual(roster.activeBot(named: "ROOK")?.id, rook.id, "A bot waiting to be archived still holds its name")
+        XCTAssertNil(roster.activeBot(named: "Mira"), "An archived bot has given its name up")
+        XCTAssertNil(roster.activeBot(named: "ada", excluding: ada.id), "A bot keeps its own name in any case")
+        XCTAssertEqual(roster.activeBot(named: "ada", excluding: rook.id)?.id, ada.id)
+        XCTAssertNil(roster.activeBot(named: ""))
+    }
 }

@@ -14,95 +14,139 @@ extension SQLiteStore: TeamRepository {
     }
 
     public func insert(_ team: Team) async throws {
-        try transaction {
-            let orderedMemberIDs = team.memberIDs.sorted {
-                $0.persistedValue < $1.persistedValue
-            }
-            // The directory service validates first for useful domain errors,
-            // then SQLite revalidates in the same transaction that publishes
-            // the aggregate. This prevents an archive/delete race between the
-            // application-service check and the first team write.
-            for teammateID in orderedMemberIDs {
-                guard let row = try query(
-                    sql: "SELECT lifecycle FROM teammates WHERE id=?;",
-                    bindings: [.text(teammateID.persistedValue)]
-                ).first else {
-                    throw RepositoryError.notFound(
-                        entity: "teammate",
-                        id: teammateID.persistedValue
-                    )
-                }
-                guard try row.text("lifecycle") == TeammateLifecycle.active.rawValue else {
-                    throw RepositoryError.unavailable(
-                        reason: "Team members must be active teammates."
-                    )
-                }
-            }
+        try transaction { try insertTeamGraph(team) }
+    }
+
+    /// Inserts the team row and its active memberships. The caller owns the
+    /// transaction so team provisioning can compose this graph with the team's
+    /// conversation and the navigation selection.
+    func insertTeamGraph(_ team: Team) throws {
+        let orderedMemberIDs = team.memberIDs.sorted { $0.persistedValue < $1.persistedValue }
+        // The directory service validates first for useful domain errors,
+        // then SQLite revalidates in the same transaction that publishes
+        // the aggregate. This prevents an archive/delete race between the
+        // application-service check and the first team write.
+        try requireActiveTeammates(orderedMemberIDs)
+        _ = try execute(
+            sql: """
+            INSERT INTO teams(id,name,summary,lead_teammate_id,lifecycle,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?);
+            """,
+            bindings: [
+                .text(team.id.persistedValue), .text(team.name),
+                team.summary.map(SQLiteBinding.text) ?? .null,
+                .text(team.leadID.persistedValue), .text(team.lifecycle.rawValue),
+                .real(team.createdAt.timeIntervalSince1970), .real(team.updatedAt.timeIntervalSince1970)
+            ]
+        )
+        for teammateID in orderedMemberIDs {
             _ = try execute(
-                sql: """
-                INSERT INTO teams(id,name,summary,lead_teammate_id,lifecycle,created_at,updated_at)
-                VALUES (?,?,?,?,?,?,?);
-                """,
+                sql: "INSERT INTO team_memberships(team_id,teammate_id,joined_at,revoked_at) VALUES (?,?,?,NULL);",
                 bindings: [
-                    .text(team.id.persistedValue), .text(team.name),
-                    team.summary.map(SQLiteBinding.text) ?? .null,
-                    .text(team.leadID.persistedValue), .text(team.lifecycle.rawValue),
-                    .real(team.createdAt.timeIntervalSince1970), .real(team.updatedAt.timeIntervalSince1970)
+                    .text(team.id.persistedValue), .text(teammateID.persistedValue),
+                    .real(team.createdAt.timeIntervalSince1970)
                 ]
             )
-            for teammateID in orderedMemberIDs {
-                _ = try execute(
-                    sql: "INSERT INTO team_memberships(team_id,teammate_id,joined_at,revoked_at) VALUES (?,?,?,NULL);",
-                    bindings: [
-                        .text(team.id.persistedValue), .text(teammateID.persistedValue),
-                        .real(team.createdAt.timeIntervalSince1970)
-                    ]
-                )
-            }
         }
     }
 
+    /// The team row and its memberships only.
+    ///
+    /// A membership alone does not authorise a durable turn: the read-context
+    /// authority and the run journal both want an unclosed
+    /// `conversation_participants` row for the same teammate. Changing who
+    /// belongs to a team that has a conversation therefore goes through
+    /// `TeamProvisioningRepository.updateTeam`, never through this method,
+    /// which would leave the added member routed to and then refused.
     public func update(_ team: Team) async throws {
-        try transaction {
-            let existingRows = try query(
-                sql: "SELECT teammate_id FROM team_memberships WHERE team_id=? AND revoked_at IS NULL;",
-                bindings: [.text(team.id.persistedValue)]
-            )
-            let existing = try Set(existingRows.map { try parseID(TeammateID.self, $0.text("teammate_id")) })
-            let changes = try execute(
-                sql: "UPDATE teams SET name=?,summary=?,lead_teammate_id=?,lifecycle=?,updated_at=? WHERE id=?;",
-                bindings: [
-                    .text(team.name), team.summary.map(SQLiteBinding.text) ?? .null,
-                    .text(team.leadID.persistedValue), .text(team.lifecycle.rawValue),
-                    .real(team.updatedAt.timeIntervalSince1970), .text(team.id.persistedValue)
-                ]
-            )
-            guard changes == 1 else {
-                throw RepositoryError.notFound(entity: "team", id: team.id.persistedValue)
-            }
+        try transaction { try updateTeamGraph(team) }
+    }
 
-            for teammateID in existing.subtracting(team.memberIDs) {
-                _ = try execute(
-                    sql: "UPDATE team_memberships SET revoked_at=? WHERE team_id=? AND teammate_id=? AND revoked_at IS NULL;",
-                    bindings: [
-                        .real(team.updatedAt.timeIntervalSince1970), .text(team.id.persistedValue),
-                        .text(teammateID.persistedValue)
-                    ]
+    /// Revalidates the members inside the writing transaction, the way
+    /// `insertTeamGraph` does, so an archive racing an edit cannot publish an
+    /// inactive member.
+    func requireActiveTeammates(_ teammateIDs: [TeammateID]) throws {
+        for teammateID in teammateIDs {
+            guard let row = try query(
+                sql: "SELECT lifecycle FROM teammates WHERE id=?;",
+                bindings: [.text(teammateID.persistedValue)]
+            ).first else {
+                throw RepositoryError.notFound(
+                    entity: "teammate",
+                    id: teammateID.persistedValue
                 )
             }
-            for teammateID in team.memberIDs.subtracting(existing) {
-                _ = try execute(
-                    sql: "INSERT INTO team_memberships(team_id,teammate_id,joined_at,revoked_at) VALUES (?,?,?,NULL);",
-                    bindings: [
-                        .text(team.id.persistedValue), .text(teammateID.persistedValue),
-                        .real(team.updatedAt.timeIntervalSince1970)
-                    ]
+            guard try row.text("lifecycle") == TeammateLifecycle.active.rawValue else {
+                throw RepositoryError.unavailable(
+                    reason: "Team members must be active teammates."
                 )
             }
         }
     }
 
-    private func teamRows(whereClause: String, bindings: [SQLiteBinding]) throws -> [Team] {
+    /// Rewrites the team row and its memberships. The caller owns the
+    /// transaction so a team edit can compose this graph with the team
+    /// conversation's title and participants.
+    ///
+    /// `expectedUpdatedAt` is the row's `updated_at` as the caller read it
+    /// before deriving this roster. Supplying it makes the write a
+    /// compare-and-set, so a second writer that published between that read
+    /// and this write refuses the whole graph instead of letting a stale
+    /// roster revoke the member it added or resurrect the one it removed.
+    /// `TeamRepository.update` writes the team row alone and passes none.
+    func updateTeamGraph(_ team: Team, expectedUpdatedAt: Date? = nil) throws {
+        let existingRows = try query(
+            sql: "SELECT teammate_id FROM team_memberships WHERE team_id=? AND revoked_at IS NULL;",
+            bindings: [.text(team.id.persistedValue)]
+        )
+        let existing = try Set(existingRows.map { try parseID(TeammateID.self, $0.text("teammate_id")) })
+        var bindings: [SQLiteBinding] = [
+            .text(team.name), team.summary.map(SQLiteBinding.text) ?? .null,
+            .text(team.leadID.persistedValue), .text(team.lifecycle.rawValue),
+            .real(team.updatedAt.timeIntervalSince1970), .text(team.id.persistedValue)
+        ]
+        // The instant the caller read, bound the way the column is written, so
+        // the row this roster was derived from is the row it overwrites.
+        if let expectedUpdatedAt { bindings.append(.real(expectedUpdatedAt.timeIntervalSince1970)) }
+        let changes = try execute(
+            sql: expectedUpdatedAt == nil
+                ? "UPDATE teams SET name=?,summary=?,lead_teammate_id=?,lifecycle=?,updated_at=? WHERE id=?;"
+                : "UPDATE teams SET name=?,summary=?,lead_teammate_id=?,lifecycle=?,updated_at=? WHERE id=? AND updated_at=?;",
+            bindings: bindings
+        )
+        guard changes == 1 else {
+            // A row that is there but did not match means another writer
+            // published an edit between the caller's read and this write.
+            if expectedUpdatedAt != nil, try query(
+                sql: "SELECT id FROM teams WHERE id=?;",
+                bindings: [.text(team.id.persistedValue)]
+            ).first != nil {
+                throw RepositoryError.optimisticLockFailed(entity: "team", id: team.id.persistedValue)
+            }
+            throw RepositoryError.notFound(entity: "team", id: team.id.persistedValue)
+        }
+
+        for teammateID in existing.subtracting(team.memberIDs) {
+            _ = try execute(
+                sql: "UPDATE team_memberships SET revoked_at=? WHERE team_id=? AND teammate_id=? AND revoked_at IS NULL;",
+                bindings: [
+                    .real(team.updatedAt.timeIntervalSince1970), .text(team.id.persistedValue),
+                    .text(teammateID.persistedValue)
+                ]
+            )
+        }
+        for teammateID in team.memberIDs.subtracting(existing) {
+            _ = try execute(
+                sql: "INSERT INTO team_memberships(team_id,teammate_id,joined_at,revoked_at) VALUES (?,?,?,NULL);",
+                bindings: [
+                    .text(team.id.persistedValue), .text(teammateID.persistedValue),
+                    .real(team.updatedAt.timeIntervalSince1970)
+                ]
+            )
+        }
+    }
+
+    func teamRows(whereClause: String, bindings: [SQLiteBinding]) throws -> [Team] {
         let rows = try query(
             sql: "SELECT * FROM teams WHERE \(whereClause) ORDER BY updated_at DESC,id;",
             bindings: bindings
@@ -207,6 +251,12 @@ extension SQLiteStore: ApprovalRepository {
             bindings: [.text(id.persistedValue)]
         ).first else { return nil }
         return try decodeApproval(row)
+    }
+
+    public func approvals(conversationID: ConversationID, limit: Int) async throws -> [ApprovalRequest] {
+        guard (1...500).contains(limit) else { return [] }
+        return try query(sql: "SELECT * FROM approvals WHERE conversation_id=? ORDER BY requested_at DESC LIMIT ?;",
+                         bindings: [.text(conversationID.persistedValue), .integer(Int64(limit))]).map(decodeApproval)
     }
 
     public func insert(_ approval: ApprovalRequest) async throws {

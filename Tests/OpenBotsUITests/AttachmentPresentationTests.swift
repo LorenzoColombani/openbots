@@ -7,6 +7,16 @@ import XCTest
 
 @MainActor
 final class AttachmentPresentationTests: XCTestCase {
+    /// A ready file chip once showed "12 KB • SHA-256 a1b2c3d4…". It shows the size and the kind of file.
+    func testTheFileChipShowsSizeAndKindNotAHash() {
+        let pdf = AttachmentChipWording.readyLine(displayName: "Report.pdf", byteCount: 12_000)
+        XCTAssertTrue(pdf.hasPrefix(ByteCountFormatter.string(fromByteCount: 12_000, countStyle: .file)), pdf)
+        XCTAssertTrue(pdf.contains("PDF"), pdf)
+        XCTAssertFalse(pdf.contains("SHA"), pdf)
+        let unknown = AttachmentChipWording.readyLine(displayName: "notes", byteCount: 42)
+        XCTAssertEqual(unknown, ByteCountFormatter.string(fromByteCount: 42, countStyle: .file))
+    }
+
     func testNoAdapterPreservesInertPreviewPresentation() async {
         let model = AttachmentPartPresentationModel()
         await model.load(route: attachmentRoute(1), presentation: nil)
@@ -145,7 +155,10 @@ final class AttachmentPresentationTests: XCTestCase {
         // VoiceOver, Finder, or accessibility-helper verification.
     }
 
-    func testSourceKeepsExplicitRevealAndAccessibleChildControlsWithoutOpen() throws {
+    /// The chip offers Open, Reveal in Finder and Save to…, all
+    /// through the presentation's revealers; the view itself never touches
+    /// NSWorkspace or builds a URL.
+    func testSourceKeepsExplicitRevealOpenAndSaveThroughThePresentation() throws {
         let directory = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let source = try String(contentsOf: directory.appendingPathComponent("Sources/OpenBotsUI/TranscriptMessagePartsView.swift"), encoding: .utf8)
@@ -156,7 +169,8 @@ final class AttachmentPresentationTests: XCTestCase {
         XCTAssertTrue(attachmentSection.contains("Button(\"Reload Attachment\")"))
         XCTAssertFalse(attachmentSection.contains("NSWorkspace"))
         XCTAssertFalse(attachmentSection.contains("URL("))
-        XCTAssertFalse(attachmentSection.contains("Button(\"Open"))
+        XCTAssertTrue(attachmentSection.contains("Button(\"Open\")"))
+        XCTAssertTrue(attachmentSection.contains("Button(\"Save to…\")"))
     }
 }
 

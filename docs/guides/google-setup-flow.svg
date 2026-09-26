@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 360" width="900" height="360" role="img" aria-labelledby="t d">
+  <title id="t">Google setup for OpenBots, in six steps</title>
+  <desc id="d">In Google Cloud: 1 create a project, 2 enable the Gmail, Calendar and Drive APIs, 3 set up the consent screen as External and Testing with yourself as test user, 4 create a Desktop client. Then two paths: 5 the Client ID goes into the build, 6 the downloaded JSON file goes into the app, where you sign in.</desc>
+  <style>
+    .panel { fill: #ffffff; stroke: #d0d7de; }
+    .zone { fill: #f6f8fa; stroke: none; }
+    .card { fill: #ffffff; stroke: #8c959f; stroke-width: 1.25; }
+    .card.mac { stroke: #0969da; }
+    .num { fill: #1f2328; }
+    .num.mac { fill: #0969da; }
+    .numtext { fill: #ffffff; font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .head { fill: #1f2328; font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .body { fill: #57606a; font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .code { fill: #1f2328; font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .zonelabel { fill: #57606a; font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; letter-spacing: 0.06em; }
+    .arrow { stroke: #57606a; stroke-width: 1.5; fill: none; marker-end: url(#tip); }
+  </style>
+  <defs>
+    <marker id="tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
+    </marker>
+  </defs>
+
+  <rect class="panel" x="0.5" y="0.5" width="899" height="359" rx="12"/>
+
+  <!-- Google Cloud zone -->
+  <rect class="zone" x="16" y="16" width="868" height="150" rx="10"/>
+  <text class="zonelabel" x="32" y="38">IN GOOGLE CLOUD CONSOLE · ONCE</text>
+
+  <rect class="card" x="32" y="52" width="192" height="98" rx="8"/>
+  <circle class="num" cx="54" cy="74" r="11"/><text class="numtext" x="54" y="78.5" text-anchor="middle">1</text>
+  <text class="head" x="74" y="79">New project</text>
+  <text class="body" x="46" y="104">Any name, for example</text>
+  <text class="code" x="46" y="122">OpenBots</text>
+
+  <rect class="card" x="244" y="52" width="192" height="98" rx="8"/>
+  <circle class="num" cx="266" cy="74" r="11"/><text class="numtext" x="266" y="78.5" text-anchor="middle">2</text>
+  <text class="head" x="286" y="79">Enable three APIs</text>
+  <text class="body" x="258" y="104">Gmail API</text>
+  <text class="body" x="258" y="121">Google Calendar API</text>
+  <text class="body" x="258" y="138">Google Drive API</text>
+
+  <rect class="card" x="456" y="52" width="192" height="98" rx="8"/>
+  <circle class="num" cx="478" cy="74" r="11"/><text class="numtext" x="478" y="78.5" text-anchor="middle">3</text>
+  <text class="head" x="498" y="79">Consent screen</text>
+  <text class="body" x="470" y="104">Audience: External</text>
+  <text class="body" x="470" y="121">Status: Testing</text>
+  <text class="body" x="470" y="138">Test user: your account</text>
+
+  <rect class="card" x="668" y="52" width="200" height="98" rx="8"/>
+  <circle class="num" cx="690" cy="74" r="11"/><text class="numtext" x="690" y="78.5" text-anchor="middle">4</text>
+  <text class="head" x="710" y="79">Desktop client</text>
+  <text class="body" x="682" y="104">Type: Desktop app</text>
+  <text class="body" x="682" y="121">Copy the Client ID</text>
+  <text class="body" x="682" y="138">Download JSON</text>
+
+  <path class="arrow" d="M224,101 H240"/>
+  <path class="arrow" d="M436,101 H452"/>
+  <path class="arrow" d="M648,101 H664"/>
+
+  <!-- Mac zone -->
+  <text class="zonelabel" x="32" y="196">ON YOUR MAC</text>
+
+  <path class="arrow" d="M720,150 C720,205 520,200 450,236"/>
+  <path class="arrow" d="M820,150 V236"/>
+
+  <rect class="card mac" x="32" y="240" width="520" height="100" rx="8"/>
+  <circle class="num mac" cx="54" cy="262" r="11"/><text class="numtext" x="54" y="266.5" text-anchor="middle">5</text>
+  <text class="head" x="74" y="267">Client ID → into the build</text>
+  <text class="code" x="46" y="293">OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=… sh   (installer)</text>
+  <text class="code" x="46" y="311">.build.noindex/google-oauth-client-id   (from a clone)</text>
+  <text class="body" x="46" y="330">The ID only. The secret never goes into the build.</text>
+
+  <rect class="card mac" x="572" y="240" width="296" height="100" rx="8"/>
+  <circle class="num mac" cx="594" cy="262" r="11"/><text class="numtext" x="594" y="266.5" text-anchor="middle">6</text>
+  <text class="head" x="614" y="267">JSON file → into the app</text>
+  <text class="body" x="586" y="293">Settings → Connectors &amp; Skills</text>
+  <text class="body" x="586" y="311">Choose the file, then Sign in</text>
+  <text class="body" x="586" y="330">The secret is kept in your Keychain.</text>
+</svg>

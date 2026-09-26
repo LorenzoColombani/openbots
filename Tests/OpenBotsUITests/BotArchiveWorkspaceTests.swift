@@ -264,6 +264,67 @@ final class BotArchiveWorkspaceTests: XCTestCase {
         XCTAssertEqual(unchanged, teammate)
     }
 
+    /// A message still saving in another bot's chat must not be blamed on this
+    /// bot ("Wait for this bot's message"). Saving the
+    /// drafts waits for every send, so the archive still waits, and says why.
+    func testAMessageSavingInAnotherBotsChatIsNamedAsSuchAndTheRetryWorks() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let gate = ArchiveWorkspaceGate()
+        let service = DelayedContextMenuSelectionService(backing: fixture.chatService(store: store), gate: gate)
+        let workspace = makeWorkspace(fixture, store: store, chatService: service)
+        defer { workspace.finishShutdown(); gate.release() }
+        let bots = try await prepareContextMenuBots(workspace)
+        await service.delayNextMessage()
+        workspace.conversation.composerText = "Still saving in the other bot's chat"
+        workspace.conversation.sendCurrentText()
+        try await referenceWaitUntil { gate.isWaiting }
+        workspace.sidebar.selection = bots.first.id.rawValue
+        await workspace.selectionTask?.value
+        XCTAssertTrue(workspace.conversation.hasPendingSubmissions(in: bots.otherChat.rawValue))
+        XCTAssertFalse(workspace.conversation.hasPendingSubmissions(in: bots.firstChat.rawValue))
+        await workspace.archiveSelectedBot()
+        XCTAssertEqual(workspace.archiveModel?.errorMessage,
+            "Wait for the message you just sent to finish saving, then archive again.")
+        gate.release()
+        try await referenceWaitUntil { !workspace.conversation.hasPendingSubmissions }
+        workspace.archiveModel?.errorMessage = nil
+        await workspace.archiveSelectedBot()
+        XCTAssertNil(workspace.archiveModel?.errorMessage)
+        let archived = try await store.teammate(id: bots.first.id)
+        XCTAssertEqual(archived?.lifecycle, .archived)
+    }
+
+    /// A real draft conflict while another chat's message is in flight must not
+    /// be called "message saving", since waiting never fixes it. The draft's own failure is named first.
+    func testARealDraftConflictIsNamedEvenWhileAnotherMessageIsSaving() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let gate = ArchiveWorkspaceGate()
+        let service = DelayedContextMenuSelectionService(backing: fixture.chatService(store: store), gate: gate)
+        let workspace = makeWorkspace(fixture, store: store, chatService: service)
+        defer { workspace.finishShutdown(); gate.release() }
+        let bots = try await prepareContextMenuBots(workspace)
+        await service.delayNextMessage()
+        workspace.conversation.composerText = "Still saving in the other bot's chat"
+        workspace.conversation.sendCurrentText()
+        try await referenceWaitUntil { gate.isWaiting }
+        workspace.sidebar.selection = bots.first.id.rawValue
+        await workspace.selectionTask?.value
+        try await referenceWaitUntil { workspace.draftCoordinator?.activeDraft?.status == .saved }
+        let old = try await store.loadDraft(conversationID: bots.firstChat)
+        _ = try await ConversationDraftService(repository: store).save(
+            conversationID: bots.firstChat, text: "Another editor's draft", expectedRevision: old?.revision ?? 0)
+        workspace.conversation.composerText = "My unsaved draft"
+        await workspace.archiveSelectedBot()
+        XCTAssertTrue(workspace.archiveModel?.errorMessage?.contains("draft could not be saved") == true,
+                      "Got: \(workspace.archiveModel?.errorMessage ?? "nil")")
+        let unchanged = try await store.teammate(id: bots.first.id)
+        XCTAssertEqual(unchanged?.lifecycle, .active)
+    }
+
     func testUnresolvedWorkErrorIsVisibleAndLeavesSidebarAndDraftIntact() async throws {
         let fixture = try ReferenceLocalWorkspaceFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -278,7 +339,24 @@ final class BotArchiveWorkspaceTests: XCTestCase {
         await workspace.archiveSelectedBot()
         XCTAssertEqual(workspace.sidebar.selection, teammate.id.rawValue)
         XCTAssertEqual(workspace.conversation.composerText, "Preserved draft")
-        XCTAssertTrue(workspace.archiveModel?.errorMessage?.contains("Nothing was cancelled") == true)
+        XCTAssertEqual(workspace.archiveModel?.errorMessage,
+            "This bot still has work in progress. Let it finish or stop it before archiving. Nothing was cancelled.")
+    }
+
+    func testRestoreRefusedForATakenNameSaysWhichBotHasIt() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let workspace = makeWorkspace(fixture, store: store, archive: NameTakenArchiveService())
+        defer { workspace.finishShutdown() }
+        try await workspace.loadInitialWorkspace()
+        await workspace.createTeammateImmediately()
+        let teammate = try XCTUnwrap(workspace.selectedTeammate)
+        await workspace.restoreBot(teammate)
+        XCTAssertEqual(
+            workspace.archiveModel?.errorMessage,
+            "There is already a bot called Ada. Rename that bot first, then restore this one."
+        )
     }
 
     func testPendingPhotoImportInClosedDetailsRefusesArchiveAndRetainsCompletedChoice() async throws {
@@ -426,6 +504,137 @@ final class BotArchiveWorkspaceTests: XCTestCase {
         XCTAssertEqual(savedSelection, chat)
     }
 
+    /// The dialog's Delete button defers its work to a task, and SwiftUI clears
+    /// the presentation binding before that task gets the main actor. Found live:
+    /// the dismissal wiped the target and nothing was deleted.
+    func testConfirmedDeleteSurvivesTheDialogDismissalAndTouchesNoOtherBot() async throws {
+        for dismissalFirst in [false, true] {
+            let fixture = try ReferenceLocalWorkspaceFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.directory) }
+            let store = try fixture.open()
+            let deletion = RecordingTeammateDeletion(store: store)
+            let workspace = makeWorkspace(fixture, store: store, deletion: deletion)
+            defer { workspace.finishShutdown() }
+            let bots = try await prepareContextMenuBots(workspace)
+
+            await workspace.prepareDeleteBot(id: bots.first.id.rawValue)
+            let request = try XCTUnwrap(workspace.deleteRequest)
+            XCTAssertEqual(request.id, bots.first.id.rawValue)
+            XCTAssertEqual(request.inventory.displayName, bots.first.profile.displayName)
+            // The dialog's Delete button: SwiftUI's dismissal lands before the
+            // button's task runs (what the app does), or after it has finished.
+            if dismissalFirst {
+                let tap = Task { @MainActor in await workspace.confirmDeleteBot(request) }
+                workspace.cancelDeleteBot()
+                await tap.value
+            } else {
+                await workspace.confirmDeleteBot(request)
+                workspace.cancelDeleteBot()
+            }
+
+            let deleted = await deletion.deletedIDs
+            XCTAssertEqual(deleted, [bots.first.id])
+            XCTAssertNil(workspace.deleteErrorMessage)
+            XCTAssertNil(workspace.deleteRequest)
+            XCTAssertEqual(workspace.sidebar.rows.map(\.id), [bots.other.id.rawValue])
+            let first = try await store.teammate(id: bots.first.id)
+            let other = try await store.teammate(id: bots.other.id)
+            XCTAssertNil(first)
+            XCTAssertEqual(other, bots.other)
+        }
+    }
+
+    func testDeleteThatCannotFindItsBotSaysSo() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let deletion = RecordingTeammateDeletion(store: store)
+        let workspace = makeWorkspace(fixture, store: store, deletion: deletion)
+        defer { workspace.finishShutdown() }
+        let bots = try await prepareContextMenuBots(workspace)
+
+        await workspace.prepareDeleteBot(id: bots.first.id.rawValue)
+        let request = try XCTUnwrap(workspace.deleteRequest)
+        await workspace.confirmDeleteBot(request)
+        XCTAssertNil(workspace.deleteErrorMessage)
+        await workspace.confirmDeleteBot(request)
+        XCTAssertEqual(workspace.deleteErrorMessage, "This bot is no longer available. Refresh the bot list.")
+        workspace.deleteErrorMessage = nil
+        await workspace.prepareDeleteBot(id: bots.first.id.rawValue)
+        XCTAssertNil(workspace.deleteRequest)
+        XCTAssertEqual(workspace.deleteErrorMessage, "This bot is no longer available. Refresh the bot list.")
+
+        let deleted = await deletion.deletedIDs
+        XCTAssertEqual(deleted, [bots.first.id])
+        let other = try await store.teammate(id: bots.other.id)
+        XCTAssertEqual(other, bots.other)
+    }
+
+    /// A card does not block Delete, so the refusal does not send the user
+    /// looking for an approval to resolve.
+    func testDeleteRefusedForWorkInProgressSaysWhatToDo() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let workspace = makeWorkspace(fixture, store: store, deletion: BusyTeammateDeletion(store: store))
+        defer { workspace.finishShutdown() }
+        let bots = try await prepareContextMenuBots(workspace)
+
+        await workspace.prepareDeleteBot(id: bots.first.id.rawValue)
+        await workspace.confirmDeleteBot(try XCTUnwrap(workspace.deleteRequest))
+
+        XCTAssertEqual(workspace.deleteErrorMessage,
+            "This bot still has work in progress. Let it finish or stop it before deleting. Nothing was deleted.")
+        let kept = try await store.teammate(id: bots.first.id)
+        XCTAssertEqual(kept, bots.first)
+    }
+
+    /// The dialog deletes the bot as it was when the dialog opened, or refuses.
+    func testDeleteRefusesABotThatChangedAfterTheDialogOpened() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let deletion = RecordingTeammateDeletion(store: store)
+        let workspace = makeWorkspace(fixture, store: store, deletion: deletion)
+        defer { workspace.finishShutdown() }
+        let bots = try await prepareContextMenuBots(workspace)
+
+        await workspace.prepareDeleteBot(id: bots.first.id.rawValue)
+        let request = try XCTUnwrap(workspace.deleteRequest)
+        let renamed = try await TeammateProfileService(repository: store).saveProfile(teammateID: bots.first.id,
+            expectedRevision: bots.first.profile.revision,
+            draft: TeammateProfileEditDraft(displayName: "Renamed meanwhile", role: bots.first.profile.role))
+        await workspace.confirmDeleteBot(request)
+
+        XCTAssertEqual(workspace.deleteErrorMessage, "This bot changed in another operation. Refresh and try again.")
+        let kept = try await store.teammate(id: bots.first.id)
+        XCTAssertEqual(kept?.profile, renamed.profile)
+        XCTAssertEqual(Set(workspace.sidebar.rows.map(\.id)), Set([bots.first.id.rawValue, bots.other.id.rawValue]))
+    }
+
+    func testDeleteConfirmationReadsAsPlainSentences() {
+        let practice = TeammateDeleteInventory(displayName: "Practice Test", hasProfile: true, conversationCount: 1,
+            memoryDocumentCount: 0, membershipCount: 0, hasProfileAsset: false,
+            botHomePath: "/OpenBots/Bots/Practice Test", skillsPath: nil)
+        XCTAssertEqual(deleteConfirmationMessage(practice),
+            "This permanently removes its profile and its transcript. "
+            + "Recoverable folders go to Trash where macOS allows. "
+            + "Workspace folders you added stay where they are.")
+        let full = TeammateDeleteInventory(displayName: "Kite", hasProfile: true, conversationCount: 3,
+            memoryDocumentCount: 2, membershipCount: 1, hasProfileAsset: true, botHomePath: nil, skillsPath: nil)
+        XCTAssertEqual(deleteConfirmationMessage(full),
+            "This permanently removes its profile, its 3 transcripts, its memory, its memberships and its profile photo. "
+            + "Workspace folders you added stay where they are.")
+        // A bot that spoke in a team chat goes; its words there stay.
+        let teamSpeaker = TeammateDeleteInventory(displayName: "Pillow", hasProfile: true, conversationCount: 1,
+            memoryDocumentCount: 0, membershipCount: 1, hasProfileAsset: false, botHomePath: nil, skillsPath: nil,
+            keepsTeamHistory: true)
+        XCTAssertEqual(deleteConfirmationMessage(teamSpeaker),
+            "This permanently removes its profile, its transcript and its memberships. "
+            + "Its messages in team chats stay, shown as “Deleted bot”. "
+            + "Workspace folders you added stay where they are.")
+    }
+
     private func prepareContextMenuBots(_ workspace: DurableWorkspaceModel) async throws -> ContextMenuBots {
         try await workspace.loadInitialWorkspace()
         await workspace.createTeammateImmediately()
@@ -454,12 +663,14 @@ final class BotArchiveWorkspaceTests: XCTestCase {
 
     private func makeWorkspace(_ fixture: ReferenceLocalWorkspaceFixture, store: SQLiteStore,
                                archive: (any TeammateArchiving)? = nil,
+                               deletion: (any TeammateDeleting)? = nil,
                                photoImporter: (@Sendable (URL) async throws -> ProfilePhotoAsset)? = nil,
                                attachmentFactory: WorkspaceAttachmentCoordinator.Factory? = nil,
                                chatService: (any DurableTeammateChatServing)? = nil) -> DurableWorkspaceModel {
         DurableWorkspaceModel(service: chatService ?? fixture.chatService(store: store), hiringService: ReferenceUnusedHiringService(),
             profileService: TeammateProfileService(repository: store),
             archiveService: archive ?? TeammateArchiveService(repository: store),
+            deletionService: deletion,
             draftService: ConversationDraftService(repository: store),
             photoImporter: photoImporter, attachmentDraftFactory: attachmentFactory)
     }
@@ -482,9 +693,16 @@ private actor DelayedContextMenuSelectionService: DurableTeammateChatServing {
     let backing: any DurableTeammateChatServing
     let gate: ArchiveWorkspaceGate
     private var delayedID: TeammateID?
+    private var delaysNextMessage = false
 
     init(backing: any DurableTeammateChatServing, gate: ArchiveWorkspaceGate) { self.backing = backing; self.gate = gate }
     func delayNextSelection(of id: TeammateID) { delayedID = id }
+    func delayNextMessage() { delaysNextMessage = true }
+    private func holdIfDelayed() async {
+        guard delaysNextMessage else { return }
+        delaysNextMessage = false
+        await gate.wait()
+    }
     func activeDirectChats() async throws -> [DurableDirectChatSnapshot] { try await backing.activeDirectChats() }
     func selectedDirectChat() async throws -> DurableChatSelectionSnapshot? { try await backing.selectedDirectChat() }
     func select(teammateID: TeammateID, conversationID: ConversationID) async throws {
@@ -502,14 +720,49 @@ private actor DelayedContextMenuSelectionService: DurableTeammateChatServing {
     }
     func saveMessageLocally(conversationID: ConversationID, teammateID: TeammateID, userMessageID: MessageID,
                            text: String, attachmentIDs: [AttachmentID]) async throws -> Message {
-        try await backing.saveMessageLocally(conversationID: conversationID, teammateID: teammateID,
+        await holdIfDelayed()
+        return try await backing.saveMessageLocally(conversationID: conversationID, teammateID: teammateID,
             userMessageID: userMessageID, text: text, attachmentIDs: attachmentIDs)
     }
     func sendMessageToLocalFixture(conversationID: ConversationID, teammateID: TeammateID,
                                    userMessageID: MessageID, text: String) async throws -> DurableLocalFixtureExchangeSnapshot {
-        try await backing.sendMessageToLocalFixture(conversationID: conversationID, teammateID: teammateID,
+        await holdIfDelayed()
+        return try await backing.sendMessageToLocalFixture(conversationID: conversationID, teammateID: teammateID,
             userMessageID: userMessageID, text: text)
     }
+}
+
+/// The real deletion over the store, counting every delete it is asked for.
+/// Folders are never moved to the Trash from a test.
+private actor RecordingTeammateDeletion: TeammateDeleting {
+    private let backing: TeammateDeletionService
+    private(set) var deletedIDs: [TeammateID] = []
+
+    init(store: SQLiteStore) {
+        backing = TeammateDeletionService(repository: store, fileManager: NoTrashFileManager())
+    }
+
+    func inventory(id: TeammateID) async throws -> TeammateDeleteInventory { try await backing.inventory(id: id) }
+    func deletedTeammateIDs() async throws -> Set<TeammateID> { try await backing.deletedTeammateIDs() }
+    func deleteTeammate(id: TeammateID, expectedProfileRevision: UInt64) async throws -> TeammateDeleteInventory {
+        deletedIDs.append(id)
+        return try await backing.deleteTeammate(id: id, expectedProfileRevision: expectedProfileRevision)
+    }
+}
+
+/// The real inventory, and a delete refused as work in progress.
+private actor BusyTeammateDeletion: TeammateDeleting {
+    private let backing: TeammateDeletionService
+    init(store: SQLiteStore) { backing = TeammateDeletionService(repository: store, fileManager: NoTrashFileManager()) }
+    func inventory(id: TeammateID) async throws -> TeammateDeleteInventory { try await backing.inventory(id: id) }
+    func deletedTeammateIDs() async throws -> Set<TeammateID> { try await backing.deletedTeammateIDs() }
+    func deleteTeammate(id: TeammateID, expectedProfileRevision: UInt64) async throws -> TeammateDeleteInventory {
+        throw TeammateDeleteError.unresolvedWork
+    }
+}
+
+private final class NoTrashFileManager: FileManager, @unchecked Sendable {
+    override func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {}
 }
 
 private actor RefusingArchiveService: TeammateArchiving {
@@ -519,6 +772,17 @@ private actor RefusingArchiveService: TeammateArchiving {
     }
     func restoreTeammate(id: TeammateID, expectedProfileRevision: UInt64) async throws -> Teammate {
         throw TeammateArchiveError.unresolvedWork
+    }
+}
+
+/// The store's answer when the archived bot's name was taken while it was away.
+private actor NameTakenArchiveService: TeammateArchiving {
+    func archivedTeammates() async throws -> [Teammate] { [] }
+    func archiveTeammate(id: TeammateID, expectedProfileRevision: UInt64) async throws -> Teammate {
+        throw TeammateArchiveError.unresolvedWork
+    }
+    func restoreTeammate(id: TeammateID, expectedProfileRevision: UInt64) async throws -> Teammate {
+        throw TeammateNameTakenError(existingName: "Ada")
     }
 }
 

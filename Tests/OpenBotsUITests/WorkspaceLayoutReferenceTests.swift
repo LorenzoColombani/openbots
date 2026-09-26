@@ -189,10 +189,9 @@ final class ReferenceWorkspaceLayoutTests: XCTestCase {
         XCTAssertEqual(unintendedActions, 0)
         let submissionCount = await submissions.count
         XCTAssertEqual(submissionCount, 0)
-        // The first bounded run omitted SwiftUI's conversation tree at both
-        // 720 and 1080 points. Preserve those receipts; do not repeat that
-        // unchanged probe in a geometry regression or count it as a tree pass.
-        referenceLayoutLog("AX UNVERIFIED: message/attachment reachability was not tested here; later native full-tree/read/control acceptance is required")
+        // This offscreen host does not expose SwiftUI's conversation tree at
+        // 720 or 1080 points, so a geometry check here is not a tree check.
+        referenceLayoutLog("AX UNVERIFIED: message/attachment reachability is not tested here")
     }
 
     private func exerciseSidebarHoverLayout(scheme: ColorScheme) async throws {
@@ -440,7 +439,7 @@ final class ReferenceWorkspaceLayoutTests: XCTestCase {
             }
             referenceLayoutLog("header \(scheme) width=\(width), avatar=\(avatarFrame), reserved native layout=\(windowLayout), native buttons=\(buttons.count), native Details buttons=\(details.count)")
             if details.isEmpty {
-                referenceLayoutLog("AX UNVERIFIED: hidden host exposes no native Details button bounds; required PNG retains its visual layout for separate review")
+                referenceLayoutLog("AX UNVERIFIED: hidden host exposes no native Details button bounds; the PNG keeps its visual layout for a person to check")
             }
             try captureReferenceLayout(content, name: "reference-header-long-name-\(scheme)-\(Int(width)).png")
             XCTAssertEqual(content.bounds.width, width, accuracy: 1)

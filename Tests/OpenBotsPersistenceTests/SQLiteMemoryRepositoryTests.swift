@@ -26,7 +26,7 @@ final class SQLiteMemoryRepositoryTests: XCTestCase {
             let contract = try await store.authorityContract()
             let facts = try await store.runtimeFacts()
             XCTAssertEqual(contract, .appOwnedMarkdownV1)
-            XCTAssertEqual(facts.migrationCount, 20)
+            XCTAssertEqual(facts.migrationCount, SQLiteStore.expectedMigrationCount)
             try await store.insert(userDocument)
             try await store.insert(projectDocument)
             let allDocumentIDs = Set(try await store.allDocuments().map(\.id))
@@ -43,7 +43,7 @@ final class SQLiteMemoryRepositoryTests: XCTestCase {
         let reopenedFacts = try await reopened.runtimeFacts()
         let reopenedDocumentIDs = Set(try await reopened.allDocuments().map(\.id))
         XCTAssertEqual(reopenedContract, .appOwnedMarkdownV1)
-        XCTAssertEqual(reopenedFacts.migrationCount, 20)
+        XCTAssertEqual(reopenedFacts.migrationCount, SQLiteStore.expectedMigrationCount)
         XCTAssertEqual(
             reopenedDocumentIDs,
             [userDocument.id, projectDocument.id]

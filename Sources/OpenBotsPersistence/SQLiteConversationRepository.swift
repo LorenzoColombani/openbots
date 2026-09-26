@@ -84,7 +84,7 @@ extension SQLiteStore: ConversationRepository {
         }
     }
 
-    private func conversationRows(
+    func conversationRows(
         whereClause: String,
         bindings: [SQLiteBinding]
     ) throws -> [Conversation] {
@@ -145,19 +145,47 @@ extension SQLiteStore: MessageRepository {
 
     public func page(conversationID: ConversationID, request: PageRequest) async throws -> Page<Message> {
         let boundary = request.beforeSequence ?? Int64.max
+        // An excluded class is filtered here, not after the fetch: the limit
+        // and the `hasMore` probe row must count the rows the caller keeps,
+        // or a run of excluded rows longer than a page reads as an empty page.
+        let excluded = request.excludedOutputClasses.map(\.rawValue).sorted()
+        let exclusion = excluded.isEmpty
+            ? ""
+            : " AND output_class NOT IN (\(Array(repeating: "?", count: excluded.count).joined(separator: ",")))"
         let rows = try query(
             sql: """
-            SELECT * FROM messages WHERE conversation_id=? AND sequence<?
+            SELECT * FROM messages WHERE conversation_id=? AND sequence<?\(exclusion)
             ORDER BY sequence DESC LIMIT ?;
             """,
-            bindings: [
-                .text(conversationID.persistedValue), .integer(boundary), .integer(Int64(request.limit + 1))
-            ]
+            bindings: [.text(conversationID.persistedValue), .integer(boundary)]
+                + excluded.map { .text($0) }
+                + [.integer(Int64(request.limit + 1))]
         )
         let hasMore = rows.count > request.limit
         let selected = rows.prefix(request.limit)
-        let messages = try selected.map(decodeMessage).reversed()
+        // Every part of the page in one query, not one query per message: a
+        // page of a hundred messages used to cost a hundred and one round
+        // trips on the store actor, felt as a slow open.
+        let parts = try messagePartRows(messageIDs: selected.map { try $0.text("id") })
+        let messages = try selected.map { row in
+            try decodeMessage(row, partRows: parts[try row.text("id")] ?? [])
+        }.reversed()
         return Page(elements: Array(messages), hasMore: hasMore)
+    }
+
+    /// The parts of every listed message, grouped by message and in ordinal
+    /// order within each, exactly as one message's own parts query returns
+    /// them. A message without parts is simply absent from the result.
+    private func messagePartRows(messageIDs: [String]) throws -> [String: [SQLiteRow]] {
+        guard !messageIDs.isEmpty else { return [:] }
+        let rows = try query(
+            sql: """
+            SELECT * FROM message_parts WHERE message_id IN (\(Self.placeholders(messageIDs.count)))
+            ORDER BY message_id, ordinal;
+            """,
+            bindings: messageIDs.map { .text($0) }
+        )
+        return try Dictionary(grouping: rows) { try $0.text("message_id") }
     }
 
     public func updateDeliveryState(
@@ -201,6 +229,16 @@ extension SQLiteStore: MessageRepository {
             """, bindings: [.text(message.conversationID.persistedValue)]).first {
             guard try owner.text("lifecycle") == TeammateLifecycle.active.rawValue else {
                 throw TeammateArchiveError.invalidTransition
+            }
+        }
+        // The same for a team's chat: nothing is added once the team is
+        // archived, whatever a caller checked before.
+        if let team = try query(sql: """
+            SELECT tm.lifecycle FROM conversations c JOIN teams tm ON tm.id=c.subject_id
+            WHERE c.id=? AND c.kind='team';
+            """, bindings: [.text(message.conversationID.persistedValue)]).first {
+            guard try team.text("lifecycle") == DurableEntityLifecycle.active.rawValue else {
+                throw TeamArchiveError.invalidTransition
             }
         }
         try validateAttachmentReferences(in: message)
@@ -248,6 +286,16 @@ extension SQLiteStore: MessageRepository {
     }
 
     private func decodeMessage(_ row: SQLiteRow) throws -> Message {
+        let partRows = try query(
+            sql: "SELECT * FROM message_parts WHERE message_id=? ORDER BY ordinal;",
+            bindings: [.text(row.text("id"))]
+        )
+        return try decodeMessage(row, partRows: partRows)
+    }
+
+    /// `partRows` are this message's parts in ordinal order, whether they
+    /// came from the message's own query or from a page's single one.
+    private func decodeMessage(_ row: SQLiteRow, partRows: [SQLiteRow]) throws -> Message {
         let messageID = try parseID(MessageID.self, row.text("id"))
         let authorKind = try row.text("author_kind")
         let authorID = try row.optionalText("author_teammate_id")
@@ -262,10 +310,6 @@ extension SQLiteStore: MessageRepository {
               let delivery = MessageDeliveryState(rawValue: try row.text("delivery_state")) else {
             throw SQLiteStoreError.invalidRow(reason: "message enum is invalid")
         }
-        let partRows = try query(
-            sql: "SELECT * FROM message_parts WHERE message_id=? ORDER BY ordinal;",
-            bindings: [.text(messageID.persistedValue)]
-        )
         let parts = try partRows.map { partRow -> MessagePart in
             let kind = try partRow.text("kind")
             let content: MessagePartContent

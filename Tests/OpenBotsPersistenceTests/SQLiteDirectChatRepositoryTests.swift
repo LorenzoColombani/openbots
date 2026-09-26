@@ -23,7 +23,7 @@ final class SQLiteDirectChatRepositoryTests: XCTestCase {
         let conversation = try makeDirectConversation(
             id: conversationID(1),
             teammateID: teammate.id,
-            title: "Mika and Lorenzo",
+            title: "Mika and Alex",
             at: instant
         )
         let greeting = try makeFixtureGreeting(
@@ -239,7 +239,7 @@ final class SQLiteDirectChatRepositoryTests: XCTestCase {
                 error,
                 .invalid(
                     field: "selected conversation",
-                    reason: "must reference a direct conversation"
+                    reason: "must reference a direct or team conversation"
                 )
             )
         }

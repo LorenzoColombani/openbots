@@ -498,6 +498,81 @@ private struct LocalMemoryLocation: MacOSLocationAdmissionChecking {
               fileProviderStatus: .notManaged, volumeIdentifier: "synthetic-local-memory-volume")
     }
 }
+/// The installed app wraps the official reply service in the local-memory service;
+/// Details reads the last saved reply's model through that wrapper, so the
+/// wrapper must answer, not stay silent.
+@Test("The local memory wrapper forwards the saved execution evidence lookup to its provider")
+func localMemoryWrapperForwardsSavedExecutionEvidence() async throws {
+    let request = ClaudeExecutionRequest(sessionID: UUID(),
+        selection: .init(model: "claude-haiku-4-5-20251001", effort: "default", contextWindow: "default"),
+        launchModel: "claude-haiku-4-5-20251001")
+    let evidence = ClaudeExecutionEvidence(request: request, initializedModel: "claude-haiku-4-5-20251001",
+        resultModel: "claude-haiku-4-5-20251001")
+    let fallback = LocalMemoryEvidenceFallback(evidence: evidence)
+    let fixture = try LocalMemoryFixture(); defer { fixture.remove() }
+    let store = try fixture.open()
+    let time = fixture.now
+    let wrapper = MemoryLocalConversationService(fallback: fallback, memory: store, intents: store, contexts: store,
+        selections: store, messages: store, teammates: store, publications: store, authority: nil, clock: { time })
+    let conversation = ConversationID(UUID())
+    #expect(try await wrapper.latestExecutionEvidence(conversationID: conversation) == evidence)
+    #expect(await fallback.asked == [conversation])
+}
+
+/// The protocol's defaults answer "unavailable" and "not saved", so
+/// a wrapper that forgot to pass a worker's wake or its quit line on would
+/// drop both without a word.
+@Test("The local-memory wrapper passes a worker's wake and its quit line to the reply service")
+func localMemoryWrapperForwardsWorkers() async throws {
+    let fallback = LocalMemoryWorkerFallback()
+    let fixture = try LocalMemoryFixture(); defer { fixture.remove() }
+    let store = try fixture.open()
+    let time = fixture.now
+    let wrapper = MemoryLocalConversationService(fallback: fallback, memory: store, intents: store, contexts: store,
+        selections: store, messages: store, teammates: store, publications: store, authority: nil, clock: { time })
+    let worker = TeammateWorker(id: UUID(), kind: .local, brief: "Summarise", holderID: TeammateID(UUID()),
+                                conversationID: ConversationID(UUID()))
+    let woken = await wrapper.sendWorkerResult(WorkerResultSubmission(worker: worker, result: .stopped)) { _ in }
+    #expect(woken.outcome == .completed)
+    #expect(await wrapper.saveWorkerLine("stopped", conversationID: worker.conversationID))
+    #expect(await fallback.woken == [worker.id])
+    #expect(await fallback.lines == ["stopped"])
+}
+
+private actor LocalMemoryWorkerFallback: ClaudeTextReplyServing {
+    private(set) var woken: [UUID] = []
+    private(set) var lines: [String] = []
+    func sendText(_ submission: ClaudeTextTurnSubmission,
+                  onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
+        .init(outcome: .failed(.runtimeUnavailable))
+    }
+    func messageProvenance(conversationID: ConversationID, messageIDs: [MessageID]) async throws -> [TextTurnMessageProvenance] { [] }
+    func sendWorkerResult(_ submission: WorkerResultSubmission,
+                          onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
+        woken.append(submission.worker.id)
+        return .init(outcome: .completed)
+    }
+    func saveWorkerLine(_ line: String, conversationID: ConversationID) async -> Bool {
+        lines.append(line)
+        return true
+    }
+}
+
+private actor LocalMemoryEvidenceFallback: ClaudeTextReplyServing {
+    let evidence: ClaudeExecutionEvidence
+    private(set) var asked: [ConversationID] = []
+    init(evidence: ClaudeExecutionEvidence) { self.evidence = evidence }
+    func sendText(_ submission: ClaudeTextTurnSubmission,
+                  onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
+        .init(outcome: .failed(.runtimeUnavailable))
+    }
+    func messageProvenance(conversationID: ConversationID, messageIDs: [MessageID]) async throws -> [TextTurnMessageProvenance] { [] }
+    func latestExecutionEvidence(conversationID: ConversationID) async throws -> ClaudeExecutionEvidence? {
+        asked.append(conversationID)
+        return evidence
+    }
+}
+
 private actor LocalMemoryInertFallback: ClaudeTextReplyServing {
     private(set) var submissions: [ClaudeTextTurnSubmission] = []
     var calls: Int { submissions.count }

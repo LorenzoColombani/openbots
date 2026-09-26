@@ -66,6 +66,17 @@ public final class ClaudeSetupModel: ObservableObject {
     public func checkSubscription() { start(.subscription) }
     public func beginOfficialSignIn() { start(.signIn) }
 
+    /// The app came to the front. Sign-in finishes in Terminal and the browser,
+    /// so while the screen waits on one, run the same check Check Claude runs.
+    /// Every other state stays as it is: nothing is checked that the user did
+    /// not start.
+    public func appBecameActive() {
+        switch state {
+        case .handedOffNeedsVerification, .signedInNeedsVerification: checkSubscription()
+        default: return
+        }
+    }
+
     public func dismissSubscriptionFeedback() {
         subscriptionFeedback = nil
     }

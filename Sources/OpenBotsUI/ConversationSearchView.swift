@@ -36,10 +36,10 @@ public struct ConversationSearchView: View {
             }
             HStack(spacing: OpenBotsVisualStyle.spacing8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                TextField("Search teammates and saved messages", text: Binding(get: { model.query }, set: { model.setQuery($0) }))
+                TextField("Search bots and saved messages", text: Binding(get: { model.query }, set: { model.setQuery($0) }))
                     .textFieldStyle(.roundedBorder)
                     .focused($fieldIsFocused)
-                    .accessibilityLabel("Search teammates and saved messages")
+                    .accessibilityLabel("Search bots and saved messages")
                     .accessibilityIdentifier("search.query")
                     .accessibilityHint("Searches only active bots and messages saved in their direct chats")
                     .onSubmit { Task { await model.searchNow() } }
@@ -88,7 +88,7 @@ public struct ConversationSearchView: View {
     private var searchStatus: some View {
         switch model.state {
         case .idle:
-            Text("Find a teammate or a message you’ve saved.")
+            Text("Find a bot or a message you’ve saved.")
                 .font(.callout).foregroundStyle(.secondary)
         case .waiting, .loading:
             HStack(spacing: OpenBotsVisualStyle.spacing8) {
@@ -109,7 +109,7 @@ public struct ConversationSearchView: View {
             }
         case .results:
             if let page = model.page {
-                Text("\(page.teammates.count) teammates · \(page.messages.count) saved messages")
+                Text("\(page.teammates.count) bots · \(page.messages.count) saved messages")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -119,7 +119,7 @@ public struct ConversationSearchView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing8) {
                 if !page.teammates.isEmpty {
-                    Text("Teammates").font(.headline)
+                    Text("Bots").font(.headline)
                         .accessibilityAddTraits(.isHeader)
                     ForEach(page.teammates) { hit in
                         Button { selectTeammate(hit) } label: {

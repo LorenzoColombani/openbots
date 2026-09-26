@@ -253,7 +253,7 @@ private actor DurableChatRepositoryFake:
         pageRequests.append(request)
         let boundary = request.beforeSequence ?? Int64.max
         let descending = messages[conversationID, default: []]
-            .filter { $0.sequence < boundary }
+            .filter { $0.sequence < boundary && !request.excludedOutputClasses.contains($0.outputClass) }
             .sorted { $0.sequence > $1.sequence }
         let hasMore = descending.count > request.limit
         let selected = descending.prefix(request.limit).reversed()
@@ -409,6 +409,38 @@ func durableChatAtomicCreation() async throws {
     #expect(state.conversations == [created.conversation])
     #expect(state.messages == [greeting])
     #expect(state.selectedConversationID == created.conversation.id)
+}
+
+@Test("A new bot is refused the name a bot still carries, compared without case, and nothing is provisioned")
+func durableChatCreationRefusesTakenName() async throws {
+    let fixture = try makeDurableChatFixture(messageCount: 1)
+    let repository = DurableChatRepositoryFake(teammates: [fixture.teammate], conversations: [fixture.conversation])
+    let service = makeService(
+        repository: repository,
+        generatedUUIDs: [uuid("91000000-0000-0000-0000-000000000014"), uuid("91000000-0000-0000-0000-000000000015"),
+                         uuid("91000000-0000-0000-0000-000000000016")]
+    )
+    let draft = DurableTeammateDraft(
+        teammateID: TeammateID(uuid("91000000-0000-0000-0000-000000000010")),
+        displayName: " ada ", role: "A second Ada", appearance: try exactAppearance(seed: 9_101)
+    )
+
+    await #expect(throws: TeammateNameTakenError(existingName: "Ada")) {
+        try await service.createTeammateAndDirectChat(draft)
+    }
+    let state = await repository.snapshot()
+    #expect(state.provisionCalls.isEmpty)
+    #expect(state.teammates == [fixture.teammate])
+
+    var archivedAda = fixture.teammate
+    archivedAda.lifecycle = .archived
+    let freed = DurableChatRepositoryFake(teammates: [archivedAda], conversations: [fixture.conversation])
+    let successor = try await makeService(
+        repository: freed,
+        generatedUUIDs: [uuid("91000000-0000-0000-0000-000000000011"), uuid("91000000-0000-0000-0000-000000000012"),
+                         uuid("91000000-0000-0000-0000-000000000013")]
+    ).createTeammateAndDirectChat(draft)
+    #expect(successor.teammate.profile.displayName == "ada", "An archived bot's name is free to take")
 }
 
 @Test("Rapid sends remain ordered and persist exact caller messages plus explicit fixture replies")

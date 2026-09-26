@@ -23,7 +23,9 @@ public final class WorkspaceDraftCoordinator: ObservableObject {
     public init(conversation: ConversationModel, service: any ConversationDraftServing) {
         self.conversation = conversation
         self.service = service
-        conversation.$composerText.dropFirst().sink { [weak self] text in
+        // The composer's text publisher now lives on `conversation.composer`;
+        // `composerText` is its passthrough, so this observes the same writes.
+        conversation.composer.$text.dropFirst().sink { [weak self] text in
             guard let self, !self.isShuttingDown, !self.isUpdatingComposer,
                   let id = self.conversation.conversationID,
                   let model = self.models[id] else { return }
@@ -92,19 +94,33 @@ public final class WorkspaceDraftCoordinator: ObservableObject {
 
     /// Ordinary explicit persistence checkpoint, not permission to veto Quit.
     /// Shutdown uses the frozen, deadline-owned path below.
-    public func flushAll() async -> Bool {
-        guard !isShuttingDown, !Task.isCancelled else { return false }
-        var saved = submissions.isEmpty
+    public func flushAll() async -> Bool { await flushAllExplained() == .saved }
+
+    /// Why a flush of every draft did not end saved: a draft's own failure is
+    /// named before a message in flight, since waiting fixes only the second.
+    public enum FlushOutcome: Equatable, Sendable { case saved, draftFailed, messageInFlight }
+
+    public func flushAllExplained() async -> FlushOutcome {
+        guard !isShuttingDown, !Task.isCancelled else { return .draftFailed }
+        var messageInFlight = !submissions.isEmpty
+        var draftFailed = false
+        // A draft whose chat has a message in flight is held by that send; its
+        // flush failing says the send is not done, not that the draft failed.
+        let sending: (ConversationComposerDraftModel) -> Bool = { [unowned self] model in
+            self.submissions.values.contains { $0.0 === model }
+        }
         for model in Array(models.values) {
-            if !(await model.flush()) { saved = false }
-            guard !isShuttingDown, !Task.isCancelled else { return false }
+            let wasSending = sending(model)
+            if !(await model.flush()), !wasSending, !sending(model) { draftFailed = true }
+            guard !isShuttingDown, !Task.isCancelled else { return .draftFailed }
         }
         // Awaiting another conversation can let the user edit a previously
         // flushed draft or open a new one. Recheck every current model at the
         // final synchronous decision, not just the initial iteration snapshot.
-        return saved && submissions.isEmpty && models.values.allSatisfy {
-            $0.status == .saved && !$0.hasUnsavedChanges
-        }
+        if !models.values.allSatisfy({ sending($0) || ($0.status == .saved && !$0.hasUnsavedChanges) }) { draftFailed = true }
+        if !submissions.isEmpty { messageInFlight = true }
+        if draftFailed { return .draftFailed }
+        return messageInFlight ? .messageInFlight : .saved
     }
 
     /// Freeze every visited conversation in the same synchronous admission

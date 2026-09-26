@@ -6,6 +6,10 @@ public enum LaunchRecoveryIssue: String, Codable, CaseIterable, Equatable, Senda
     case databaseProtectionUnavailable
     case databaseOpenFailed
     case databaseValidationFailed
+    /// The saved workspace was last opened by a newer OpenBots Next: its schema
+    /// ledger holds a version this copy does not know. Nothing is repaired or
+    /// rewritten; the newer copy opens it.
+    case workspaceNewerThanApplication
 }
 
 /// The complete startup-readiness vocabulary exposed to presentation code.

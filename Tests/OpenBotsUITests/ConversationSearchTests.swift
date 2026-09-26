@@ -168,7 +168,7 @@ final class ConversationSearchTests: XCTestCase {
             XCTAssertEqual(fields.count, 1)
             let field = try XCTUnwrap(fields.first)
             XCTAssertEqual(field.stringValue, "research")
-            XCTAssertEqual(field.placeholderString, "Search teammates and saved messages")
+            XCTAssertEqual(field.placeholderString, "Search bots and saved messages")
             let frame = field.convert(field.bounds, to: host)
             XCTAssertGreaterThan(frame.width, 0)
             XCTAssertGreaterThanOrEqual(frame.minX, -0.5)
@@ -183,11 +183,38 @@ final class ConversationSearchTests: XCTestCase {
         // key events, AX helper, result navigation, or VoiceOver claim.
     }
 
+    /// The screens call them bots. Every
+    /// string these files put on screen is swept, with the code inside `\(…)`
+    /// taken out first, since a variable may still be named after a teammate.
+    func testScreenStringsSayBotNotTeammate() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let literal = try NSRegularExpression(pattern: #""((?:[^"\\]|\\.)*)""#)
+        let interpolation = try NSRegularExpression(pattern: #"\\\([^()]*(\([^()]*\))*[^()]*\)"#)
+        for file in ["ClaudeSetupView", "ClaudeSetupWording", "ConversationSearchView", "ConversationSearchModel",
+                     "LaunchStatusView"] {
+            let source = try String(contentsOf: root.appendingPathComponent("Sources/OpenBotsUI/\(file).swift"),
+                                    encoding: .utf8)
+            for line in source.components(separatedBy: .newlines)
+            where !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") && !line.contains("accessibilityIdentifier") {
+                let range = NSRange(line.startIndex..., in: line)
+                for match in literal.matches(in: line, range: range) {
+                    let text = (line as NSString).substring(with: match.range(at: 1))
+                    // The banned-word list names the word it bans.
+                    if ClaudeSetupWording.bannedWords.contains(text) { continue }
+                    let words = interpolation.stringByReplacingMatches(
+                        in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
+                    XCTAssertFalse(words.localizedCaseInsensitiveContains("teammate"), "\(file): \(text)")
+                }
+            }
+        }
+    }
+
     func testSourceStatesScopeAndKeepsInlineExplicitKeyboardActions() throws {
         let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources/OpenBotsUI/ConversationSearchView.swift"), encoding: .utf8)
-        XCTAssertTrue(ConversationSearchModel.scopeDisclosure.contains("active teammates"))
+        XCTAssertTrue(ConversationSearchModel.scopeDisclosure.contains("active bots"))
         XCTAssertTrue(ConversationSearchModel.scopeDisclosure.contains("saved messages"))
         XCTAssertTrue(ConversationSearchModel.scopeDisclosure.contains("Unsent drafts and secret-card input are not searched"))
         XCTAssertTrue(source.contains(".onExitCommand { close() }"))

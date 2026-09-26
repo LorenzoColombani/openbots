@@ -4,7 +4,7 @@ import Testing
 
 private struct SensitiveAttachmentImportFailure: LocalizedError, Sendable {
     var errorDescription: String? {
-        "Failed while copying /Users/lorenzo/private/source.mov into provider staging"
+        "Failed while copying /Users/alex/private/source.mov into provider staging"
     }
 }
 
@@ -78,7 +78,7 @@ func attachmentDraftPendingThenReadyKeepsIdentity() async throws {
 
     await gate.release(
         AttachmentDraftPresentationReceipt(
-            displayName: "/Users/lorenzo/private/verified-source.txt",
+            displayName: "/Users/alex/private/verified-source.txt",
             byteCount: 42,
             shortHash: "ABCDEF1234567890-sensitive-suffix"
         )

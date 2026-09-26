@@ -36,13 +36,22 @@ final class ClaudeTextOnlyPromptFile {
 
     static func create(for request: ClaudeTextOnlyRequest,
                        shouldContinue: () -> Bool = { true }) throws -> ClaudeTextOnlyPromptFile {
-        let data = Data(request.systemPrompt.utf8)
-        let target = request.target
-        let url = ClaudeTextOnlyCommandBuilder.systemPromptFileURL(for: request)
+        try create(data: Data(request.systemPrompt.utf8),
+                   at: ClaudeTextOnlyCommandBuilder.systemPromptFileURL(for: request),
+                   target: request.target, maximumBytes: ClaudeTextOnlyRequest.maximumSystemPromptBytes,
+                   shouldContinue: shouldContinue)
+    }
+
+    /// The same owned, descriptor-relative, single-link private file for any
+    /// content the turn hands the CLI by path. The connector configuration uses
+    /// it too: that file names the exact server this turn may reach, so it must
+    /// be no less protected than the system prompt, and must be gone when the
+    /// turn is.
+    static func create(data: Data, at url: URL, target: ClaudeConnectionTarget, maximumBytes: Int,
+                       shouldContinue: () -> Bool = { true }) throws -> ClaudeTextOnlyPromptFile {
         let tempComponents = target.temporaryDirectoryURL.pathComponents
         let profileComponents = target.profileURL.pathComponents
-        guard shouldContinue(), !data.isEmpty,
-              data.count <= ClaudeTextOnlyRequest.maximumSystemPromptBytes,
+        guard shouldContinue(), !data.isEmpty, data.count <= maximumBytes,
               !data.contains(0), url.path.utf8.count <= 4_096,
               target.temporaryDirectoryURL != target.homeDirectoryURL,
               !tempComponents.starts(with: profileComponents),

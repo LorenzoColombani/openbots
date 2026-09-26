@@ -1,0 +1,15 @@
+claude_code_version: 2.1.281
+$ echo TMPDIR=$TMPDIR; touch "$TMPDIR/probe" && echo TOUCH_OK; touch /tmp/claude-501/obn-leak 2>&1 && echo SHARED_WRITABLE
+Exit code 1
+TMPDIR=/tmp/obn-ffa537d0/claude-501
+TOUCH_OK
+touch: /tmp/claude-501/obn-leak: Operation not permitted
+
+$ swift --version 2>&1 | head -1; echo EXIT=$?
+swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)
+EXIT=0
+
+$ printf 'print(1+1)\n' > hello.swift && swift hello.swift 2>&1; echo EXIT=$?
+2
+EXIT=0
+

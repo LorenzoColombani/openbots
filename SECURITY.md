@@ -1,15 +1,15 @@
 # Security
 
-OpenBots' whole premise is running semi-trusted AI agents on a personal Mac, so
-its threat model is documented in the open: see
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §3 (containment) and §4
-(network egress fence) for what the fences promise and — just as important —
-what they don't.
+OpenBots' whole premise is running semi-trusted AI agents on a personal Mac.
+The fences are in the source: each bot works in its own folder, web access and
+every connector are off until you switch them on for that bot, text that
+connectors hand back is marked as untrusted material before a bot reads it, and
+every consequential action waits on a card you approve.
 
 ## Reporting a vulnerability
 
 If you find a way through a fence (a read that should have been denied, an
-egress path that bypasses the proxy, an injection that survives
+action that ran without its card, an injection that survives
 neutralization), please report it privately via
 [GitHub's private vulnerability reporting](../../security/advisories/new)
 rather than a public issue. Include the smallest reproduction you can — the

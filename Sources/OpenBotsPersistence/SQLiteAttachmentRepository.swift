@@ -64,7 +64,9 @@ extension SQLiteStore: AttachmentRepository {
 
     public func attachment(id: AttachmentID, conversationID: ConversationID) async throws -> AttachmentAsset? {
         try transaction {
-            _ = try validateAttachmentConversation(conversationID)
+            // A chip is read back in a team chat too: the link below
+            // proves the asset is this chat's, whatever kind of chat it is.
+            try validatePostableConversation(conversationID)
             guard let asset = try readAttachmentAsset(id) else { return nil }
             guard asset.conversationID == conversationID else { throw AttachmentRepositoryError.assetOwnerMismatch }
             let linked = try query(
@@ -100,12 +102,70 @@ extension SQLiteStore: AttachmentRepository {
             throw AttachmentRepositoryError.invalidExchange
         }
         try transaction {
-            _ = try validateAttachmentConversation(userMessage.conversationID)
+            if attachmentIDs.isEmpty {
+                try validatePostableConversation(userMessage.conversationID)
+            } else {
+                _ = try validateAttachmentConversation(userMessage.conversationID)
+            }
             let current = try readAttachmentDraft(userMessage.conversationID)
             try validateCapturedAttachments(attachmentIDs, conversationID: userMessage.conversationID, draft: current)
             let revision = attachmentIDs.isEmpty ? current.revision : try nextAttachmentRevision(current.revision)
             try appendMessageGraph(userMessage, expectedPreviousSequence: expectedPreviousSequence)
             try consumeCapturedAttachments(attachmentIDs, conversationID: userMessage.conversationID, revision: revision)
+        }
+    }
+
+    public func attachProducedAssets(_ assets: [AttachmentAsset], toReply messageID: MessageID,
+                                     conversationID: ConversationID) async throws {
+        let ids = assets.map(\.id)
+        guard !assets.isEmpty, Set(ids).count == ids.count,
+              assets.count <= AttachmentDraftSnapshot.maximumAttachments,
+              assets.allSatisfy({ $0.conversationID == conversationID }) else {
+            throw AttachmentRepositoryError.invalidExchange
+        }
+        try transaction {
+            try validatePostableConversation(conversationID)
+            guard let message = try query(sql: "SELECT author_kind, conversation_id, output_class FROM messages WHERE id=?;",
+                                          bindings: [.text(messageID.persistedValue)]).first,
+                  try message.text("author_kind") == "teammate",
+                  ["conversation", "workAudit"].contains(try message.text("output_class")),
+                  try message.text("conversation_id") == conversationID.persistedValue else {
+                throw AttachmentRepositoryError.invalidExchange
+            }
+            for asset in assets {
+                // An asset the chat already holds is linked as it is; a
+                // different record under the same id is a collision, never
+                // an overwrite. A new one is recorded with its link.
+                if let existing = try readAttachmentAsset(asset.id) {
+                    guard existing.conversationID == conversationID else { throw AttachmentRepositoryError.assetOwnerMismatch }
+                    guard existing == asset else { throw AttachmentRepositoryError.assetCollision }
+                    guard try query(sql: "SELECT 1 AS found FROM message_parts WHERE message_id=? AND kind='attachment' AND referenced_id=?;",
+                                    bindings: [.text(messageID.persistedValue), .text(asset.id.persistedValue)]).isEmpty else {
+                        throw AttachmentRepositoryError.invalidExchange
+                    }
+                } else {
+                    _ = try execute(
+                        sql: "INSERT INTO attachment_assets(id,conversation_id,display_name,type_identifier,byte_count,sha256,created_at) VALUES (?,?,?,?,?,?,?);",
+                        bindings: [
+                            .text(asset.id.persistedValue), .text(asset.conversationID.persistedValue), .text(asset.displayName),
+                            .text(asset.typeIdentifier), .integer(asset.byteCount), .text(asset.sha256), .real(asset.createdAt.timeIntervalSince1970)
+                        ]
+                    )
+                }
+            }
+            let existing = try query(sql: "SELECT MAX(ordinal) AS maximum, COUNT(*) AS total FROM message_parts WHERE message_id=?;",
+                                     bindings: [.text(messageID.persistedValue)]).first
+            let maximumOrdinal = try existing?.optionalInteger("maximum") ?? -1
+            let total = try existing?.integer("total") ?? 0
+            guard total + Int64(assets.count) <= Int64(AttachmentDraftSnapshot.maximumAttachments) + 2,
+                  maximumOrdinal < Int64.max - Int64(assets.count) else {
+                throw AttachmentRepositoryError.invalidExchange
+            }
+            for (offset, id) in ids.enumerated() {
+                _ = try execute(sql: "INSERT INTO message_parts(id,message_id,ordinal,kind,text_value,referenced_id) VALUES (?,?,?,'attachment',NULL,?);",
+                    bindings: [.text(MessagePartID(UUID()).persistedValue), .text(messageID.persistedValue),
+                               .integer(maximumOrdinal + 1 + Int64(offset)), .text(id.persistedValue)])
+            }
         }
     }
 
@@ -197,6 +257,29 @@ extension SQLiteStore: AttachmentRepository {
             bindings: [.text(id.persistedValue)]
         ).first else { throw AttachmentRepositoryError.conversationUnavailable }
         return try parseID(TeammateID.self, row.text("id"))
+    }
+
+    /// The user's attachments stay direct-only for now, so only an
+    /// attachment-free local message may post into a team conversation and
+    /// `validateAttachmentConversation` gates every draft path. What a bot makes
+    /// is a chip in a team chat as well, so its link and its read
+    /// back are gated here instead.
+    private func validatePostableConversation(_ id: ConversationID) throws {
+        guard try !query(
+            sql: """
+            SELECT 1 AS active FROM conversations c
+            LEFT JOIN teammates t ON c.kind='direct' AND t.id=c.subject_id
+            LEFT JOIN teams tm ON c.kind='team' AND tm.id=c.subject_id
+            WHERE c.id=? AND c.lifecycle='active'
+              AND ((c.kind='direct' AND t.lifecycle='active' AND t.is_hidden=0
+                    AND EXISTS (SELECT 1 FROM conversation_participants p
+                                WHERE p.conversation_id=c.id AND p.teammate_id=t.id AND p.left_at IS NULL))
+                   OR (c.kind='team' AND tm.lifecycle='active'));
+            """,
+            bindings: [.text(id.persistedValue)]
+        ).isEmpty else {
+            throw AttachmentRepositoryError.conversationUnavailable
+        }
     }
 
     private func readAttachmentAsset(_ id: AttachmentID) throws -> AttachmentAsset? {

@@ -75,7 +75,7 @@ public enum ClaudeSetupRequirement: Equatable, Sendable {
     case tracedOfficialSignIn
 }
 
-public enum ClaudeSetupProblem: Equatable, Sendable {
+public enum ClaudeSetupProblem: Equatable, Sendable, CaseIterable {
     case installationMissing
     case installationRejected
     case installationUnavailable

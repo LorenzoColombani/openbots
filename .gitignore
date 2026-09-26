@@ -30,10 +30,10 @@ DerivedData/
 .netrc
 
 # Machine-local assistant sessions/settings are not project source.
-/.codex/
 /.claude/
 
 # Generated private/public staging is recreated by fail-closed tooling.
 .runtime.noindex/
 .staging.noindex/
 PublicExport.noindex/
+__pycache__/

@@ -134,6 +134,14 @@ public struct MemoryPublicationDependency: Codable, Equatable, Sendable {
 /// The caller must atomically save this with the exact complete rendered text,
 /// after fresh revalidation. Existing provider records remain distinct.
 public struct MemoryPublicationReceipt: Codable, Equatable, Sendable {
+    public static let currentPolicyVersion: UInt16 = 2
+
+    /// Older saved replies retain their original rendering and can still explain
+    /// or anchor a correction. Unknown renderers never gain publication authority.
+    public static func supportsPolicyVersion(_ version: UInt16) -> Bool {
+        version == 1 || version == currentPolicyVersion
+    }
+
     public let id: UUID
     public let policyVersion: UInt16
     public let runID: RunID

@@ -447,7 +447,9 @@ private struct AttachmentStoreFixture: Sendable {
 
     func seed(_ store: SQLiteStore, teammateID: TeammateID? = nil, conversationID: ConversationID? = nil) async throws {
         let id = teammateID ?? self.teammateID
-        let teammate = try Teammate(id: id, profile: TeammateProfile(displayName: "Attachment Partner", role: "Research"), appearance: AgentAppearance(mode: .creature, grammarVersion: 1, deterministicSeed: 6, silhouette: "round", paletteToken: "sky", eyeDialect: "bright", nonColorIdentityCue: "single crest", accessibleIdentityDescription: "Round creature with a crest"), createdAt: date, updatedAt: date)
+        // Two bots never share a name, and the store now refuses a second one.
+        let name = id == self.teammateID ? "Attachment Partner" : "Attachment Partner \(id.persistedValue.prefix(8))"
+        let teammate = try Teammate(id: id, profile: TeammateProfile(displayName: name, role: "Research"), appearance: AgentAppearance(mode: .creature, grammarVersion: 1, deterministicSeed: 6, silhouette: "round", paletteToken: "sky", eyeDialect: "bright", nonColorIdentityCue: "single crest", accessibleIdentityDescription: "Round creature with a crest"), createdAt: date, updatedAt: date)
         try await store.provisionDirectChat(teammate: teammate, conversation: Conversation(id: conversationID ?? self.conversationID, kind: .direct(teammateID: id), createdAt: date, updatedAt: date), fixtureGreeting: nil, selectConversation: false)
     }
 

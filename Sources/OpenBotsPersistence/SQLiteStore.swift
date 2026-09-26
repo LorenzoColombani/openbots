@@ -192,10 +192,18 @@ public actor SQLiteStore {
     /// a second count that can reject a successfully migrated database.
     public static var expectedMigrationCount: Int { SchemaMigrator.migrations.count }
 
+    /// The newest schema version this build opens: the last declared migration,
+    /// which is the exact bound the migrator enforces. A backup manifest records
+    /// it and a restore compares against it; neither may substitute the count,
+    /// which only agrees while migrations stay contiguous.
+    public static var supportedSchemaVersion: Int { SchemaMigrator.migrations.last?.version ?? 0 }
+
     public let fileURL: URL
     public let protectionMode: DatabaseProtectionMode
     let protectionDecisionID: UUID
     let connectionBox: SQLiteConnectionBox
+    /// Set only while a test traces statements; see SQLiteStore+StatementTrace.
+    var statementTrace: SQLiteStatementTrace?
 
     public init(configuration: SQLiteStoreConfiguration) throws {
         guard configuration.protection.mode == .ordinarySQLite else {
@@ -442,6 +450,11 @@ public actor SQLiteStore {
             }
             rows.append(SQLiteRow(values: values))
         }
+    }
+
+    /// `?,?,?` for an `IN (...)` list of `count` bound values.
+    static func placeholders(_ count: Int) -> String {
+        Array(repeating: "?", count: count).joined(separator: ",")
     }
 
     func transaction<T: Sendable>(_ body: () throws -> T) throws -> T {

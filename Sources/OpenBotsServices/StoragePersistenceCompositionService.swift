@@ -81,6 +81,11 @@ public enum StoragePersistenceCompositionError: Error, Equatable, Sendable {
         requested: DatabaseProtectionMode
     )
     case databaseOpenFailed(receipt: StorageBootstrapReceipt, reason: String)
+    /// The ledger names a schema version newer than this build's manifest: an
+    /// older copy of the app opened a workspace a newer copy had migrated
+    /// (for example, a displaced rollback bundle launched from the Dock).
+    /// Fail closed and say so; never migrate down.
+    case databaseNewerThanApplication(receipt: StorageBootstrapReceipt, schemaVersion: Int, supportedVersion: Int)
     case databaseInspectionFailed(receipt: StorageBootstrapReceipt, reason: String)
     case databaseValidationFailed(
         receipt: StorageBootstrapReceipt,
@@ -99,9 +104,16 @@ public struct StoragePersistenceContext: Sendable {
     public let databaseFacts: DatabaseRuntimeFacts
     public let protectionSelection: DatabaseProtectionSelection
     public let protectionDecision: ProtectionDecisionReceipt
+    /// The exact plan the database was opened with, for online backups of it.
+    public let protectionPlan: PersistenceProtectionPlan
+    /// The only way out of this context for a backup: the store's online-backup
+    /// seam, never the connection or the file.
+    public let backupExecutor: any SQLiteBackupExecuting
 
     public let teammateRepository: any TeammateRepository
     public let teammateArchiveRepository: any TeammateArchiveRepository
+    public let teamArchiveRepository: any TeamArchiveRepository
+    public let teammateDeletionRepository: any TeammateDeletionRepository
     public let botSidebarOrderRepository: any BotSidebarOrderRepository
     public let profilePhotoRepository: any ProfilePhotoRepository
     public let conversationDraftRepository: any ConversationDraftRepository
@@ -110,12 +122,16 @@ public struct StoragePersistenceContext: Sendable {
     public let runJournalRepository: any RunJournalRepository
     public let textTurnRepository: any TextTurnRepository
     public let readContextRepository: any ReadContextRepository
+    public let claudeSessionRepository: any ClaudeSessionRepository
     public let sessionRecoveryRepository: any LocalSessionRecoveryRepository
     public let outcomeHistoryRepository: any ConversationOutcomeHistoryRepository
     public let actionProposalRepository: any ActionProposalRepository
     public let projectRepository: any ProjectRepository
     public let projectProvisioningRepository: any ProjectProvisioningRepository
     public let teamRepository: any TeamRepository
+    public let teamProvisioningRepository: any TeamProvisioningRepository
+    public let teamConversationRepository: any TeamConversationRepository
+    public let handoffRepository: any HandoffRepository
     public let conversationRepository: any ConversationRepository
     public let conversationContextRepository: any ConversationContextRepository
     public let messageRepository: any MessageRepository
@@ -127,7 +143,20 @@ public struct StoragePersistenceContext: Sendable {
     public let memoryConversationPublicationRepository: any MemoryConversationPublicationRepository
     public let memoryLocalCorrectionRepository: any MemoryLocalCorrectionRepository
     public let capabilityGrantRepository: any CapabilityGrantRepository
+    /// The web switches a launch restores. Their own seam, not the grant
+    /// repository's: a bot's web grant is half of a two-switch rule and is not
+    /// the authority a `CapabilityGrant` records.
+    public let agenticWebSwitchRepository: any AgenticWebSwitchRepository
+    /// Bots waiting to set themselves up.
+    public let botSelfSetupRepository: any BotSelfSetupRepository
+    /// Where the connector grants live: one `app_metadata` row with its own
+    /// revision, its own seam for the same reason the web switches have one.
+    public let connectorAccessRepository: any ConnectorAccessRepository
     public let approvalRepository: any ApprovalRepository
+    /// Where each bot works on the Mac: its own folder and the folders the user added.
+    public let botWorkspaceRepository: any BotWorkspaceRepository
+    /// What each run did, line by line: the "what happened" record.
+    public let runActivityRepository: any RunActivityRepository
 
     public let keychainClient: any KeychainClient
     public let teammateExecutor: any TeammateExecutor
@@ -140,10 +169,13 @@ public struct StoragePersistenceContext: Sendable {
         databaseFacts: DatabaseRuntimeFacts,
         protectionSelection: DatabaseProtectionSelection,
         protectionDecision: ProtectionDecisionReceipt,
+        protectionPlan: PersistenceProtectionPlan,
         store: SQLiteStore,
         keychainClient: any KeychainClient,
         teammateExecutor: any TeammateExecutor
     ) {
+        self.protectionPlan = protectionPlan
+        self.backupExecutor = SQLiteStoreBackupExecutor(store: store)
         self.storageReceipt = storageReceipt
         self.installationReceipt = installationReceipt
         self.applicationSupportRoot = applicationSupportRoot
@@ -153,6 +185,8 @@ public struct StoragePersistenceContext: Sendable {
         self.protectionDecision = protectionDecision
         teammateRepository = store
         teammateArchiveRepository = store
+        teamArchiveRepository = store
+        teammateDeletionRepository = store
         botSidebarOrderRepository = store
         profilePhotoRepository = store
         conversationDraftRepository = store
@@ -161,12 +195,16 @@ public struct StoragePersistenceContext: Sendable {
         runJournalRepository = store
         textTurnRepository = store
         readContextRepository = store
+        claudeSessionRepository = store
         sessionRecoveryRepository = store
         outcomeHistoryRepository = store
         actionProposalRepository = store
         projectRepository = store
         projectProvisioningRepository = store
         teamRepository = store
+        teamProvisioningRepository = store
+        teamConversationRepository = store
+        handoffRepository = store
         conversationRepository = store
         conversationContextRepository = store
         messageRepository = store
@@ -178,7 +216,12 @@ public struct StoragePersistenceContext: Sendable {
         memoryConversationPublicationRepository = store
         memoryLocalCorrectionRepository = store
         capabilityGrantRepository = store
+        agenticWebSwitchRepository = store
+        botSelfSetupRepository = store
+        connectorAccessRepository = store
         approvalRepository = store
+        botWorkspaceRepository = store
+        runActivityRepository = store
         self.keychainClient = keychainClient
         self.teammateExecutor = teammateExecutor
     }
@@ -410,6 +453,12 @@ public actor StoragePersistenceCompositionService {
                 receipt: receipt,
                 reason: Self.errorSummary(error)
             )
+        } catch SQLiteStoreError.unsupportedSchemaVersion(let schemaVersion) {
+            throw StoragePersistenceCompositionError.databaseNewerThanApplication(
+                receipt: receipt,
+                schemaVersion: schemaVersion,
+                supportedVersion: SQLiteStore.supportedSchemaVersion
+            )
         } catch {
             throw StoragePersistenceCompositionError.databaseOpenFailed(
                 receipt: receipt,
@@ -464,6 +513,7 @@ public actor StoragePersistenceCompositionService {
             databaseFacts: facts,
             protectionSelection: installationReceipt.protectionSelection,
             protectionDecision: installationReceipt.protectionDecision,
+            protectionPlan: protectionPlan,
             store: store,
             keychainClient: keychainClient,
             teammateExecutor: teammateExecutor

@@ -42,7 +42,7 @@ final class SQLiteProjectTeamProvisioningTests: XCTestCase {
             )
             try await store.insert(team)
             let facts = try await store.runtimeFacts()
-            XCTAssertEqual(facts.migrationCount, 20)
+            XCTAssertEqual(facts.migrationCount, SQLiteStore.expectedMigrationCount)
         }
 
         let reopened = try fixture.open()

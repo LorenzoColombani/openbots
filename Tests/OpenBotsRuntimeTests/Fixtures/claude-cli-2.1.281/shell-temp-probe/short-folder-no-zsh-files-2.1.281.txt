@@ -1,0 +1,17 @@
+claude_code_version: 2.1.281
+$ echo PATH=$PATH; echo TMPDIR=$TMPDIR; echo ZDOTDIR=$ZDOTDIR; alias | wc -l
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin
+TMPDIR=/tmp/obn-f3e31a5c/claude-501
+ZDOTDIR=/var/empty
+       2
+
+$ swift --version 2>&1 | head -1; printf 'print(1+1)\n' > hello.swift && swift hello.swift 2>&1; echo EXIT=$?
+swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)
+2
+EXIT=0
+
+$ python3 -c 'print(3)'; node -e 'console.log(4)' 2>&1; uv --version 2>&1
+3
+4
+uv 0.11.14 (3fdfdc7d4 2026-05-12 aarch64-apple-darwin)
+

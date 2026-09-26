@@ -34,7 +34,7 @@ public struct PendingClaudeConnectionAdmission: ClaudeConnectionAdmitting {
     }
 }
 
-/// Lorenzo explicitly authorized these two user-initiated setup operations.
+/// Admits the two user-initiated setup operations, and only those.
 /// App composition selects this policy; construction and local checks remain
 /// inert, and every operation still requires fresh installation/profile checks.
 /// This grants no model, tool, connector or general command authority.

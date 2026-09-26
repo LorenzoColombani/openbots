@@ -314,7 +314,9 @@ private struct OutcomeHistoryFixture: Sendable {
     func seed(_ store: SQLiteStore, scope replacement: OutcomeHistoryScope? = nil) async throws {
         let scope = replacement ?? scope
         let date = Date(timeIntervalSince1970: 1_000)
-        let teammate = try Teammate(id: scope.teammateID, profile: TeammateProfile(displayName: "Outcome fixture", role: "Research"),
+        // Two bots never share a name, and the store now refuses a second one.
+        let name = replacement == nil ? "Outcome fixture" : "Outcome fixture \(scope.teammateID.persistedValue.prefix(8))"
+        let teammate = try Teammate(id: scope.teammateID, profile: TeammateProfile(displayName: name, role: "Research"),
             appearance: AgentAppearance(mode: .creature, grammarVersion: 1, deterministicSeed: 1, silhouette: "round", paletteToken: "sky",
                 eyeDialect: "bright", nonColorIdentityCue: "crest", accessibleIdentityDescription: "Round creature with crest"),
             createdAt: date, updatedAt: date)

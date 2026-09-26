@@ -117,9 +117,14 @@ public struct ClaudeExecutionEvidence: Codable, Equatable, Sendable {
     public let request: ClaudeExecutionRequest
     public let initializedModel: String?
     public let resultModel: String?
+    /// The Claude Code version that ran the turn, as its init frame named it
+    /// (2.1.272 and later say so); absent from records written before it.
+    public let claudeCodeVersion: String?
 
-    public init(request: ClaudeExecutionRequest, initializedModel: String?, resultModel: String?) {
+    public init(request: ClaudeExecutionRequest, initializedModel: String?, resultModel: String?,
+                claudeCodeVersion: String? = nil) {
         self.request = request; self.initializedModel = initializedModel; self.resultModel = resultModel
+        self.claudeCodeVersion = claudeCodeVersion
     }
 
     public var modelStatus: ClaudeExecutionModelStatus {
@@ -147,12 +152,13 @@ public struct ClaudeExecutionEvidence: Codable, Equatable, Sendable {
         return self
     }
 
-    private enum CodingKeys: String, CodingKey { case request, initializedModel, resultModel }
+    private enum CodingKeys: String, CodingKey { case request, initializedModel, resultModel, claudeCodeVersion }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         self.init(request: try values.decode(ClaudeExecutionRequest.self, forKey: .request),
                   initializedModel: try values.decodeIfPresent(String.self, forKey: .initializedModel),
-                  resultModel: try values.decodeIfPresent(String.self, forKey: .resultModel))
+                  resultModel: try values.decodeIfPresent(String.self, forKey: .resultModel),
+                  claudeCodeVersion: try values.decodeIfPresent(String.self, forKey: .claudeCodeVersion))
         try validated()
     }
     public func encode(to encoder: any Encoder) throws {
@@ -161,5 +167,6 @@ public struct ClaudeExecutionEvidence: Codable, Equatable, Sendable {
         try values.encode(request, forKey: .request)
         try values.encodeIfPresent(initializedModel, forKey: .initializedModel)
         try values.encodeIfPresent(resultModel, forKey: .resultModel)
+        try values.encodeIfPresent(claudeCodeVersion, forKey: .claudeCodeVersion)
     }
 }

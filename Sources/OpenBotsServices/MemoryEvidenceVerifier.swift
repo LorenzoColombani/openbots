@@ -39,10 +39,13 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
     private let teammates: any TeammateRepository
     private let contexts: any ReadContextRepository
     private let verificationLifetime: TimeInterval
+    private let anchorResolver: MemoryLocalCorrectionAnchorResolver?
 
     public init(messages: any MessageRepository, teammates: any TeammateRepository,
-                contexts: any ReadContextRepository, verificationLifetime: TimeInterval = 900) {
+                contexts: any ReadContextRepository, verificationLifetime: TimeInterval = 900,
+                publications: (any MemoryConversationPublicationRepository)? = nil) {
         self.messages = messages; self.teammates = teammates; self.contexts = contexts
+        self.anchorResolver = publications.map { MemoryLocalCorrectionAnchorResolver(publications: $0, messages: messages) }
         // This expires only the host check, never retained assertions or evidence.
         self.verificationLifetime = verificationLifetime.isFinite ? min(900, max(1, verificationLifetime)) : 1
     }
@@ -58,9 +61,9 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
         guard claims.count <= 256, Set(claims.map(\.id)).count == claims.count else { return .ambiguous }
         if command.kind == .correct {
             let active = claims.filter { claim in
-                Self.isCurrentTarget(claim) && (command.targetBody.map { $0.utf8.elementsEqual(claim.body.utf8) } ?? true)
+                Self.isCurrentTarget(claim) && command.matchesTarget(body: claim.body)
             }
-            guard active.count == 1, let prior = active.first else { return .ambiguous }
+            guard active.count == 1, let prior = active.first, command.acceptsTarget(body: prior.body) else { return .ambiguous }
             return .existingClaim(action: command.action, body: command.body, claimID: prior.id)
         }
         let matching = claims.filter { Self.isCurrentTarget($0) && $0.body.utf8.elementsEqual(command.body.utf8) }
@@ -86,7 +89,7 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
         let command = try UserCommand(text: text(message))
         if let previous {
             guard Self.isCurrentTarget(previous), previous.id == claimID, previousReference?.claimID == claimID,
-                  command.targetBody.map({ exact($0, previous.body) }) ?? true,
+                  command.acceptsTarget(body: previous.body),
                   previous.conditions == nil, previous.validFrom == nil, previous.validUntil == nil else {
                 throw MemoryEvidenceVerifierError.ambiguousIntent
             }
@@ -123,7 +126,7 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
         let message = try await userMessage(messageID, authority: authority, at: now, requireLatest: true)
         let command = try UserCommand(text: text(message))
         guard command.kind == .correct, !exact(command.body, previous.body),
-              command.targetBody.map({ exact($0, previous.body) }) ?? true,
+              command.acceptsTarget(body: previous.body),
               previous.hasKnownSemantics, previous.validity != .withdrawn,
               previous.conditions == nil, previous.validFrom == nil, previous.validUntil == nil,
               previousReference.claimID == previous.id,
@@ -214,6 +217,11 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
         var replacementByID: [MemoryClaimID: MemoryClaim] = [:]
         switch actor {
         case let .user(messageID):
+            let message = try await userMessage(messageID, authority: authority, at: now, requireLatest: true)
+            if try UserCommand(text: text(message)).form == .preferenceCorrection {
+                try await verifyPreferenceTarget(message: message, predecessor: predecessor,
+                    changed: changed, authority: authority)
+            }
             if changed.count == 2 {
                 let oldCandidates = changed.compactMap { previousByID[$0.id] }
                 guard oldCandidates.count == 1, let old = oldCandidates.first, let predecessor,
@@ -319,6 +327,29 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
             previousIndependentEvidenceIDs: previousIDs)
     }
 
+    private func verifyPreferenceTarget(message: Message, predecessor: MemoryClaimArtifact?,
+                                        changed: [MemoryClaim], authority: ReadContextReceipt) async throws {
+        guard let predecessor else { throw MemoryEvidenceVerifierError.ambiguousIntent }
+        let previous = predecessor.claims.filter { old in changed.contains(where: { $0.id == old.id }) }
+        guard previous.count == 1, let target = previous.first else { throw MemoryEvidenceVerifierError.ambiguousIntent }
+        let commandText = try text(message)
+        if case let .existingClaim(_, _, id) = Self.userTarget(text: commandText, claims: predecessor.claims), id == target.id {
+            return
+        }
+        // Caller-selected references do not establish which statement was
+        // displayed. Reuse the registered publication/message resolver and let
+        // every actually displayed reference participate in disambiguation.
+        guard let anchorResolver else { throw MemoryEvidenceVerifierError.ambiguousIntent }
+        let digest = MemoryClaimDigests.bytes(try MemoryClaimCodec().encode(predecessor))
+        let loaded = try predecessor.claims.map { claim in
+            MemoryLocalCorrectionAnchorClaim(claim: claim,
+                reference: try MemoryClaimCodec().reference(for: claim, in: predecessor, contentDigest: digest),
+                scope: predecessor.scope)
+        }
+        guard let anchor = try await anchorResolver.resolve(text: commandText, authority: authority, loadedClaims: loaded),
+              anchor.reference.claimID == target.id else { throw MemoryEvidenceVerifierError.ambiguousIntent }
+    }
+
     /// Read-only revalidation is not a new assessment or user action. Older
     /// durable sources remain inspectable; unknown/multi-source interpretations
     /// fail closed until a registered predicate supports them.
@@ -366,7 +397,7 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
         let replaced = command.kind == .correct && claim.validity == .withdrawn
         if replaced {
             guard !exact(claim.body, command.body), claim.assessment.level == .uncertain,
-                  command.targetBody.map({ exact($0, claim.body) }) ?? true,
+                  command.acceptsTarget(body: claim.body),
                   exact(claim.assessment.basis, Self.replacedClaimBasis), claim.changes.count == 1,
                   let change = claim.changes.first, change.kind == .withdrawal,
                   change.previous.claimID == claim.id, change.changedAt == message.createdAt,
@@ -545,12 +576,23 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
 
     private struct UserCommand {
         enum Kind { case confirm, uncertain, correct, withdraw }
-        enum Form { case explicit, remember, forget, formerResidence, adoptedQuotation, namedQuotedReplacement }
+        enum Form { case explicit, remember, forget, formerResidence, adoptedQuotation, namedQuotedReplacement, preferenceCorrection }
         let kind: Kind
         let form: Form
         let body: String
         let targetBody: String?
         var isQuotedReplacement: Bool { form == .adoptedQuotation || form == .namedQuotedReplacement }
+        func matchesTarget(body: String) -> Bool {
+            // A qualified preference still contributes to ambiguity, even when
+            // this ordinary form is too narrow to replace it on its own.
+            if form == .preferenceCorrection {
+                return body.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("i prefer ")
+            }
+            return targetBody.map { $0.utf8.elementsEqual(body.utf8) } ?? true
+        }
+        func acceptsTarget(body: String) -> Bool {
+            matchesTarget(body: body) && (form != .preferenceCorrection || Self.isSimplePreference(body))
+        }
         var action: MemoryUserCommandAction {
             switch kind {
             case .confirm: .confirmFirstHand
@@ -560,9 +602,12 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
             }
         }
         var level: MemoryClaimAssessmentLevel {
-            kind == .uncertain || kind == .withdraw || isQuotedReplacement ? .uncertain : .confirmed
+            kind == .uncertain || kind == .withdraw || isQuotedReplacement || form == .preferenceCorrection ? .uncertain : .confirmed
         }
         var basis: String {
+            if form == .preferenceCorrection {
+                return "The user stated this preference correction; it has not been independently verified."
+            }
             if isQuotedReplacement {
                 return "The user explicitly adopted this quoted replacement; it has not been independently verified."
             }
@@ -586,6 +631,20 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
             guard text.utf8.count <= 8_192, !text.contains("\0") else {
                 throw MemoryEvidenceVerifierError.unsupportedIntent
             }
+            // This ordinary form is deliberately limited to one standalone
+            // first-person preference. Normalize only recognition; the source
+            // receipt below continues to bind the complete original message.
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let preferencePrefix = "actually, "
+            if trimmed.lowercased().hasPrefix(preferencePrefix) {
+                let preference = String(trimmed.dropFirst(preferencePrefix.count))
+                guard Self.isSimplePreference(preference) else {
+                    throw MemoryEvidenceVerifierError.unsupportedIntent
+                }
+                self.kind = .correct; self.form = .preferenceCorrection
+                self.body = preference; self.targetBody = nil
+                return
+            }
             let prefixes: [(String, Kind, Form)] = [
                 ("I confirm from first-hand knowledge: ", .confirm, .explicit),
                 ("Remember as uncertain: ", .uncertain, .explicit),
@@ -603,7 +662,7 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
             }
             var remainder = String(text.dropFirst(match.0.count))
             var target: String?
-            guard !remainder.isEmpty, !remainder.contains("\n"), !remainder.contains("\r"),
+            guard !remainder.isEmpty, !ClaudeTextWorkApprovalPolicy.hasLineBreak(remainder),
                   !remainder.contains("?"), !remainder.trimmingCharacters(in: .whitespaces).isEmpty else {
                 throw MemoryEvidenceVerifierError.ambiguousIntent
             }
@@ -624,6 +683,26 @@ public struct MemoryEvidenceVerifier: MemoryAdmissionEvidenceVerifying, Sendable
             self.body = match.2 == .formerResidence ? "I live in " + remainder : remainder
             self.targetBody = target
             self.kind = match.1; self.form = match.2
+        }
+        private static func isSimplePreference(_ text: String) -> Bool {
+            guard !ClaudeTextWorkApprovalPolicy.hasLineBreak(text) else { return false }
+            let statement = text.trimmingCharacters(in: .whitespaces)
+            let prefix = "i prefer "
+            guard statement.lowercased().hasPrefix(prefix) else { return false }
+            var object = String(statement.dropFirst(prefix.count))
+            if object.hasSuffix(".") { object.removeLast() }
+            // A short word phrase only: quotes, clauses, questions, additional
+            // sentences and embedded line breaks require explicit clarification.
+            // This is a bounded English command, not general language inference.
+            let pattern = #"^[\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*(?: [\p{L}\p{N}]+(?:['’\-][\p{L}\p{N}]+)*){0,7}$"#
+            guard object.range(of: pattern, options: .regularExpression) != nil else { return false }
+            let qualifiers: Set<String> = [
+                "if", "when", "whenever", "unless", "provided", "assuming", "suppose", "supposing",
+                "hypothetically", "hypothetical", "maybe", "perhaps", "possibly", "would", "could",
+                "might", "may", "should", "only", "except", "and", "or", "but", "because", "since",
+                "while", "although", "though", "whether", "during", "until", "before", "after"
+            ]
+            return object.lowercased().split(separator: " ").allSatisfy { !qualifiers.contains(String($0)) }
         }
         private static func unquote(_ text: String) throws -> String {
             guard (text.hasPrefix("\"") && text.hasSuffix("\"")) || (text.hasPrefix("“") && text.hasSuffix("”")),

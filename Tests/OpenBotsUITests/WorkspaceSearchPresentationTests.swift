@@ -65,7 +65,7 @@ final class WorkspaceSearchPresentationTests: XCTestCase {
         XCTAssertTrue(source.contains("Button(action: coordinator.present)"))
         XCTAssertTrue(source.contains("Label(\"Search\", systemImage: \"magnifyingglass\")"))
         XCTAssertTrue(source.contains(".keyboardShortcut(\"f\", modifiers: .command)"))
-        XCTAssertTrue(source.contains(".help(\"Search teammates and saved messages\")"))
+        XCTAssertTrue(source.contains(".help(\"Search bots and saved messages\")"))
         XCTAssertFalse(source.contains(".sheet("))
         XCTAssertFalse(source.contains("NSWindow("))
         // Toolbar declarations are source evidence. The child below proves
@@ -222,7 +222,7 @@ private func settleSearchPresentation(_ host: NSView, phase: String) async throw
 @MainActor
 private func searchPresentationField(in root: NSView) -> NSTextField? {
     root.workspaceSearchDescendants.compactMap { $0 as? NSTextField }.first {
-        $0.isEditable && $0.placeholderString == "Search teammates and saved messages"
+        $0.isEditable && $0.placeholderString == "Search bots and saved messages"
     }
 }
 

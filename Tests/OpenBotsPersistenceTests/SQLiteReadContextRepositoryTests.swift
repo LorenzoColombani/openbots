@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SQLite3
 import OpenBotsDomain
 import Testing
 @testable import OpenBotsPersistence
@@ -72,6 +73,49 @@ struct SQLiteReadContextRepositoryTests {
         let snapshot = try await store.loadReadContextCandidates(f.request(store))
         #expect(snapshot.recentMessages.isEmpty && snapshot.olderMessages.isEmpty)
         #expect(snapshot.omissions.excludedMessageLowerBound == 3)
+    }
+
+    @Test("A stopped turn is history, its reply marked as cut off, whether a correction stopped it or the user pressed Stop")
+    func correctedTurnBecomesHistory() async throws {
+        let f = try ReadContextFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        // Stopped by the user, nothing links it: history too, marked stopped.
+        let stopped = try await f.interrupt(store, text: "Write me a poem about cobalt", partial: "Cobalt is")
+        // Stopped by a correction whose run names it: its request and partial are history.
+        let corrected = try await f.interrupt(store, text: "Now a haiku about cobalt", partial: "Deep cobalt evening")
+        let correction = try await f.complete(store, text: "Make it about copper instead", reply: "Copper evening glows.",
+            superseding: corrected.runID)
+        // Stopped before it had written anything: its request is history, its status reply is not.
+        let unwritten = try await f.interrupt(store, text: "One more, about tin", partial: "")
+        let second = try await f.complete(store, text: "Zinc, not tin", reply: "Zinc it is.", superseding: unwritten.runID)
+        let snapshot = try await store.loadReadContextCandidates(f.request(store))
+        #expect(Set(snapshot.recentMessages.map(\.id)) == [stopped.userID, stopped.replyID, corrected.userID, corrected.replyID,
+            correction.userID, correction.replyID, unwritten.userID, second.userID, second.replyID])
+        #expect(snapshot.recentMessages.first { $0.id == stopped.replyID }?.text == "Cobalt is")
+        #expect(snapshot.recentMessages.first { $0.id == corrected.replyID }?.text == "Deep cobalt evening")
+        #expect(snapshot.recentMessages.first { $0.id == corrected.replyID }?.author == .teammate(f.bot))
+        // The cut-off reply says so; the request it answered was whole, and so
+        // is every message of a turn that finished.
+        #expect(snapshot.recentMessages.first { $0.id == corrected.replyID }?.ending == .stopped)
+        #expect(snapshot.recentMessages.first { $0.id == corrected.userID }?.ending == .finished)
+        #expect(snapshot.recentMessages.first { $0.id == unwritten.userID }?.ending == .finished)
+        #expect(snapshot.recentMessages.filter { $0.ending == .stopped }.map(\.id) == [stopped.replyID, corrected.replyID])
+        // Only the status line of the turn stopped before it wrote is left out.
+        #expect(snapshot.omissions.excludedMessageLowerBound == 1)
+        // An admitted pair revalidates like any other, and a later correction
+        // does not unseat it: what a correction put on record stays on record.
+        let selected = try snapshot.receipt.selecting(messageIDs: [corrected.userID, corrected.replyID], memoryDocumentIDs: [])
+        try await store.revalidateReadContext(selected)
+        let again = try await f.interrupt(store, text: "And one about lead", partial: "Lead")
+        _ = try await f.complete(store, text: "Gold, not lead", reply: "Gold then.", superseding: again.runID)
+        try await store.revalidateReadContext(selected)
+        let later = try await store.loadReadContextCandidates(f.request(store))
+        #expect(Set(later.recentMessages.map(\.id)).isSuperset(of: [corrected.userID, corrected.replyID, again.userID, again.replyID]))
+        // The first stopped pair has aged out of the recent window by now, as
+        // any pair does; the newer one stopped by a correction is still there.
+        #expect(later.recentMessages.contains { $0.id == again.replyID && $0.ending == .stopped })
     }
 
     @Test("History admits only nil-origin or the currently selected project; memory uses exact eligible scopes")
@@ -253,16 +297,120 @@ struct SQLiteReadContextRepositoryTests {
         #expect(afterRequest.utf8.elementsEqual(beforeRequest.utf8))
     }
 
-    @Test("History ancestry work is bounded even when every source is in the same allowed scope")
-    func oversizedHistoryGraphIsOmitted() async throws {
+    /// Seen live: a bot was told where something is stored and, one turn
+    /// later, said nothing in the conversation mentioned it. Its conversation
+    /// had a few dozen turns, each quoting up to the twelve messages before it,
+    /// and walking that ancestry spent the 256 references a context read
+    /// allowed, so the newest turns were left out of context while the oldest
+    /// were kept. A longer conversation was given none of its recent twelve.
+    @Test("A long conversation whose every turn quoted the messages before it keeps its latest exchange in context")
+    func longQuotedHistoryKeepsTheLatestExchange() async throws {
+        let f = try ReadContextFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let empty = try await store.loadReadContextCandidates(f.request(store))
+        var quoted: [ReadContextMessageReference] = []
+        for index in 0..<40 {
+            let turn = try await f.complete(store, text: "Request \(index)", reply: "Answer \(index)")
+            try await f.installHistoricalReceipt(try f.receipt(basedOn: empty.receipt, messages: Array(quoted.suffix(12))),
+                for: turn, store: store)
+            for (id, text) in [(turn.userID, "Request \(index)"), (turn.replyID, "Answer \(index)")] {
+                let message = try #require(try await store.message(id: id))
+                quoted.append(ReadContextMessageReference(messageID: id, runID: turn.runID,
+                    runRevision: turn.snapshot.run.revision, runUpdatedAt: turn.snapshot.run.updatedAt,
+                    sequence: message.sequence, messageUpdatedAt: message.updatedAt, selectedProjectID: nil,
+                    contentDigest: SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()))
+            }
+        }
+        let snapshot = try await store.loadReadContextCandidates(f.request(store))
+        #expect(snapshot.omissions.excludedMessageLowerBound == 0)
+        #expect(snapshot.recentMessages.map(\.text).suffix(2) == ["Request 39", "Answer 39"], "\(snapshot.recentMessages.map(\.text))")
+    }
+
+    /// Proving every admitted turn before a read once had two costs: one old
+    /// turn whose stored record could not be parsed, even a turn nothing quotes,
+    /// failed every context read of the conversation, and every check that
+    /// quotes no message walked the whole conversation first.
+    @Test("An unreadable old turn that nothing quotes fails neither a check that quotes nothing nor a context read")
+    func anUnreadableUnquotedTurnFailsNoRead() async throws {
+        let f = try ReadContextFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let old = try await f.complete(store, text: "Old request", reply: "Old answer")
+        for index in 0..<20 { _ = try await f.complete(store, text: "Request \(index)", reply: "Answer \(index)") }
+        let quotesNothing = try await store.loadReadContextCandidates(f.request(store)).receipt
+            .selecting(messageIDs: [], memoryDocumentIDs: [])
+        // The old turn's run id becomes one no reader can parse, written past the store.
+        var connection: OpaquePointer?
+        #expect(sqlite3_open(f.directory.appendingPathComponent("control.sqlite").path, &connection) == SQLITE_OK)
+        defer { sqlite3_close(connection) }
+        let unreadable = String(repeating: "z", count: 36), id = old.runID.persistedValue
+        #expect(sqlite3_exec(connection, """
+            PRAGMA foreign_keys=OFF; BEGIN;
+            UPDATE work_runs SET id='\(unreadable)' WHERE id='\(id)';
+            UPDATE run_journal_metadata SET run_id='\(unreadable)' WHERE run_id='\(id)';
+            UPDATE run_input_receipts SET run_id='\(unreadable)' WHERE run_id='\(id)';
+            COMMIT;
+            """, nil, nil, nil) == SQLITE_OK)
+        do { try await store.revalidateReadContext(quotesNothing) } catch {
+            Issue.record("the check that quotes nothing failed: \(error)")
+        }
+        do {
+            let snapshot = try await store.loadReadContextCandidates(f.request(store))
+            #expect(snapshot.recentMessages.map(\.text).suffix(2) == ["Request 19", "Answer 19"])
+        } catch { Issue.record("the context read failed: \(error)") }
+    }
+
+    /// One turn whose proof throws was once charged to the
+    /// run budget again for every later turn that quotes it, so a conversation past
+    /// about forty quoting turns lost its newest messages — including turns that
+    /// quote nothing and rest on nothing.
+    @Test("A turn whose history cannot be proven costs a long conversation nothing but its own")
+    func anUnprovableTurnCostsOnlyItsOwnMessages() async throws {
+        let f = try ReadContextFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let empty = try await store.loadReadContextCandidates(f.request(store))
+        let document = try f.memory(scope: .teammate(f.bot), title: "Old memory")
+        try await store.insert(document)
+        let root = try await f.complete(store, text: "Root request", reply: "Root answer")
+        try await f.installHistoricalReceipt(try f.receipt(basedOn: empty.receipt, documents: [document]), for: root, store: store)
+        var quoted = try await f.reference(store, to: root, text: "Root answer")
+        for index in 0..<60 {
+            let turn = try await f.complete(store, text: "Chain request \(index)", reply: "Chain answer \(index)")
+            try await f.installHistoricalReceipt(try f.receipt(basedOn: empty.receipt, messages: [quoted]), for: turn, store: store)
+            quoted = try await f.reference(store, to: turn, text: "Chain answer \(index)")
+        }
+        // Six turns of their own, quoting nothing, resting on nothing.
+        for index in 0..<6 { _ = try await f.complete(store, text: "Own request \(index)", reply: "Own answer \(index)") }
+        // The memory the root turn rests on goes missing, past the store.
+        var connection: OpaquePointer?
+        #expect(sqlite3_open(f.directory.appendingPathComponent("control.sqlite").path, &connection) == SQLITE_OK)
+        defer { sqlite3_close(connection) }
+        #expect(sqlite3_exec(connection, "PRAGMA foreign_keys=OFF; DELETE FROM memory_documents WHERE id='\(document.id.persistedValue)';",
+            nil, nil, nil) == SQLITE_OK)
+        let snapshot = try await store.loadReadContextCandidates(f.request(store))
+        #expect(snapshot.recentMessages.map(\.text).suffix(2) == ["Own request 5", "Own answer 5"], "\(snapshot.recentMessages.map(\.text))")
+        #expect(snapshot.omissions.excludedMessageLowerBound == 0)
+    }
+
+    /// Every read used to walk the bot's whole
+    /// conversation within a ceiling of 1,024 turns, and past it the newest
+    /// turns were the ones left out. Each turn's proof is now stored, so the
+    /// length of a conversation costs a read nothing and drops nothing.
+    @Test("A conversation past the old 1,024-turn ceiling keeps its newest turns")
+    func aChainPastTheOldCeilingKeepsItsNewestTurns() async throws {
         let f = try ReadContextFixture()
         defer { f.remove() }
         let store = try f.open()
         try await f.seed(store)
         let empty = try await store.loadReadContextCandidates(f.request(store))
         var previous: ReadContextMessageReference?
-        // Exceeds the 64 distinct-run ceiling without loading any memory file.
-        for index in 0..<66 {
+        // Two turns past where the ceiling was, each quoting the one before it.
+        for index in 0..<1_026 {
             let turn = try await f.complete(store, text: "Synthetic chain \(index)", reply: "Synthetic answer \(index)")
             let messageValue = try await store.message(id: turn.replyID)
             let message = try #require(messageValue)
@@ -275,9 +423,103 @@ struct SQLiteReadContextRepositoryTests {
             previous = reference
         }
         let snapshot = try await store.loadReadContextCandidates(f.request(store))
-        #expect(snapshot.recentMessages.isEmpty && snapshot.olderMessages.isEmpty)
-        #expect(snapshot.omissions.excludedMessageLowerBound == ReadContextLimits.recentMessages)
-        #expect(try await store.runs(conversationID: f.chat, limit: 100).count == 66)
+        #expect(snapshot.omissions.excludedMessageLowerBound == 0)
+        #expect(snapshot.recentMessages.count == ReadContextLimits.recentMessages)
+        #expect(snapshot.recentMessages.map(\.text).suffix(2) == ["Synthetic chain 1025", "Synthetic answer 1025"],
+                "\(snapshot.recentMessages.map(\.text))")
+        // Nothing was edited to make the read fit.
+        #expect(try await store.runs(conversationID: f.chat, limit: 100).count == 100)
+    }
+
+    @Test("A turn stores its proof when it is admitted: its own memory and the memory of every turn it quotes, all the way down")
+    func anAdmittedTurnStoresItsProof() async throws {
+        let f = try ReadContextFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let document = try f.memory(scope: .teammate(f.bot), title: "The kite is in the garage")
+        try await store.insert(document)
+        let first = try await f.complete(store, text: "Where is the kite?", reply: "In the garage.")
+        // The next turns are admitted the way the app admits them: with the receipt of what they read.
+        let firstRead = try await store.loadReadContextCandidates(f.request(store))
+        let second = try await f.complete(store, text: "And the ball?", reply: "Beside it.",
+            receipt: try firstRead.receipt.selecting(messageIDs: [first.userID, first.replyID], memoryDocumentIDs: [document.id]))
+        let secondRead = try await store.loadReadContextCandidates(f.request(store))
+        let third = try await f.complete(store, text: "Thanks.", reply: "Any time.",
+            receipt: try secondRead.receipt.selecting(messageIDs: [second.userID, second.replyID], memoryDocumentIDs: []))
+        func proof(_ turn: ReadContextTestTurn) async throws -> (proven: Int64, qualification: Int64, memory: [MemoryDocumentID]) {
+            let row = try #require(try await store.query(sql: """
+                SELECT proven,memory_qualification_required,memory_references_json FROM read_context_turn_proofs WHERE run_id=?;
+                """, bindings: [.text(turn.runID.persistedValue)]).first)
+            let references = try JSONDecoder().decode([ReadContextMemoryReference].self,
+                from: Data(try row.text("memory_references_json").utf8))
+            return (try row.integer("proven"), try row.integer("memory_qualification_required"), references.map(\.documentID))
+        }
+        let firstProof = try await proof(first), secondProof = try await proof(second), thirdProof = try await proof(third)
+        #expect(firstProof.proven == 1 && firstProof.qualification == 0 && firstProof.memory.isEmpty)
+        #expect(secondProof.proven == 1 && secondProof.qualification == 1 && secondProof.memory == [document.id])
+        // The third turn quotes no memory itself; it rests on the second turn's.
+        #expect(thirdProof.proven == 1 && thirdProof.qualification == 1 && thirdProof.memory == [document.id])
+    }
+
+    /// Every correction of a memory makes
+    /// a new document, so a proof that carried every reference under it could
+    /// grow with each correction. It cannot: a turn resting on the old
+    /// revision is no longer quotable, so what a turn stores is only memory that
+    /// was current when it was admitted, never more than the heads at that time.
+    @Test("A corrected memory does not pile up in the proofs of later turns")
+    func aCorrectedMemoryDoesNotPileUp() async throws {
+        let f = try ReadContextFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let original = try f.memory(scope: .teammate(f.bot), title: "The kite is in the garage")
+        try await store.insert(original)
+        let firstRead = try await store.loadReadContextCandidates(f.request(store))
+        let first = try await f.complete(store, text: "Where is the kite?", reply: "In the garage.",
+            receipt: try firstRead.receipt.selecting(messageIDs: [], memoryDocumentIDs: [original.id]))
+        let corrected = try f.memory(scope: .teammate(f.bot), title: "The kite is in the attic", offset: 10, predecessor: original)
+        try await store.insert(corrected)
+        let secondRead = try await store.loadReadContextCandidates(f.request(store))
+        // The first turn rests on the old revision, so it is not offered again.
+        #expect(!secondRead.recentMessages.contains { $0.id == first.replyID })
+        let second = try await f.complete(store, text: "And now?", reply: "In the attic.",
+            receipt: try secondRead.receipt.selecting(messageIDs: secondRead.recentMessages.map(\.id),
+                memoryDocumentIDs: secondRead.memoryDocuments.map(\.id)))
+        let row = try #require(try await store.query(sql: "SELECT memory_references_json FROM read_context_turn_proofs WHERE run_id=?;",
+            bindings: [.text(second.runID.persistedValue)]).first)
+        let stored = try JSONDecoder().decode([ReadContextMemoryReference].self, from: Data(try row.text("memory_references_json").utf8))
+        #expect(stored.map(\.documentID) == [corrected.id])
+    }
+
+    @Test("Turns saved before proofs were stored are proved once, oldest first, and the stored proof is what later reads use")
+    func turnsSavedBeforeProofsAreProvedOnceAndStored() async throws {
+        let f = try ReadContextFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let empty = try await store.loadReadContextCandidates(f.request(store))
+        var turns: [ReadContextTestTurn] = []
+        for index in 0..<5 {
+            let turn = try await f.complete(store, text: "Request \(index)", reply: "Answer \(index)")
+            var quoted: [ReadContextMessageReference] = []
+            if let previous = turns.last { quoted = [try await f.reference(store, to: previous, text: "Answer \(index - 1)")] }
+            try await f.installHistoricalReceipt(try f.receipt(basedOn: empty.receipt, messages: quoted), for: turn, store: store)
+            turns.append(turn)
+        }
+        // A store from before migration 30 holds no proof at all.
+        _ = try await store.execute(sql: "DELETE FROM read_context_turn_proofs;")
+        let first = try await store.loadReadContextCandidates(f.request(store))
+        #expect(first.recentMessages.map(\.text).suffix(2) == ["Request 4", "Answer 4"])
+        let stored = try await store.query(sql: "SELECT run_id FROM read_context_turn_proofs WHERE proven=1;")
+        #expect(Set(try stored.map { try $0.text("run_id") }) == Set(turns.map(\.runID.persistedValue)))
+        // Proved once: the next read takes the stored proof as it stands.
+        _ = try await store.execute(sql: """
+            UPDATE read_context_turn_proofs SET proven=0,memory_qualification_required=0,memory_references_json='[]' WHERE run_id=?;
+            """, bindings: [.text(turns[4].runID.persistedValue)])
+        let second = try await store.loadReadContextCandidates(f.request(store))
+        #expect(second.recentMessages.map(\.text).suffix(2) == ["Request 3", "Answer 3"])
+        #expect(second.omissions.excludedMessageLowerBound == 2)
     }
 
     @Test("Final receipt validation detects changed source, membership, selection, profile and head stamps",
@@ -439,7 +681,8 @@ private struct ReadContextFixture {
     }
     func seed(_ store: SQLiteStore) async throws {
         for (id, conversation) in [(bot, chat), (otherBot, otherChat)] {
-            let teammate = try Teammate(id: id, profile: TeammateProfile(displayName: "Context Bot", role: "Research"),
+            // Two bots never share a name, and the store now refuses a second one.
+            let teammate = try Teammate(id: id, profile: TeammateProfile(displayName: id == bot ? "Context Bot" : "Other Context Bot", role: "Research"),
                 appearance: AgentAppearance(mode: .creature, grammarVersion: 1, deterministicSeed: 6, silhouette: "round",
                     paletteToken: "sky", eyeDialect: "bright", nonColorIdentityCue: "single crest", accessibleIdentityDescription: "Round creature"),
                 createdAt: date, updatedAt: date)
@@ -470,7 +713,8 @@ private struct ReadContextFixture {
         try await store.append(message, expectedPreviousSequence: last)
         return message.id
     }
-    func begin(_ store: SQLiteStore, text: String, other: Bool = false) async throws -> ReadContextTestTurn {
+    func begin(_ store: SQLiteStore, text: String, other: Bool = false, superseding: RunID? = nil,
+               receipt: ReadContextReceipt? = nil) async throws -> ReadContextTestTurn {
         let conversation = other ? otherChat : chat, teammate = other ? otherBot : bot
         let last = try await store.page(conversationID: conversation, request: PageRequest(limit: 1)).elements.last?.sequence ?? 0
         let selection = try await store.loadContext(conversationID: conversation)
@@ -481,13 +725,27 @@ private struct ReadContextFixture {
         let request = try WorkRequest(runID: RunID(UUID()), teammateID: teammate, conversationID: conversation,
             initiatingMessageID: message.id, selectedProjectID: selection.projectID, profileRevision: 1,
             initialInput: WorkInput(messageID: message.id, sequence: 1, text: text), submittedAt: date,
-            textTurnIdentity: TextTurnIdentity(appOwnerID: UUID(), replyMessageID: reply, replyPartID: MessagePartID(UUID())))
+            textTurnIdentity: TextTurnIdentity(appOwnerID: UUID(), replyMessageID: reply, replyPartID: MessagePartID(UUID())),
+            readContextReceipt: receipt, supersededRunID: superseding)
         let snapshot = try await store.beginTextTurn(request: request, userMessage: message, expectedPreviousSequence: last,
             ownerID: UUID(), token: token, now: date, leaseDuration: 60)
         return ReadContextTestTurn(runID: request.runID, userID: message.id, replyID: reply, token: token, snapshot: snapshot)
     }
-    func complete(_ store: SQLiteStore, text: String, reply: String, other: Bool = false, succeeded: Bool = true) async throws -> ReadContextTestTurn {
-        let turn = try await begin(store, text: text, other: other)
+    /// A turn stopped mid-reply, as Stop or a correction stops it: the request
+    /// acknowledged, whatever was written saved, the run settled interrupted.
+    func interrupt(_ store: SQLiteStore, text: String, partial: String) async throws -> ReadContextTestTurn {
+        let turn = try await begin(store, text: text)
+        var saved = try await store.checkpointTextTurn(id: turn.runID, expectedRevision: turn.snapshot.run.revision,
+            token: turn.token, text: "", inputEvidence: .submitted, now: date.addingTimeInterval(1))
+        saved = try await store.checkpointTextTurn(id: turn.runID, expectedRevision: saved.run.revision,
+            token: turn.token, text: partial, inputEvidence: .acknowledged, now: date.addingTimeInterval(2))
+        saved = try await store.finishTextTurn(id: turn.runID, expectedRevision: saved.run.revision,
+            token: turn.token, text: partial, outcome: .interrupted, now: date.addingTimeInterval(3))
+        return ReadContextTestTurn(runID: turn.runID, userID: turn.userID, replyID: turn.replyID, token: turn.token, snapshot: saved)
+    }
+    func complete(_ store: SQLiteStore, text: String, reply: String, other: Bool = false, succeeded: Bool = true,
+                  superseding: RunID? = nil, receipt: ReadContextReceipt? = nil) async throws -> ReadContextTestTurn {
+        let turn = try await begin(store, text: text, other: other, superseding: superseding, receipt: receipt)
         var saved = try await store.checkpointTextTurn(id: turn.runID, expectedRevision: turn.snapshot.run.revision,
             token: turn.token, text: "", inputEvidence: .submitted, now: date.addingTimeInterval(1))
         saved = try await store.checkpointTextTurn(id: turn.runID, expectedRevision: saved.run.revision,
@@ -521,11 +779,148 @@ private struct ReadContextFixture {
             teamMembershipJoinedAt: base.teamMembershipJoinedAt, messages: messages, memoryDocuments: references)
     }
 
+    /// The reference a later receipt quotes this turn's reply by.
+    func reference(_ store: SQLiteStore, to turn: ReadContextTestTurn, text: String) async throws -> ReadContextMessageReference {
+        let message = try #require(try await store.message(id: turn.replyID))
+        return ReadContextMessageReference(messageID: turn.replyID, runID: turn.runID, runRevision: turn.snapshot.run.revision,
+            runUpdatedAt: turn.snapshot.run.updatedAt, sequence: message.sequence, messageUpdatedAt: message.updatedAt,
+            selectedProjectID: nil, contentDigest: SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined())
+    }
+
     /// Historical test fixture only: production admission now rejects this old
-    /// policy. Editing its frozen receipt models data already saved before it.
+    /// policy. Editing its frozen receipt models data already saved before it,
+    /// and data saved before migration 30 carries no stored proof, so the one
+    /// admission wrote from the unedited receipt goes with the edit.
     func installHistoricalReceipt(_ receipt: ReadContextReceipt, for turn: ReadContextTestTurn, store: SQLiteStore) async throws {
         let encoded = String(decoding: try JSONEncoder().encode(receipt), as: UTF8.self)
         _ = try await store.execute(sql: "UPDATE run_journal_metadata SET request_json=json_set(request_json,'$.readContextReceipt',json(?)) WHERE run_id=?;",
             bindings: [.text(encoded), .text(turn.runID.persistedValue)])
+        _ = try await store.execute(sql: "DELETE FROM read_context_turn_proofs WHERE run_id=?;",
+            bindings: [.text(turn.runID.persistedValue)])
+    }
+}
+
+// MARK: - A team room's handoff traffic and a lead's window
+
+struct SQLiteReadContextTeamWindowTests {
+    /// One completed text turn in a team conversation: the initiating message with
+    /// the given author, answered by `teammate`. A lead's turn is authored by the
+    /// user; a handoff leg is authored by the lead and answered by the member,
+    /// exactly as the reply service writes them.
+    private func turn(_ store: SQLiteStore, conversation: ConversationID, teammate: TeammateID,
+                      author: MessageAuthor, text: String, reply: String, at date: Date,
+                      handoffLegID: HandoffLegID? = nil) async throws {
+        let last = try await store.page(conversationID: conversation, request: PageRequest(limit: 1)).elements.last?.sequence ?? 0
+        let message = try Message(id: MessageID(UUID()), conversationID: conversation, sequence: last + 1, author: author,
+            outputClass: handoffLegID == nil ? .conversation : .workAudit, deliveryState: .pending,
+            parts: [MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text(text))],
+            createdAt: date, updatedAt: date)
+        let request = try WorkRequest(runID: RunID(UUID()), teammateID: teammate, conversationID: conversation,
+            initiatingMessageID: message.id, selectedProjectID: nil, profileRevision: 1,
+            initialInput: WorkInput(messageID: message.id, sequence: 1, text: text), submittedAt: date,
+            textTurnIdentity: TextTurnIdentity(appOwnerID: UUID(), replyMessageID: MessageID(UUID()), replyPartID: MessagePartID(UUID()),
+                handoffLegID: handoffLegID))
+        let token = UUID()
+        let begun = try await store.beginTextTurn(request: request, userMessage: message, expectedPreviousSequence: last,
+            ownerID: UUID(), token: token, now: date, leaseDuration: 60)
+        var saved = try await store.checkpointTextTurn(id: request.runID, expectedRevision: begun.run.revision,
+            token: token, text: "", inputEvidence: .submitted, now: date.addingTimeInterval(1))
+        saved = try await store.checkpointTextTurn(id: request.runID, expectedRevision: saved.run.revision,
+            token: token, text: "", inputEvidence: .acknowledged, now: date.addingTimeInterval(2))
+        _ = try await store.finishTextTurn(id: request.runID, expectedRevision: saved.run.revision,
+            token: token, text: reply, outcome: .succeeded, now: date.addingTimeInterval(3))
+    }
+
+    /// A handoff leg as the reply service writes it: an accepted record, then a
+    /// turn whose input is the brief authored by the sender and whose reply is
+    /// the receiver's. Persistence admits the sender-authored input only for
+    /// an accepted leg, so the record is real.
+    private func leg(_ store: SQLiteStore, conversation: ConversationID, sender: TeammateID, receiver: TeammateID,
+                     goal: String, reply: String, at date: Date) async throws {
+        let brief = try HandoffBrief(goal: goal, constraints: ["Answer briefly"], inputReferences: ["The name above"],
+            requestedOutput: "A short list", exclusions: ["No speculation"], stopOrApprovalBoundary: "Report only")
+        var record = HandoffRecord(handoff: try Handoff(provenance: HandoffProvenance(handoffID: HandoffID(UUID()),
+            legID: HandoffLegID(UUID()), originConversationID: conversation, senderID: sender, receiverID: receiver, createdAt: date),
+            brief: brief), sourceMessageID: nil)
+        try await store.insert(record)
+        try record.apply(.accept(at: date))
+        try await store.update(record, expectedState: .staged)
+        try await turn(store, conversation: conversation, teammate: receiver, author: .teammate(sender),
+            text: "Handoff from Mira to Ada. Goal: \(goal)", reply: reply, at: date, handoffLegID: record.legID)
+    }
+
+    private func request(conversation: ConversationID, teammate: TeammateID) throws -> ReadContextRequest {
+        try ReadContextRequest(conversationID: conversation, teammateID: teammate, profileRevision: 1,
+            selection: ConversationContextSelection(conversationID: conversation, teammateID: teammate),
+            beforeSequence: Int64.max, searchTerms: [])
+    }
+
+    @Test("Handoff briefs and another member's replies do not spend the lead's recent window")
+    func handoffTrafficDoesNotEvictTheUsersRequest() async throws {
+        let f = try TeamChatStoreFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seedBots(store)
+        let team = try f.team(store: store, members: [f.ada, f.mira], lead: f.mira)
+        let conversation = try f.teamConversation(team)
+        try await store.provisionTeam(team, conversation: conversation, selectConversation: false)
+        var clock = f.date.addingTimeInterval(60)
+        func tick() -> Date { clock = clock.addingTimeInterval(10); return clock }
+
+        try await turn(store, conversation: conversation.id, teammate: f.mira, author: .user,
+            text: "The person's name is Alpha Beta; audit her presence.", reply: "Noted: Alpha Beta. Asking Ada.", at: tick())
+        // Five delegation rounds: each adds a lead turn, then a leg whose brief is
+        // written by the lead and whose reply is the member's. Twenty-two rows in
+        // all; only the twelve user/lead rows are the lead's to see.
+        for round in 1...5 {
+            try await turn(store, conversation: conversation.id, teammate: f.mira, author: .user,
+                text: "Try again \(round)", reply: "Sending it to Ada again \(round).", at: tick())
+            try await leg(store, conversation: conversation.id, sender: f.mira, receiver: f.ada,
+                goal: "audit round \(round)", reply: "Ada's result \(round): no search.", at: tick())
+        }
+
+        let lead = try await store.loadReadContextCandidates(try request(conversation: conversation.id, teammate: f.mira))
+        #expect(lead.recentMessages.count == ReadContextLimits.recentMessages)
+        #expect(lead.recentMessages.first?.text == "The person's name is Alpha Beta; audit her presence.",
+                "the user's request is still the oldest message in the lead's window")
+        #expect(lead.recentMessages.contains { $0.text == "Noted: Alpha Beta. Asking Ada." })
+        #expect(lead.recentMessages.allSatisfy { !$0.text.hasPrefix("Handoff from") && !$0.text.hasPrefix("Ada's result") },
+                "a brief and a member's reply are never the lead's context")
+        #expect(lead.recentMessages.allSatisfy { $0.author == .user || $0.author == .teammate(f.mira) })
+        #expect(!lead.omissions.recentWindowHasMore && lead.omissions.excludedMessageLowerBound == 0)
+        #expect(lead.recentMessages.map(\.sequence) == lead.recentMessages.map(\.sequence).sorted())
+
+        // A member's leg answers the brief and nothing else: the room's user
+        // messages initiated the lead's runs, not the member's, so the member is
+        // shown no prior message at all. Unchanged by the window rule.
+        let member = try await store.loadReadContextCandidates(try request(conversation: conversation.id, teammate: f.ada))
+        #expect(member.recentMessages.isEmpty && member.olderMessages.isEmpty)
+    }
+
+    @Test("The recent window's look-back is bounded even when nothing in it is the lead's")
+    func lookBackIsBounded() async throws {
+        let f = try TeamChatStoreFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seedBots(store)
+        let team = try f.team(store: store, members: [f.ada, f.mira], lead: f.mira)
+        let conversation = try f.teamConversation(team)
+        try await store.provisionTeam(team, conversation: conversation, selectConversation: false)
+        var clock = f.date.addingTimeInterval(60)
+        func tick() -> Date { clock = clock.addingTimeInterval(10); return clock }
+        try await turn(store, conversation: conversation.id, teammate: f.mira, author: .user,
+            text: "The one request.", reply: "Understood.", at: tick())
+        // More leg rows than the scan bound, all authored by the lead's brief and
+        // the member's reply: the one request is beyond the bounded look-back.
+        for round in 1...(ReadContextLimits.recentCandidateScan / 2 + 1) {
+            try await leg(store, conversation: conversation.id, sender: f.mira, receiver: f.ada,
+                goal: "round \(round)", reply: "Result \(round)", at: tick())
+        }
+        let lead = try await store.loadReadContextCandidates(try request(conversation: conversation.id, teammate: f.mira))
+        #expect(lead.recentMessages.isEmpty, "the scan stopped before it reached the request")
+        // The room holds more rows than the scan looks at, so what lies beyond
+        // it is unknown and the window says so. An empty window with nothing
+        // omitted would have the assembler vouch for a complete context.
+        #expect(lead.omissions.recentWindowHasMore)
     }
 }

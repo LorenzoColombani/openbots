@@ -13,13 +13,18 @@ enum MemoryConversationPublicationRendering {
         return order.firstIndex(of: left)! >= order.firstIndex(of: right)! ? left : right
     }
 
-    static func statement(_ snapshot: MemoryPublicationClaimSnapshot, framing: MemoryClaimRequiredFraming) -> String {
+    static func statement(_ snapshot: MemoryPublicationClaimSnapshot, framing: MemoryClaimRequiredFraming,
+                          kind: MemoryPublicationUnitKind, policyVersion: UInt16) -> String {
         let body = quote(snapshot.claim.body)
         let sentence: String
         switch framing {
         case .none: sentence = "I'll take \(body) into account here."
         case .attributionAndHedge: sentence = "\(attribution(snapshot)), \(body) seems plausible, but it may be wrong."
-        case .unconfirmedPossibility: sentence = "I may have this wrong: \(body). Does that apply here?"
+        case .unconfirmedPossibility:
+            // Uncertainty alone does not make confirmation useful. Keep the
+            // original wording when reconstructing a saved version-one reply.
+            let question = policyVersion == 1 || kind == .clarification ? " Does that apply here?" : ""
+            sentence = "I may have this wrong: \(body)." + question
         case .reconsideration: sentence = "I need to reconsider \(body). Is that still applicable?"
         case .historyOnly: sentence = historicalState(snapshot.claim) + ": " + body + "."
         }
@@ -98,6 +103,10 @@ enum MemoryConversationPublicationRendering {
 
     /// Render untrusted source text literally inside one complete quoted unit.
     /// Escape line/control/quote boundaries; downstream must use plain text.
+    /// The steering block quotes a stopped turn's request and partial reply
+    /// through this same routine, so one escaper serves every quoted unit.
+    static func quotedUnit(_ value: String) -> String { quote(value) }
+
     private static func quote(_ value: String) -> String {
         var escaped = ""
         for scalar in value.unicodeScalars {

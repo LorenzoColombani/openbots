@@ -1,0 +1,17 @@
+claude_code_version: 2.1.281
+$ echo TMPDIR=$TMPDIR; echo PATH=$PATH; ls -ld "$TMPDIR"; touch "$TMPDIR/probe" && echo TOUCH_OK
+TMPDIR=/tmp/claude-501
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:$HOME/.local/bin
+drwx------  22 probe  wheel  704 Sep 23 22:40 /tmp/claude-501
+TOUCH_OK
+
+$ swift --version 2>&1; echo EXIT=$?
+swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)
+Target: arm64-apple-macosx27.0.0
+EXIT=0
+
+$ printf 'print("hi from swift")\n' > hello.swift && swift hello.swift 2>&1; echo EXIT=$?
+hi from swift
+EXIT=0
+
+debug log: CLAUDE_CODE_TMPDIR makes the per-uid temp dir 123 bytes, too long for AF_UNIX sockets; child-process $TMPDIR falls back to /tmp/claude-501. Shorten CLAUDE_CODE_TMPDIR to ≤~30 bytes if child processes should use your override.

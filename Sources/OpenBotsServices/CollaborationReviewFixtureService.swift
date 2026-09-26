@@ -126,7 +126,7 @@ public struct CollaborationReviewSnapshot: Equatable, Sendable {
 /// authorization dependency and never claims that a teammate actually ran.
 public struct CollaborationReviewFixtureService: Sendable {
     public static let disclosure =
-        "Collaboration review fixture — these synthetic memory excerpts and handoff states are process-local. This fixture did not read or write authoritative Markdown, run a teammate, or use hidden files, network, Keychain, connectors, or Claude. The separate Knowledge section uses the decision-0009A app-owned Markdown authority."
+        "Collaboration review fixture — these synthetic memory excerpts and handoff states are process-local. This fixture did not read or write authoritative Markdown, run a teammate, or use hidden files, network, Keychain, connectors, or Claude. The separate Knowledge section uses the app-owned Markdown authority."
 
     private let selector = MemoryContextSelectionService()
     private let participants: [CollaborationReviewParticipant]

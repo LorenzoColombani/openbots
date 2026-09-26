@@ -20,5 +20,15 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>OpenBots Next drives the apps you have granted a teammate: Mail, to read your messages and — with a card you approve each time — to send or answer as you; Contacts, to look up an address you have already saved, and nothing in Contacts can be changed; and Messages, to send a text from your own number, each one on a card you approve.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>OpenBots Next reads the calendars of teammates you have granted it: what is on a given day, and who is on a meeting, so a teammate can answer whether you are free and write to the people you are meeting. Nothing in your calendars can be added, changed or deleted.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>OpenBots Next shows the names from your Contacts beside your Messages conversations when you choose which chats a bot may read. Names are only shown to you; nothing in Contacts can be changed.</string>
+	<key>OpenBotsGoogleOAuthClientID</key>
+	<string>$(OPENBOTS_GOOGLE_OAUTH_CLIENT_ID)</string>
+	<key>OpenBotsSourceCommit</key>
+	<string>$(OPENBOTS_SOURCE_COMMIT)</string>
 </dict>
 </plist>

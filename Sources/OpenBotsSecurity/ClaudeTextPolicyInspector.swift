@@ -16,7 +16,7 @@ public protocol ClaudeTextPolicyInspecting: Sendable {
     func inspect(profileURL: URL) -> ClaudeTextPolicyAdmission
 }
 
-/// Metadata-only prerequisite for this Pro/Max-only, tool-free slice. This does
+/// Metadata-only prerequisite for Pro/Max text and granted work turns. This does
 /// not inspect authentication or policy values and does not grant runtime access.
 /// Services separately requires fresh firstParty claude.ai Pro/Max proof and a
 /// fresh environment without API keys, OAuth-token overrides or gateway routes.
@@ -31,7 +31,12 @@ public struct NativeClaudeTextPolicyInspector: ClaudeTextPolicyInspecting {
     public static let managedPaths = [
         "/Library/Application Support/ClaudeCode/managed-settings.json",
         "/Library/Application Support/ClaudeCode/managed-settings.d",
-        "/Library/Application Support/ClaudeCode/managed-mcp.json"
+        "/Library/Application Support/ClaudeCode/managed-mcp.json",
+        // Managed subagents outrank --agents definitions. Presence could
+        // replace the app's helper model, tools or maxTurns before launch.
+        // Official sub-agents docs put .claude/agents inside the managed
+        // settings directory; inspect metadata only, never those definitions.
+        "/Library/Application Support/ClaudeCode/.claude/agents"
     ]
     private let metadata: @Sendable (URL) -> ClaudeTextPolicySourceState
     private let preferences: @Sendable () -> ClaudeTextPolicySourceState

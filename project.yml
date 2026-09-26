@@ -13,6 +13,9 @@ settings:
     GENERATE_INFOPLIST_FILE: YES
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_VERSION: "6.0"
+packages:
+  ClaudeRuntimeProbe:
+    path: Tools/ClaudeRuntimeProbe
 targets:
   OpenBotsDomain:
     type: framework
@@ -70,6 +73,30 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.security
         SKIP_INSTALL: YES
+  OpenBotsExecutionRules:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsExecutionRules
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.executionrules
+        SKIP_INSTALL: YES
+  OpenBotsAgenticRuntime:
+    type: framework
+    platform: macOS
+    sources:
+      - path: Sources/OpenBotsAgenticRuntime
+    dependencies:
+      - target: OpenBotsExecutionRules
+      - target: OpenBotsContent
+      - target: OpenBotsSecurity
+      - package: ClaudeRuntimeProbe
+        product: ClaudeRuntimeProbeCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.agenticruntime
+        SKIP_INSTALL: YES
   OpenBotsServices:
     type: framework
     platform: macOS
@@ -81,6 +108,8 @@ targets:
       - target: OpenBotsContent
       - target: OpenBotsRuntime
       - target: OpenBotsSecurity
+      - target: OpenBotsExecutionRules
+      - target: OpenBotsAgenticRuntime
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.services
@@ -97,6 +126,50 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.module.ui
         SKIP_INSTALL: YES
+  # The app's own calendar reader. A binary rather than a bundled script
+  # because EventKit is not reachable from node, and Apple Events cannot expand
+  # a recurring series, so it misses most of a year of a busy calendar.
+  #
+  # It ships INSIDE the app bundle and is signed with it, so macOS attributes
+  # its calendar access to the app. A helper signed on its own would be asked
+  # about separately, which on the user's screen looks exactly like a prompt
+  # they never answered.
+  openbots-calendar-read:
+    type: tool
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/openbots-calendar-read
+    settings:
+      base:
+        PRODUCT_NAME: openbots-calendar-read
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.calendarread
+        SKIP_INSTALL: YES
+        # A command-line tool has no Info.plist of its own unless one is built
+        # into the binary, and EventKit refuses without the usage string.
+        CREATE_INFOPLIST_SECTION_IN_BINARY: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: >-
+          OpenBots Next reads the calendars of teammates you have granted it: what is on a given day, and who is on a meeting, so a teammate can answer whether you are free and write to the people you are meeting. Nothing in your calendars can be added, changed or deleted.
+    dependencies:
+      - sdk: EventKit.framework
+
+  openbots-google-helper:
+    type: tool
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: Sources/openbots-google-helper
+    dependencies:
+      - target: OpenBotsSecurity
+      - target: OpenBotsServices
+      - sdk: AppKit.framework
+    settings:
+      base:
+        PRODUCT_NAME: openbots-google-helper
+        PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview.googlehelper
+        SKIP_INSTALL: YES
+
   OpenBotsPreviewApp:
     type: application
     platform: macOS
@@ -107,6 +180,53 @@ targets:
         CFBundleIconFile: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Required before this bundle may send an Apple Event at all. The mail
+        # reader talks to Mail.app through AppleScript, and macOS attributes
+        # that event to the responsible app — this one — so without the string
+        # the request is refused rather than shown to the user.
+        # One string, several prompts: macOS shows this same sentence whichever
+        # app is being asked about, and it now asks about Contacts separately
+        # from Mail. So it has to be true of every app the connectors drive —
+        # naming only Mail would have put "asks Mail for the messages…" in front
+        # of the user under a prompt about their address book.
+        # The calendar reader sends NO Apple Events — it reads the store through
+        # EventKit — so it is asked about in its own pane, Privacy & Security ->
+        # Calendars, and needs its own sentence. Kept in sync with
+        # Apps/OpenBotsPreviewApp/Info.plist by hand; macOS reads whichever the
+        # build produces, so the two disagreeing is a defect nothing else sees.
+        NSCalendarsFullAccessUsageDescription: >-
+          OpenBots Next reads the calendars of teammates you have granted it: what is on a given day, and who is on a meeting, so a teammate can answer whether you are free and write to the people you are meeting. Nothing in your calendars can be added, changed or deleted.
+        NSAppleEventsUsageDescription: >-
+          OpenBots Next drives the apps you have granted a teammate: Mail, to
+          read your messages and — with a card you approve each time — to send
+          or answer as you; Contacts, to look up an address you have already
+          saved, and nothing in Contacts can be changed; and Messages, to send a
+          text from your own number, each one on a card you approve.
+        # Asked only when the user presses Show Names from Contacts in a bot's
+        # chat picker: the app itself reads names to label the user's Messages
+        # conversations, which is the Contacts pane, not the
+        # Apple Events one the Contacts connector's reader goes through.
+        NSContactsUsageDescription: >-
+          OpenBots Next shows the names from your Contacts beside your Messages conversations when you choose which chats a bot may read. Names are only shown to you; nothing in Contacts can be changed.
+        OpenBotsGoogleOAuthClientID: $(OPENBOTS_GOOGLE_OAUTH_CLIENT_ID)
+        # Stamped by Scripts/build-preview.sh; Settings -> Diagnostics shows it.
+        OpenBotsSourceCommit: $(OPENBOTS_SOURCE_COMMIT)
+    # Under the hardened runtime macOS will not even ask about Contacts without
+    # this key: tccd logged "kTCCServiceAddressBook requires entitlement
+    # com.apple.security.personal-information.addressbook but it is missing",
+    # so Show Names from Contacts raised no prompt on a Mac that had not decided
+    # yet. The app only; the embedded helpers never read Contacts.
+    # The same holds for Calendars: tccd logged "kTCCServiceCalendar requires
+    # entitlement com.apple.security.personal-information.calendars but it is
+    # missing" for the app, the responsible process of the embedded
+    # openbots-calendar-read, so the Apple Calendar connector could never ask
+    # without it.
+    # xcodegen writes the file from these properties.
+    entitlements:
+      path: Apps/OpenBotsPreviewApp/OpenBotsPreviewApp.entitlements
+      properties:
+        com.apple.security.personal-information.addressbook: true
+        com.apple.security.personal-information.calendars: true
     sources:
       - path: Apps/OpenBotsPreviewApp
         excludes:
@@ -119,17 +239,37 @@ targets:
       - target: OpenBotsSecurity
       - target: OpenBotsServices
       - target: OpenBotsUI
+      - target: OpenBotsExecutionRules
+        embed: true
+      - target: OpenBotsAgenticRuntime
+        embed: true
+      # Into Contents/MacOS, beside the app's own executable — which is exactly
+      # where AppOwnedConnectorCatalog.appleCalendarHelperURLs looks.
+      - target: openbots-calendar-read
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
+      # OAuth, Keychain and Google API traffic stay in this one app-owned
+      # executable. The MCP node process receives no tokens.
+      - target: openbots-google-helper
+        embed: true
+        codeSign: true
+        copy:
+          destination: executables
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.lorenzocolombani.openbotsnext.preview
-        PRODUCT_NAME: OpenBots Next Preview
+        PRODUCT_NAME: OpenBots Next
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: OpenBots Next Preview
+        INFOPLIST_KEY_CFBundleDisplayName: OpenBots Next
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_NSHumanReadableCopyright: Copyright © 2026 Lorenzo Colombani
         CODE_SIGN_STYLE: Automatic
-        CURRENT_PROJECT_VERSION: 2026.8.30
-        MARKETING_VERSION: 0.1.0-preview
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 1.0.0
+        OPENBOTS_GOOGLE_OAUTH_CLIENT_ID: ""
+        OPENBOTS_SOURCE_COMMIT: ""
 schemes:
   OpenBotsPreviewApp:
     build:

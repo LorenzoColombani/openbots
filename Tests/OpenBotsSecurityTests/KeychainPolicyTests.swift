@@ -3,13 +3,17 @@ import XCTest
 @testable import OpenBotsSecurity
 
 final class KeychainPolicyTests: XCTestCase {
-    func testTypedReferencesUseSeparateOpenBotsOnlyNamespaces() {
+    func testTypedReferencesUseSeparateOpenBotsOnlyNamespaces() throws {
         let connectorID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let bindingID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         let database = KeychainItemReference.previewDatabaseEncryptionKey
         let connector = KeychainItemReference.previewConnectorSecret(
             connectorID: connectorID,
             bindingID: bindingID
+        )
+        let googleClientID = "openbots-test.apps.googleusercontent.com"
+        let googleClientSecret = try XCTUnwrap(
+            KeychainItemReference.previewGoogleWorkspaceOAuthClientSecret(clientID: googleClientID)
         )
 
         XCTAssertEqual(database.purpose, .databaseEncryption)
@@ -19,6 +23,14 @@ final class KeychainPolicyTests: XCTestCase {
         )
         XCTAssertNotEqual(database.service, connector.service)
         XCTAssertNotEqual(database.account, connector.account)
+        XCTAssertNotEqual(googleClientSecret, KeychainItemReference.previewGoogleWorkspaceOAuthTokens)
+        XCTAssertNotEqual(googleClientSecret, KeychainItemReference.previewGoogleWorkspaceCapabilityKey)
+        guard case .googleWorkspaceOAuthClientSecret(let clientIDHash) = googleClientSecret.purpose else {
+            return XCTFail("Google client secret did not get its own typed purpose")
+        }
+        XCTAssertEqual(clientIDHash.count, 64)
+        XCTAssertFalse(googleClientSecret.service.description.contains(googleClientID))
+        XCTAssertFalse(googleClientSecret.account.description.contains(googleClientID))
         XCTAssertTrue(database.service.description.hasPrefix("com.lorenzocolombani.openbotsnext.preview."))
         XCTAssertTrue(connector.service.description.hasPrefix("com.lorenzocolombani.openbotsnext.preview."))
         XCTAssertFalse(database.service.description.contains("claude"))

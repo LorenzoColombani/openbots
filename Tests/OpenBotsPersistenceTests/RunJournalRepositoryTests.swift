@@ -462,7 +462,9 @@ private struct RunJournalFixture: Sendable {
 
     func seed(_ store: SQLiteStore, teammateID: TeammateID? = nil, conversationID: ConversationID? = nil) async throws {
         let id = teammateID ?? self.teammateID
-        let teammate = try Teammate(id: id, profile: TeammateProfile(displayName: "Journal Partner", role: "Research"),
+        // Two bots never share a name, and the store now refuses a second one.
+        let name = id == self.teammateID ? "Journal Partner" : "Journal Partner \(id.persistedValue.prefix(8))"
+        let teammate = try Teammate(id: id, profile: TeammateProfile(displayName: name, role: "Research"),
             appearance: AgentAppearance(mode: .creature, grammarVersion: 1, deterministicSeed: 6, silhouette: "round",
                 paletteToken: "sky", eyeDialect: "bright", nonColorIdentityCue: "single crest", accessibleIdentityDescription: "Round creature with a crest"),
             createdAt: date, updatedAt: date)

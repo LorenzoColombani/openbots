@@ -15,22 +15,33 @@ struct OpenBotsPreviewApp: App {
     @NSApplicationDelegateAdaptor(PreviewApplicationDelegate.self) private var applicationDelegate
     @StateObject private var composition = AppCompositionRoot()
     @StateObject private var settingsNavigation = WorkspaceSettingsNavigation()
+    @StateObject private var appearance = WorkspaceAppearanceModel()
 
     var body: some Scene {
+        // Non-private view types keep the window's restoration identifier the
+        // same across builds. A private type's name carries an address that
+        // changes with every binary; restoration then fails and SwiftUI opens
+        // no window at all. An explicit scene id is
+        // not used: with one, the launch window did not open at all.
         WindowGroup("OpenBots") {
-            PreviewWindow(composition: composition, showClaudeSetup: {
-                settingsNavigation.selection = .computer
+            PreviewWindow(composition: composition, appearance: appearance, showClaudeSetup: {
+                settingsNavigation.selection = .general
+            }, showSettingsSection: { section in
+                settingsNavigation.selection = section
             })
                 .background(WorkspaceWindowReporter { window in
                     applicationDelegate.observeWorkspaceWindow(window)
+                    composition.workspaceWindow = window
                 })
                 .onAppear {
+                    applyAppearance()
                     applicationDelegate.beginShutdown = { [weak composition] in composition?.beginShutdown() }
                     applicationDelegate.saveAvailableState = { [weak composition] in
                         await composition?.saveAvailableStateForShutdown() ?? true
                     }
                     applicationDelegate.finishShutdown = { [weak composition] in composition?.workspace?.finishShutdown() }
                 }
+                .onChange(of: appearance.selection) { _, _ in applyAppearance() }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1080, height: 720)
@@ -88,6 +99,11 @@ struct OpenBotsPreviewApp: App {
                             .recovery(.databaseValidationFailed)
                         )
                     }
+                    Button("Newer Workspace") {
+                        composition.reviewLaunchState(
+                            .recovery(.workspaceNewerThanApplication)
+                        )
+                    }
                 }
 
                 Divider()
@@ -106,7 +122,7 @@ struct OpenBotsPreviewApp: App {
                 }
 
                 Menu("Appearance Review") {
-                    Button("Follow System") {
+                    Button("Follow App Preference") {
                         composition.reviewAppearance(nil)
                     }
                     Button("Light") {
@@ -122,10 +138,83 @@ struct OpenBotsPreviewApp: App {
         }
 
         Settings {
-            WorkspaceSettingsView(navigation: settingsNavigation, model: composition.claudeSetup,
-                                usesReviewFixtures: composition.usesReviewFixtures,
-                                textRepliesEnabled: !composition.usesReviewFixtures)
+            PreviewSettingsWindow(composition: composition, navigation: settingsNavigation, appearance: appearance)
+                .preferredColorScheme(appearance.selection.colorScheme)
+                .onAppear { applyAppearance() }
+                .onChange(of: appearance.selection) { _, _ in applyAppearance() }
         }
+    }
+
+    /// Native panels and all scenes share the app preference. Fixture-only
+    /// workspace overrides remain confined to their SwiftUI window.
+    private func applyAppearance() {
+        switch appearance.selection {
+        case .system: NSApplication.shared.appearance = nil
+        case .light: NSApplication.shared.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApplication.shared.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
+}
+
+@MainActor
+private struct PreviewSettingsWindow: View {
+    @ObservedObject var composition: AppCompositionRoot
+    @ObservedObject var navigation: WorkspaceSettingsNavigation
+    @ObservedObject var appearance: WorkspaceAppearanceModel
+
+    var body: some View {
+        if let workspace = composition.workspace {
+            PreviewWorkspaceSettings(composition: composition, workspace: workspace,
+                                     sidebar: workspace.sidebar, navigation: navigation, appearance: appearance)
+        } else {
+            WorkspaceSettingsView(navigation: navigation, model: composition.claudeSetup,
+                                  usesReviewFixtures: composition.usesReviewFixtures,
+                                  textRepliesEnabled: !composition.usesReviewFixtures,
+                                  appearance: appearance)
+        }
+    }
+}
+
+@MainActor
+private struct PreviewWorkspaceSettings: View {
+    @ObservedObject var composition: AppCompositionRoot
+    @ObservedObject var workspace: DurableWorkspaceModel
+    @ObservedObject var sidebar: SidebarModel
+    @ObservedObject var navigation: WorkspaceSettingsNavigation
+    @ObservedObject var appearance: WorkspaceAppearanceModel
+
+    var body: some View {
+        WorkspaceSettingsView(
+            navigation: navigation, model: composition.claudeSetup,
+            usesReviewFixtures: composition.usesReviewFixtures,
+            textRepliesEnabled: !composition.usesReviewFixtures,
+            agenticJobAccess: composition.usesReviewFixtures ? nil : composition.agenticJobAccess,
+            appearance: appearance,
+            exportBots: sidebar.rows.map { .init(id: $0.id, name: $0.name) },
+            isExporting: workspace.isExporting,
+            exportNotice: workspace.exportNotice,
+            onExport: workspace.supportsConversationExport || workspace.isExporting ? chooseExportFolder : nil,
+            backupSummary: composition.settingsBackupSummary,
+            connectorsContent: composition.connectorAccess.map {
+                AnyView(AppConnectorControl(store: $0,
+                                            googleAuthorization: composition.googleAuthorization))
+            },
+            notificationsContent: composition.usesReviewFixtures ? nil : AnyView(BotNotificationSettingsView(model: composition.notifications))
+        )
+    }
+
+    private func chooseExportFolder(teammateID: UUID) {
+        guard workspace.supportsConversationExport,
+              let bot = sidebar.rows.first(where: { $0.id == teammateID }) else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Export Here"
+        panel.message = "Choose where OpenBots creates a new export folder for \(bot.name)’s conversations."
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task { await workspace.exportBotConversations(teammateID: teammateID, into: folder) }
     }
 }
 
@@ -142,6 +231,12 @@ private final class PreviewApplicationDelegate: NSObject, NSApplicationDelegate 
     func observeWorkspaceWindow(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         guard workspaceWindows[id] == nil else { return }
+        #if DEBUG
+        // A development launch may name where the window goes, in AppKit
+        // screen coordinates (`--window-origin=x,y`), so it can be kept on a
+        // second display without accessibility or activation.
+        if let origin = Self.requestedWindowOrigin { window.setFrameOrigin(origin) }
+        #endif
         workspaceWindows[id] = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { [weak self] _ in
@@ -160,6 +255,30 @@ private final class PreviewApplicationDelegate: NSObject, NSApplicationDelegate 
         }
     }
 
+    #if DEBUG
+    static let requestedWindowOrigin: NSPoint? = {
+        guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix("--window-origin=") }) else { return nil }
+        let parts = argument.dropFirst("--window-origin=".count).split(separator: ",").compactMap { Double($0) }
+        guard parts.count == 2 else { return nil }
+        return NSPoint(x: parts[0], y: parts[1])
+    }()
+    #endif
+
+    /// One running copy per workspace. Rollback and build folders hold other
+    /// bundles with this identifier; a Dock tile or Spotlight can launch one of
+    /// them while the installed app is open. The second copy
+    /// brings the first forward and leaves before touching any storage, the way
+    /// macOS treats a second click on a single bundle.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        guard let identifier = Bundle.main.bundleIdentifier else { return }
+        let current = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+            .filter { $0.processIdentifier != current && !$0.isTerminated }
+        guard let first = others.first else { return }
+        first.activate(from: NSRunningApplication.current, options: [.activateAllWindows])
+        NSApplication.shared.terminate(nil)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -175,8 +294,17 @@ private final class PreviewApplicationDelegate: NSObject, NSApplicationDelegate 
     }
 }
 
+/// True while no other copy of the app is running: the launch sweep's whole proof
+/// that a leased turn's owner process is gone (see `SoleInstanceTextTurnProcessAbsence`).
+private func isSoleRunningInstanceOfThisApp() -> Bool {
+    guard let identifier = Bundle.main.bundleIdentifier else { return false }
+    let current = ProcessInfo.processInfo.processIdentifier
+    return NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
+        .allSatisfy { $0.processIdentifier == current || $0.isTerminated }
+}
+
 @MainActor
-private struct WorkspaceWindowReporter: NSViewRepresentable {
+struct WorkspaceWindowReporter: NSViewRepresentable {
     let report: (NSWindow) -> Void
     func makeNSView(context: Context) -> Reporter { Reporter(report: report) }
     func updateNSView(_ nsView: Reporter, context: Context) {}
@@ -189,7 +317,7 @@ private struct WorkspaceWindowReporter: NSViewRepresentable {
 }
 
 @MainActor
-private final class AppCompositionRoot: ObservableObject {
+final class AppCompositionRoot: ObservableObject {
     private static let knowledgeUnavailableNotice =
         "Local memory couldn't be opened. Your teammates and conversations are still available."
 
@@ -200,6 +328,16 @@ private final class AppCompositionRoot: ObservableObject {
 
     private let layout: PreviewStorageLayout
     private var claudeSetupSupportRoot: VerifiedOwnedRoot?
+    let agenticJobAccess = AgenticJobAccessStore()
+    /// The connector grants, and the browser they let a bot drive. Unlike the
+    /// web switches these cannot be built before the database is open: the
+    /// store needs its repository, so both appear in `start()`.
+    @Published private(set) var connectorAccess: ConnectorAccessStore?
+    private var connectorLaunches: ConnectorLaunchService?
+    @Published private(set) var googleAuthorization: GoogleWorkspaceAuthorizationService?
+    let notifications = BotNotificationModel()
+    weak var workspaceWindow: NSWindow?
+    private var pendingNotificationConversationID: UUID?
     /// Settings owns a separate setup model; local chat/storage readiness never
     /// depends on a Claude connection. Constructing this model performs no I/O.
     lazy var claudeSetup = ClaudeSetupModel(
@@ -234,8 +372,28 @@ private final class AppCompositionRoot: ObservableObject {
     @Published private(set) var isClosing = false
     @Published private(set) var sessionRecoveryNotice: String?
     @Published private(set) var memoryRecoveryNotice: String?
+    /// Set only when the launch sweep could not close every turn a dead process left busy.
+    @Published private(set) var textTurnRecoveryNotice: String?
+    /// The lease owner every reply service of this process uses; the launch sweep
+    /// treats any other owner as a process that is no longer running.
+    private let replyServiceOwnerID = UUID()
+    /// Verified local backups the recovery screen may offer, newest first.
+    @Published private(set) var restoreOptions: [LaunchRecoveryRestoreOption] = []
+    private var restoreCandidates: [String: VerifiedDatabaseBackup] = [:]
     private var sessionRecovery: LocalSessionRecoveryService?
+    private var backups: ControlDatabaseBackupService?
+    private var backupSchedule: Task<Void, Never>?
+    var settingsBackupSummary: String? {
+        guard backups != nil, backupSchedule != nil, !isClosing else { return nil }
+        return "Local database backups are scheduled five minutes after launch, then hourly; a backup is also attempted during normal quit. If the database cannot open, launch recovery offers verified backups."
+    }
     private var didStart = false
+    /// The first scheduled backup waits this long after launch; later ones follow hourly.
+    static let firstScheduledBackupDelay: Duration = .seconds(300)
+    static let scheduledBackupInterval: Duration = .seconds(3_600)
+    /// Quit waits this long at most for its backup; the close boundary itself is
+    /// `DraftQuitGuard.maximumGrace`, and the session record must still land inside it.
+    static let quitBackupBudget: Duration = .milliseconds(1_500)
 
     init(layout: PreviewStorageLayout = .live()) {
         self.layout = layout
@@ -244,25 +402,247 @@ private final class AppCompositionRoot: ObservableObject {
         #else
         usesReviewFixtures = false
         #endif
+        if !usesReviewFixtures {
+            notifications.isConversationFrontmost = { [weak self] id in
+                guard let self else { return false }
+                return NSApplication.shared.isActive && self.workspaceWindow?.isKeyWindow == true
+                    && self.workspace?.conversation.conversationID == id
+                    && self.workspace?.hiringModel == nil
+                    && self.workspace?.searchCoordinator?.isPresented != true
+            }
+            notifications.openConversation = { [weak self] id in
+                self?.pendingNotificationConversationID = id
+                self?.openPendingNotification()
+            }
+            notifications.start()
+        }
+    }
+
+    private func openPendingNotification() {
+        guard !isClosing, let id = pendingNotificationConversationID, let workspace else { return }
+        pendingNotificationConversationID = nil
+        guard workspace.openNotificationConversation(id: id) else { return }
+        workspaceWindow?.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     func beginShutdown() {
         guard !isClosing else { return }
         isClosing = true
+        notifications.stop()
+        backupSchedule?.cancel()
+        backupSchedule = nil
         claudeSetup.beginShutdown()
+        googleAuthorization?.cancel()
         claudeSetupSupportRoot = nil
         workspace?.beginShutdown()
+    }
+
+    /// One bounded local backup of the control database inside the app-owned
+    /// backups folder: on a normal quit and, while running, five minutes after
+    /// launch and hourly. It never blocks Quit beyond its budget and never
+    /// touches anything outside `DatabaseBackups`.
+    private func startBackupSchedule(_ service: ControlDatabaseBackupService) {
+        backups = service
+        backupSchedule?.cancel()
+        backupSchedule = Task { [weak self] in
+            var delay = Self.firstScheduledBackupDelay
+            while !Task.isCancelled {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self, !self.isClosing else { return }
+                do {
+                    let record = try await service.backupNow(reason: .scheduled)
+                    AgenticDiagnosticsLog.note("backup", "scheduled backup written \(record.fileName) bytes=\(record.byteCount) pruned=\(record.prunedFileNames.count)")
+                } catch {
+                    AgenticDiagnosticsLog.note("backup", "scheduled backup failed: \(String(describing: error).prefix(160))")
+                }
+                delay = Self.scheduledBackupInterval
+            }
+        }
+    }
+
+    private func backupForQuitWithinBudget() async {
+        guard let backups else { return }
+        // Quit never waits past the budget. A backup still running then is
+        // abandoned: it is cancelled, and a file without its manifest is
+        // invisible to listing, restore and retention.
+        let work = Task { try await backups.backupNow(reason: .quit) }
+        switch await BudgetedWait.result(of: work, within: Self.quitBackupBudget) {
+        case .finished(.success(let record)):
+            AgenticDiagnosticsLog.note("backup", "quit backup written \(record.fileName) bytes=\(record.byteCount)")
+        case .finished(.failure(let error)):
+            AgenticDiagnosticsLog.note("backup", "quit backup skipped: \(String(describing: error).prefix(160))")
+        case .budgetExceeded:
+            AgenticDiagnosticsLog.note("backup", "quit backup abandoned after \(Self.quitBackupBudget)")
+        }
+    }
+
+    /// Lists the verified local backups for a database that will not open, so the
+    /// recovery screen can offer them. Read-only; nothing is changed.
+    private func loadRestoreOptions() async {
+        let layout = self.layout
+        let options: [VerifiedDatabaseBackup] = await Task.detached(priority: .userInitiated) {
+            guard let data = try? Data(contentsOf: layout.installationReceiptURL),
+                  let receipt = try? JSONDecoder().decode(StorageInstallationReceipt.self, from: data) else { return [] }
+            return DatabaseBackupCatalog(layout: layout, expectedDecisionID: receipt.protectionDecision.decisionID).verifiedBackups()
+        }.value
+        guard !isClosing else { return }
+        restoreCandidates = Dictionary(uniqueKeysWithValues: options.map { ($0.id, $0) })
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        restoreOptions = options.map { backup in
+            LaunchRecoveryRestoreOption(
+                id: backup.id,
+                title: "Backup from \(formatter.string(from: backup.createdAt))",
+                // Size and why it was made; the schema number is not the user's to read.
+                detail: "\(ByteCountFormatter.string(fromByteCount: Int64(backup.byteCount), countStyle: .file)) · \(backup.reason)"
+            )
+        }
+    }
+
+    /// Restores one verified backup after the screen's confirmation, then tries the
+    /// startup again. The current files move into a Damaged folder; nothing is deleted.
+    func restoreBackup(_ option: LaunchRecoveryRestoreOption) {
+        guard !isClosing, workspace == nil, launchReadiness.state != .opening,
+              let backup = restoreCandidates[option.id] else { return }
+        let layout = self.layout
+        launchReadiness.setPreviewReviewState(.opening)
+        Task { [weak self] in
+            let outcome: Result<DatabaseBackupRestoreReceipt, any Error> = await Task.detached(priority: .userInitiated) {
+                Result { try DatabaseBackupRestoreService(layout: layout).restore(backup) }
+            }.value
+            guard let self, !self.isClosing else { return }
+            switch outcome {
+            case .success(let receipt):
+                AgenticDiagnosticsLog.note("backup", "restored \(receipt.restoredFrom); damaged files in \(receipt.damagedFolder)")
+                self.restoreOptions = []
+                self.restoreCandidates = [:]
+                self.didStart = false
+                await self.start()
+            case .failure(let error):
+                AgenticDiagnosticsLog.note("backup", "restore failed: \(String(describing: error).prefix(160))")
+                self.launchReadiness.setPreviewReviewState(.recovery(.databaseOpenFailed))
+            }
+        }
     }
 
     private func requireOpen() throws {
         guard !isClosing, !Task.isCancelled else { throw CancellationError() }
     }
 
+    /// The stuck-busy sweep. Runs once per launch before the reply
+    /// service exists, so no lease in the journal can be this process's own.
+    /// Brings back the connector grants the user left on, and the browser they allow.
+    ///
+    /// Order matters the way it does for the web switches: this runs before the
+    /// reply service exists, so nothing can read a grant that has not been
+    /// restored. A failure here leaves every connector off and the app
+    /// otherwise whole — browsing is a capability, not a dependency.
+    private func startConnectorAccess(_ context: StoragePersistenceContext) async {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let browser = BrowserConnectorPreparation(npxCacheRootURL:
+            BrowserConnectorPreparation.defaultNPXCacheRootURL(homeDirectoryURL: home))
+        let mail = AppleMailConnectorPreparation(homeDirectoryURL: home)
+        let mailSender = AppleMailSendPreparation()
+        let contacts = AppleContactsConnectorPreparation()
+        let calendar = AppleCalendarConnectorPreparation()
+        // The user's history is read from the real home this app runs in; the CLI
+        // child's HOME is the app profile, so the path is resolved here.
+        let messages = AppleMessagesConnectorPreparation(
+            databaseURL: AppOwnedConnectorCatalog.messagesDatabaseURL(homeDirectoryURL: home))
+        let google = GoogleWorkspaceConnectorPreparation()
+        // Control this Mac runs the Peekaboo already in the user's npx cache, never a fetch.
+        let macControl = MacControlConnectorPreparation(npxCacheRootURL:
+            BrowserConnectorPreparation.defaultNPXCacheRootURL(homeDirectoryURL: home))
+        // The Claude Desktop extensions: each listed, and only a reviewed one,
+        // as the exact copy reviewed, can run.
+        let extensionsRoot = ClaudeExtensionConnectorPreparation.defaultExtensionsRootURL(homeDirectoryURL: home)
+        let extensions = ClaudeExtensionConnectorPreparation(extensionsRootURL: extensionsRoot)
+        let preparations: [any ConnectorLaunchPreparing] = [browser, mail, mailSender, contacts,
+                                                            calendar, messages, macControl, google, extensions]
+        let googleClientID = GoogleWorkspaceClientConfiguration.clientID()
+        let googleHelper = AppOwnedConnectorCatalog.resolvedGoogleWorkspaceHelperURL()
+        // All three sources, and the pane says what a turn would find: the same
+        // resolution the launch does, read early, so a pinned version that is
+        // not on the disk reads "needs setup" instead of a switch that turns on
+        // and does nothing.
+        let catalog = ConnectorCatalogAvailability(
+            ConnectorCatalogNaming(ConnectorCatalogComposite([
+                ClaudePluginConnectorCatalog(
+                    configurationDirectory: home.appendingPathComponent(".claude", isDirectory: true)),
+                AppOwnedConnectorCatalog(homeDirectoryURL: home, googleClientID: googleClientID),
+                ClaudeExtensionConnectorCatalog(extensionsRootURL: extensionsRoot, preparation: extensions),
+            ])),
+            probes: preparations)
+        // The app-wide "changed" line counts only the bots the workspace still
+        // lists: archived bots and Delete's tombstones out, hidden bots in.
+        let teammates = context.teammateRepository
+        let store = ConnectorAccessStore(repository: context.connectorAccessRepository, catalog: catalog,
+            listedTeammates: { Set(try await teammates.listTeammates(includingArchived: false).map(\.id)) })
+        do { try await store.restore() }
+        catch {
+            AgenticDiagnosticsLog.error("connectors",
+                "grants not restored, every connector starts off: \(String(describing: error).prefix(160))")
+            return
+        }
+        let service = ConnectorLaunchService(
+            store: store,
+            preparations: preparations,
+            profileRootURL: ConnectorLaunchService.defaultProfileRootURL(
+                applicationSupportRoot: context.applicationSupportRoot.url),
+            temporaryDirectoryURL: FileManager.default.temporaryDirectory)
+        // A crash or a force quit can leave a turn's browser profile behind.
+        // Nothing is granted yet, so this is the moment to clear them.
+        await service.removeAbandonedProfiles()
+        await agenticJobAccess.configureConnectors(service)
+        googleAuthorization = GoogleWorkspaceAuthorizationService(
+            helperURL: googleHelper, clientID: googleClientID)
+        connectorAccess = store
+        connectorLaunches = service
+    }
+
+    private func sweepTextTurnsLeftBusy(_ context: StoragePersistenceContext) async {
+        let ownerID = replyServiceOwnerID
+        let sweep = TextTurnRecoveryService(
+            repository: context.textTurnRepository,
+            appOwnerID: context.installationReceipt.installationID,
+            absenceProver: SoleInstanceTextTurnProcessAbsence(
+                ownersHeldByThisProcess: { [ownerID] },
+                isSoleRunningInstance: { isSoleRunningInstanceOfThisApp() }))
+        var report = await sweep.recover(limit: 25)
+        var closed = report.interruptedCount
+        var passes = 1
+        while report.status == .completed, report.hasMore, passes < 8, !isClosing {
+            report = await sweep.recover(limit: 25)
+            closed += report.interruptedCount
+            passes += 1
+        }
+        let unresolved = report.entries.filter { $0.disposition != .interrupted }.count
+        AgenticDiagnosticsLog.note("recovery",
+            "launch sweep closed \(closed) turn(s) left busy; status=\(report.status) unresolved=\(unresolved) more=\(report.hasMore)")
+        textTurnRecoveryNotice = report.notice
+    }
+
     func saveAvailableStateForShutdown() async -> Bool {
         let saved = await workspace?.flushForShutdown() ?? true
         guard !Task.isCancelled else { return false }
+        // A switch flipped just before Quit lands before the backup copies the database.
+        await agenticJobAccess.waitForPendingWrites()
+        guard !Task.isCancelled else { return false }
+        await backupForQuitWithinBudget()
+        guard !Task.isCancelled else { return false }
         let recorded = await sessionRecovery?.finish(saved: saved) ?? false
         return saved && recorded
+    }
+
+    /// The user has read the recovery paragraphs at the top of the window:
+    /// one OK clears all three. Nothing they describe is undone; the
+    /// notices only stop showing until the next launch.
+    func dismissRecoveryNotices() {
+        sessionRecoveryNotice = nil
+        memoryRecoveryNotice = nil
+        textTurnRecoveryNotice = nil
     }
 
     func start() async {
@@ -274,12 +654,42 @@ private final class AppCompositionRoot: ObservableObject {
             let context = try await openOrBootstrapPreviewInstallation()
             guard !isClosing, !Task.isCancelled else { return }
             claudeSetupSupportRoot = context.applicationSupportRoot
+            // The web switches the user left on come back before anything reads them:
+            // the reply service, the job driver and the workspace are all built
+            // below this line, and an already-open Settings pane observes the
+            // store, so it catches up.
+            if !usesReviewFixtures {
+                await agenticJobAccess.restore(from: context.agenticWebSwitchRepository)
+                await startConnectorAccess(context)
+            }
+            try requireOpen()
+            restoreOptions = []
+            restoreCandidates = [:]
+            startBackupSchedule(ControlDatabaseBackupService(
+                layout: layout, applicationSupportRoot: context.applicationSupportRoot,
+                protection: context.protectionPlan, executor: context.backupExecutor))
             let recovery = LocalSessionRecoveryService(repository: context.sessionRecoveryRepository)
             sessionRecovery = recovery
             let previousCloseNotice = await recovery.begin()
             try requireOpen()
             sessionRecoveryNotice = previousCloseNotice
+            // A crash, a force-quit or a Mac that went down mid-reply leaves the
+            // bot's turn open in the journal, and every later message to that bot
+            // is refused as busy. This process is the only running copy and owns
+            // no turn yet, so those turns are closed here, before any reply
+            // service exists. Partial text is kept; nothing is sent again.
+            if !usesReviewFixtures {
+                await sweepTextTurnsLeftBusy(context)
+                try requireOpen()
+            }
             let attachmentService = await makeAttachmentService(context: context)
+            try requireOpen()
+            // Each bot's desk on the Mac: its own folder under the
+            // content root plus the folders the user adds; the switch store
+            // hands it to a work turn only when both work switches are on.
+            let botWorkspaces: BotWorkspaceService? = usesReviewFixtures ? nil : BotWorkspaceService(
+                layout: layout, repository: context.botWorkspaceRepository, teammates: context.teammateRepository)
+            if let botWorkspaces { await agenticJobAccess.configureWorkspaces(botWorkspaces) }
             try requireOpen()
             let service = DurableTeammateChatService(
                 mode: chatMode,
@@ -295,21 +705,45 @@ private final class AppCompositionRoot: ObservableObject {
                 mode: chatMode,
                 repository: context.hiringDraftRepository
             )
+            let teamService = TeamChatService(
+                teams: context.teamRepository, provisioning: context.teamProvisioningRepository,
+                teamConversations: context.teamConversationRepository, teammates: context.teammateRepository,
+                selection: context.chatSelectionRepository)
+            // Bots that hire bots: a bot holding both hire
+            // switches asks from its reply; this makes the bot, sealed, with its
+            // desk and chat, and joins it to the team it was hired in.
+            let teammateHiring = TeammateHiringService(
+                access: agenticJobAccess, teammates: context.teammateRepository,
+                conversations: context.conversationRepository, chats: service,
+                desks: botWorkspaces, teamChats: teamService)
+            // A new bot sets itself up: its own profile,
+            // its own switches, its folder following its new name.
+            let botSelfSetup: BotSelfSetupService? = usesReviewFixtures ? nil : BotSelfSetupService(
+                repository: context.botSelfSetupRepository, teammates: context.teammateRepository,
+                switches: agenticJobAccess, folders: botWorkspaces)
+            let textLaunchPreparer = NativeClaudeTextLaunchPreparer(
+                layout: layout,
+                applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot },
+                connection: NativeClaudeConnectionPreparer(
+                    layout: layout,
+                    applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot }
+                )
+            )
+            // Throwaway workers: a bot holding the
+            // workers switches starts one from its reply; this admits the call
+            // and runs the worker, a blank reading turn on the same Claude setup.
+            let teammateWorkers: TeammateWorkerService? = usesReviewFixtures ? nil : TeammateWorkerService(
+                access: agenticJobAccess, teammates: context.teammateRepository,
+                conversations: context.conversationRepository, preparer: textLaunchPreparer)
             let providerTextReplyService: (any ClaudeTextReplyServing)? = usesReviewFixtures ? nil :
                 OfficialClaudeTextReplyService(
                     repository: context.textTurnRepository,
                     teammates: context.teammateRepository,
                     conversations: context.conversationRepository,
                     messages: context.messageRepository,
-                    preparer: NativeClaudeTextLaunchPreparer(
-                        layout: layout,
-                        applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot },
-                        connection: NativeClaudeConnectionPreparer(
-                            layout: layout,
-                            applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot }
-                        )
-                    ),
+                    preparer: textLaunchPreparer,
                     appOwnerID: context.installationReceipt.installationID,
+                    ownerID: replyServiceOwnerID,
                     context: context.conversationContextRepository,
                     contextReader: context.readContextRepository,
                     contextAssembler: ClaudeContextAssemblyService(memoryReader: { reference, maximumBytes in
@@ -332,7 +766,21 @@ private final class AppCompositionRoot: ObservableObject {
                                 context.applicationSupportRoot.url.appending(
                                     path: MemoryAuthorityContract.appOwnedMarkdownV1.relativeRoot,
                                     directoryHint: .isDirectory), inside: context.applicationSupportRoot)
-                        })
+                        }),
+                    teams: context.teamRepository,
+                    handoffs: context.handoffRepository,
+                    // The same session-local switches the sample-folder job path
+                    // reads, so one grant means one thing everywhere in the app.
+                    webAccess: agenticJobAccess,
+                    approvals: context.approvalRepository,
+                    deliverables: attachmentService,
+                    activity: context.runActivityRepository,
+                    hiring: teammateHiring,
+                    workers: teammateWorkers,
+                    selfSetup: botSelfSetup,
+                    // One session per bot, resumed from turn to turn.
+                    sessions: context.claudeSessionRepository,
+                    resumesSessions: true
                 )
             let textReplyService: (any ClaudeTextReplyServing)?
             if let providerTextReplyService {
@@ -380,15 +828,42 @@ private final class AppCompositionRoot: ObservableObject {
             // Work Context is not part of chat. Do not construct its models:
             // a hidden Knowledge loader could quarantine Markdown or seed
             // review content merely because a conversation opens.
+            let agenticJobService: (any AgenticJobServing)?
+            if !usesReviewFixtures, let jobs = context.runJournalRepository as? any AgenticJobRepository {
+                agenticJobService = AgenticJobService(repository: jobs,
+                    teammates: context.teammateRepository, conversations: context.conversationRepository,
+                    messages: context.messageRepository,
+                    driver: NativeAgenticJobDriver(
+                        preparation: NativeAgenticJobPreparation(layout: layout,
+                            applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot }),
+                        access: agenticJobAccess))
+            } else { agenticJobService = nil }
             let workspace = DurableWorkspaceModel(
                 mode: chatMode,
                 service: service,
                 textReplyService: textReplyService,
+                agenticJobService: agenticJobService,
+                agenticJobAccess: agenticJobAccess,
+                connectorAccess: connectorAccess,
+                // The user's own history, read by the app for the Access sheet's chat
+                // picker; the app holds Full Disk Access, the bots do not.
+                messagesChats: connectorAccess == nil ? nil : MessagesHistoryChatDirectory(),
                 hiringService: hiringService,
                 profileService: TeammateProfileService(
                     repository: context.teammateRepository, photoValidator: photoService
                 ),
-                archiveService: TeammateArchiveService(repository: context.teammateArchiveRepository),
+                // An archived bot's saved Claude sessions go with it: the CLI's
+                // files under the app profile, then the rows.
+                archiveService: TeammateArchiveService(repository: context.teammateArchiveRepository,
+                    sessionRetention: ClaudeSessionRetentionService(sessions: context.claudeSessionRepository,
+                                                                    profileURL: layout.claudeCLIProfileRoot)),
+                teamArchiveService: TeamArchiveService(repository: context.teamArchiveRepository),
+                navigationService: TeammateNavigationService(repository: context.teammateRepository),
+                deletionService: TeammateDeletionService(repository: context.teammateDeletionRepository,
+                    sessionRetention: ClaudeSessionRetentionService(sessions: context.claudeSessionRepository,
+                                                                    profileURL: layout.claudeCLIProfileRoot),
+                    connectorGrants: connectorAccess,
+                    memoryRoot: layout.internalMemoryRoot),
                 sidebarOrderService: BotSidebarOrderService(repository: context.botSidebarOrderRepository),
                 draftService: ConversationDraftService(repository: context.conversationDraftRepository),
                 searchService: ConversationSearchService(repository: context.conversationSearchRepository),
@@ -425,9 +900,63 @@ private final class AppCompositionRoot: ObservableObject {
                         return try await attachmentService.preview(messageID: MessageID(messageID),
                             partID: MessagePartID(partID), attachmentID: AttachmentID(attachmentID),
                             pageNumber: pageNumber)
+                    },
+                    open: { [weak self] messageID, partID, attachmentID in
+                        guard let self else { throw CancellationError() }
+                        try self.requireOpen()
+                        guard let attachmentService else { throw ConversationAttachmentError.unavailable }
+                        let asset = try await attachmentService.attachment(messageID: MessageID(messageID),
+                            partID: MessagePartID(partID), attachmentID: AttachmentID(attachmentID))
+                        let url = try await attachmentService.revealLocation(messageID: MessageID(messageID),
+                            partID: MessagePartID(partID), attachmentID: AttachmentID(attachmentID))
+                        try self.requireOpen()
+                        // Never run what a bot wrote: the chip hides Open for these,
+                        // and this is the second fence, judged on the real type and name.
+                        guard AttachmentOpenPolicy.mayOpen(typeIdentifier: asset.typeIdentifier, filename: asset.displayName) else {
+                            throw ConversationAttachmentError.unavailable
+                        }
+                        // The owned copy is `<id>.blob`; the usual app gets a copy
+                        // under the file's own name.
+                        let copy = try AttachmentOpenPolicy.copyForOpening(of: url, named: asset.displayName, id: asset.id.persistedValue,
+                            in: FileManager.default.temporaryDirectory.appending(path: "OpenBotsNext-Open", directoryHint: .isDirectory))
+                        NSWorkspace.shared.open(copy)
+                    },
+                    save: { [weak self] messageID, partID, attachmentID in
+                        guard let self else { throw CancellationError() }
+                        try self.requireOpen()
+                        guard let attachmentService else { throw ConversationAttachmentError.unavailable }
+                        let asset = try await attachmentService.attachment(messageID: MessageID(messageID),
+                            partID: MessagePartID(partID), attachmentID: AttachmentID(attachmentID))
+                        let url = try await attachmentService.revealLocation(messageID: MessageID(messageID),
+                            partID: MessagePartID(partID), attachmentID: AttachmentID(attachmentID))
+                        try self.requireOpen()
+                        // The native panel is the user's own choice of place and
+                        // name; it asks before replacing, so a copy that lands on
+                        // an existing file was their explicit say-so.
+                        let panel = NSSavePanel()
+                        panel.nameFieldStringValue = asset.displayName
+                        panel.canCreateDirectories = true
+                        panel.prompt = "Save"
+                        panel.message = "Where should this go?"
+                        guard panel.runModal() == .OK, let destination = panel.url else { return }
+                        if FileManager.default.fileExists(atPath: destination.path) {
+                            try FileManager.default.removeItem(at: destination)
+                        }
+                        try FileManager.default.copyItem(at: url, to: destination)
                     }
                 ),
-                cardFixtureFactory: usesReviewFixtures ? SprintTwoCardFixture.make(conversationID:) : nil
+                cardFixtureFactory: usesReviewFixtures ? PreviewCardFixture.make(conversationID:) : nil,
+                exportService: ConversationExportService(
+                    teammates: context.teammateRepository, conversations: context.conversationRepository,
+                    messages: context.messageRepository),
+                teamService: usesReviewFixtures ? nil : teamService,
+                handoffService: usesReviewFixtures ? nil : HandoffService(repository: context.handoffRepository),
+                botWorkspaces: botWorkspaces,
+                workRecordService: usesReviewFixtures ? nil : ConversationWorkRecordService(
+                    handoffs: context.handoffRepository, approvals: context.approvalRepository,
+                    activity: context.runActivityRepository, messages: context.messageRepository,
+                    teammates: context.teammateRepository),
+                workerService: teammateWorkers
             )
             try requireOpen()
             try await workspace.loadInitialWorkspace(
@@ -435,7 +964,9 @@ private final class AppCompositionRoot: ObservableObject {
             )
             guard !isClosing, !Task.isCancelled else { workspace.beginShutdown(); workspace.finishShutdown(); return }
             self.workspace = workspace
+            if !usesReviewFixtures { workspace.notifications = notifications }
             showsWorkspace = true
+            openPendingNotification()
             startupDiagnosticCode = nil
             knowledgeAvailabilityNotice = nil
             launchReadiness.setPreviewReviewState(.ready)
@@ -446,6 +977,10 @@ private final class AppCompositionRoot: ObservableObject {
             startupDiagnosticCode = Self.diagnosticCode(for: error)
             knowledgeAvailabilityNotice = nil
             launchReadiness.setPreviewReviewState(.recovery(Self.recoveryIssue(for: error)))
+            if case .recovery(let issue) = launchReadiness.state,
+               issue == .databaseOpenFailed || issue == .databaseValidationFailed {
+                await loadRestoreOptions()
+            }
         }
     }
 
@@ -591,6 +1126,8 @@ private final class AppCompositionRoot: ObservableObject {
             return .databaseOpenFailed
         case .databaseInspectionFailed, .databaseValidationFailed:
             return .databaseValidationFailed
+        case .databaseNewerThanApplication:
+            return .workspaceNewerThanApplication
         case .alreadyAttempted:
             return .databaseOpenFailed
         }
@@ -642,6 +1179,8 @@ private final class AppCompositionRoot: ObservableObject {
                 return "composition-database-protection"
             case .databaseOpenFailed:
                 return "composition-database-open"
+            case .databaseNewerThanApplication:
+                return "composition-database-newer-than-app"
             case .databaseInspectionFailed:
                 return "composition-database-inspection"
             case .databaseValidationFailed:
@@ -701,7 +1240,7 @@ private final class AppCompositionRoot: ObservableObject {
                 let author: KnowledgeDocumentAuthorPresentation
                 switch item.document.author {
                 case .user:
-                    author = .user(displayName: "Lorenzo")
+                    author = .user(displayName: "Alex")
                 case let .teammate(teammateID):
                     author = .teammate(
                         id: teammateID.rawValue,
@@ -772,11 +1311,11 @@ private actor PreviewKnowledgeSeeder {
     ) async throws {
         if try await repository.documents(scope: .user).isEmpty {
             _ = try await service.publishRevision(
-                title: "How Lorenzo likes updates",
+                title: "How Alex likes updates",
                 scope: .user,
                 author: .user,
                 markdown: """
-                # How Lorenzo likes updates
+                # How Alex likes updates
 
                 This is preview sample knowledge stored in the real app-owned Markdown authority.
 
@@ -829,10 +1368,14 @@ private enum PreviewKnowledgeUnavailableError: Error {
     case authorityVerificationFailed
 }
 
-private struct PreviewWindow: View {
+struct PreviewWindow: View {
     @Environment(\.openSettings) private var openSettings
     @ObservedObject var composition: AppCompositionRoot
+    @ObservedObject var appearance: WorkspaceAppearanceModel
     let showClaudeSetup: @MainActor () -> Void
+    /// Selects one Settings pane before Settings opens (the Access sheet's
+    /// Open Settings).
+    let showSettingsSection: @MainActor (WorkspaceSettingsSection) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -849,14 +1392,30 @@ private struct PreviewWindow: View {
                 Text(notice).font(.callout).padding(8).fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Local memory recovery. " + notice)
             }
+            if !composition.isClosing, let notice = composition.textTurnRecoveryNotice {
+                Text(notice).font(.callout).padding(8).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Saved reply recovery. " + notice)
+            }
+            if !composition.isClosing, composition.sessionRecoveryNotice != nil
+                || composition.memoryRecoveryNotice != nil || composition.textTurnRecoveryNotice != nil {
+                // One OK for all of them: they are news, not a standing state.
+                HStack {
+                    Spacer()
+                    Button("OK") { composition.dismissRecoveryNotices() }
+                        .help("Hide these notes. Nothing they describe is undone.")
+                        .accessibilityIdentifier("window.recoveryNotices.ok")
+                }
+                .padding(.horizontal, 8).padding(.bottom, 6)
+            }
             if composition.usesReviewFixtures || composition.isClosing
-                || composition.sessionRecoveryNotice != nil || composition.memoryRecoveryNotice != nil {
+                || composition.sessionRecoveryNotice != nil || composition.memoryRecoveryNotice != nil
+                || composition.textTurnRecoveryNotice != nil {
                 Divider()
             }
             content
                 .disabled(composition.isClosing)
         }
-        .preferredColorScheme(composition.reviewColorScheme ?? .dark)
+        .preferredColorScheme(composition.reviewColorScheme ?? appearance.selection.colorScheme)
         .task {
             await composition.start()
         }
@@ -872,6 +1431,10 @@ private struct PreviewWindow: View {
                     openClaudeSetup: {
                         showClaudeSetup()
                         openSettings()
+                    },
+                    openSettingsPane: { section in
+                        showSettingsSection(section)
+                        openSettings()
                     }
                 )
             }
@@ -881,6 +1444,8 @@ private struct PreviewWindow: View {
                 performsAutomaticRefresh: false,
                 isApplicationStartup: !composition.usesReviewFixtures,
                 retryAction: composition.retryStartup,
+                restoreOptions: composition.restoreOptions,
+                restoreAction: composition.restoreBackup,
                 continueAction: composition.enterWorkspace
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

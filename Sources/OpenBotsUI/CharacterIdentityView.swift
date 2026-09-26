@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import OpenBotsDomain
 
@@ -266,12 +267,19 @@ struct CharacterArtworkTransform: Equatable {
     let rotation: Double
     let verticalOffsetFactor: CGFloat
     let horizontalOffsetFactor: CGFloat
+    let verticalScale: CGFloat
+    let horizontalScale: CGFloat
+    let yaw: Double
 
-    init(scale: CGFloat, rotation: Double, verticalOffsetFactor: CGFloat, horizontalOffsetFactor: CGFloat = 0) {
+    init(scale: CGFloat, rotation: Double, verticalOffsetFactor: CGFloat, horizontalOffsetFactor: CGFloat = 0,
+         verticalScale: CGFloat = 1, horizontalScale: CGFloat = 1, yaw: Double = 0) {
         self.scale = scale
         self.rotation = rotation
         self.verticalOffsetFactor = verticalOffsetFactor
         self.horizontalOffsetFactor = horizontalOffsetFactor
+        self.verticalScale = verticalScale
+        self.horizontalScale = horizontalScale
+        self.yaw = yaw
     }
 
     static let identity = Self(scale: 1, rotation: 0, verticalOffsetFactor: 0)
@@ -288,8 +296,8 @@ enum CharacterTransitionMotion {
     static func duration(for phase: CharacterTransitionPhase) -> TimeInterval {
         switch phase {
         case .held: 0
-        case .accent: 0.12
-        case .settled: 0.18
+        case .accent: 0.16
+        case .settled: 0.22
         }
     }
 
@@ -309,12 +317,14 @@ enum CharacterTransitionMotion {
         case .thinkingOrWorking:
             return .init(scale: state.scale * 1.015, rotation: state.rotation - 2,
                          verticalOffsetFactor: state.verticalOffsetFactor)
+        // The hop when a bot needs the user: about 4 points at sidebar size. At 1
+        // point for a tenth of a second it was too small to notice.
         case .waitingForUser:
-            return .init(scale: state.scale * 1.02, rotation: state.rotation,
-                         verticalOffsetFactor: state.verticalOffsetFactor - 0.02)
+            return .init(scale: state.scale * 1.03, rotation: state.rotation,
+                         verticalOffsetFactor: state.verticalOffsetFactor - 0.09)
         case .errorOrAttention:
-            return .init(scale: state.scale * 1.025, rotation: state.rotation + 2,
-                         verticalOffsetFactor: state.verticalOffsetFactor)
+            return .init(scale: state.scale * 1.03, rotation: state.rotation,
+                         verticalOffsetFactor: state.verticalOffsetFactor - 0.09)
         case .idle:
             return .init(scale: state.scale, rotation: state.rotation,
                          verticalOffsetFactor: state.verticalOffsetFactor)
@@ -326,13 +336,19 @@ enum CharacterIdlePhase: CaseIterable, Hashable {
     case held, upperLeft, lowerRight
 }
 
-/// Idle liveness is decorative, not evidence of work. SwiftUI owns the loop;
-/// only this artwork leaf participates, and only while its native view is visible.
+/// Idle liveness is decorative, not evidence of work. Core Animation owns the loop
+/// (`CharacterIdleMotionHost`); only this artwork leaf participates, and only while
+/// its native view is visible.
 enum CharacterIdleMotion {
+    /// Committed acknowledgement bubbles set speaking while the run continues.
+    /// Both live states use the existing working loop until the run settles.
+    static func isWorking(_ activity: TeammateActivityState) -> Bool {
+        activity == .thinkingOrWorking || activity == .speaking
+    }
     static func isEnabled(activity: TeammateActivityState, mode: CharacterRenderMode,
                           reduceMotion: Bool, sceneIsActive: Bool, isVisible: Bool,
                           isAllowed: Bool = true) -> Bool {
-        activity == .idle && isVisible
+        (activity == .idle || isWorking(activity)) && isVisible
             && CharacterTransitionMotion.isEnabled(mode: mode, reduceMotion: reduceMotion,
                                                    sceneIsActive: sceneIsActive, isAllowed: isAllowed)
     }
@@ -347,24 +363,31 @@ enum CharacterIdleMotion {
         seed.isMultiple(of: 2) ? [.held, .upperLeft, .lowerRight] : [.held, .lowerRight, .upperLeft]
     }
 
-    static func cycleDuration(seed: UInt64) -> TimeInterval {
-        3.6 + Double((seed >> 1) % 101) / 100
+    static func cycleDuration(seed: UInt64, activity: TeammateActivityState = .idle) -> TimeInterval {
+        let variation = Double((seed >> 1) % 101) / 100
+        return isWorking(activity) ? 1.6 + variation * 0.4 : 3.6 + variation
     }
 
     static func transform(activity: TeammateActivityState, mode: CharacterRenderMode,
                           phase: CharacterIdlePhase, reduceMotion: Bool,
                           sceneIsActive: Bool, isVisible: Bool,
-                          isAllowed: Bool = true) -> CharacterArtworkTransform {
+                          isAllowed: Bool = true, isSelected: Bool = false) -> CharacterArtworkTransform {
         guard isEnabled(activity: activity, mode: mode, reduceMotion: reduceMotion,
                         sceneIsActive: sceneIsActive, isVisible: isVisible, isAllowed: isAllowed) else { return .identity }
+        let intensity: CGFloat = isSelected ? 0.7 : 1
+        let working = isWorking(activity)
         switch phase {
         case .held: return .identity
+        // The head should float and move a bit: about 2 points up and down and a degree of tilt at
+        // sidebar size; it had been a fifth of a point, which nobody saw.
         case .upperLeft:
-            return .init(scale: 1.02, rotation: -3, verticalOffsetFactor: -2.5 / 42,
-                         horizontalOffsetFactor: -1 / 42)
+            return .init(scale: 1 + 0.012 * intensity,
+                         rotation: -1.2 * Double(intensity),
+                         verticalOffsetFactor: -0.045 * intensity)
         case .lowerRight:
-            return .init(scale: 0.98, rotation: 3, verticalOffsetFactor: 2.5 / 42,
-                         horizontalOffsetFactor: 1 / 42)
+            return .init(scale: 1 - 0.012 * intensity,
+                         rotation: 1.2 * Double(intensity),
+                         verticalOffsetFactor: 0.045 * intensity)
         }
     }
 }
@@ -375,7 +398,7 @@ private struct CharacterArtworkPose: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(transform.scale)
+            .scaleEffect(x: transform.scale, y: transform.scale * transform.verticalScale)
             .rotationEffect(.degrees(transform.rotation))
             .offset(x: size * transform.horizontalOffsetFactor,
                     y: size * transform.verticalOffsetFactor)
@@ -391,23 +414,36 @@ public struct CharacterIdentityView: View {
     @Environment(\.profilePhotoPresentation) private var photoPresentation
     @StateObject private var photoModel = ProfilePhotoViewModel()
     @State private var artworkIsVisible = false
+    @State private var reactionTime: TimeInterval?
 
     private let identity: TeammateIdentitySnapshot
     private let activity: TeammateActivityState
     private let size: CGFloat
+    private let isSelected: Bool
+    private let showsWorkingEffects: Bool
+    /// When set, the working-face accessibility id is unique per conversation.
+    private let conversationID: UUID?
 
     public init(
         identity: TeammateIdentitySnapshot,
         activity: TeammateActivityState,
-        size: CGFloat = 36
+        size: CGFloat = 36,
+        isSelected: Bool = false,
+        showsWorkingEffects: Bool = true,
+        conversationID: UUID? = nil
     ) {
         self.identity = identity
         self.activity = activity
         self.size = max(20, size)
+        self.isSelected = isSelected
+        self.showsWorkingEffects = showsWorkingEffects
+        self.conversationID = conversationID
     }
 
-    public init(teammate: TeammateRowSnapshot, size: CGFloat = 36) {
-        self.init(identity: teammate.identity, activity: teammate.activity, size: size)
+    public init(teammate: TeammateRowSnapshot, size: CGFloat = 36, isSelected: Bool = false,
+                showsWorkingEffects: Bool = true, conversationID: UUID? = nil) {
+        self.init(identity: teammate.identity, activity: teammate.activity, size: size, isSelected: isSelected,
+                  showsWorkingEffects: showsWorkingEffects, conversationID: conversationID)
     }
 
     public var body: some View {
@@ -445,12 +481,40 @@ public struct CharacterIdentityView: View {
             statusBadge(state)
         }
         .frame(width: size, height: size)
-        .accessibilityElement(children: .ignore)
+        .contentShape(Rectangle())
+        .overlay {
+            if showsWorkingEffects, character.mode == .creature, CharacterIdleMotion.isWorking(activity) {
+                CharacterWorkingAccessibilityTarget(identityID: identity.id, conversationID: conversationID, name: identity.name,
+                    canReact: canReactToWorkingAvatar, onPress: requestWorkingReaction)
+                    .frame(width: size, height: size)
+            }
+        }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(identity.name)
         .accessibilityValue(accessibilityValue(character: character, state: state))
+        .help(CharacterIdleMotion.isWorking(activity) ? "\(identity.name) is working" : "\(identity.name): \(state.visibleLabel)")
+        .simultaneousGesture(TapGesture().onEnded { requestWorkingReaction() })
+        .onReceive(NotificationCenter.default.publisher(for: CharacterWorkingReaction.notification)) { note in
+            guard note.userInfo?["identity"] as? UUID == identity.id,
+                  showsWorkingEffects, character.mode == .creature, CharacterIdleMotion.isWorking(activity),
+                  !reduceMotion, artworkIsVisible, motionAllowed, scenePhase == .active else { return }
+            reactionTime = note.userInfo?["time"] as? TimeInterval
+        }
         .task(id: photoRequest) {
             await photoModel.load(assetID: photoAssetID, presentation: photoPresentation)
         }
+    }
+
+    private var canReactToWorkingAvatar: Bool {
+        showsWorkingEffects && CharacterIdentityDescriptor(appearance: identity.appearance).mode == .creature
+            && CharacterIdleMotion.isWorking(activity) && !reduceMotion && artworkIsVisible
+            && motionAllowed && scenePhase == .active
+    }
+
+    /// Mouse and accessibility activation share the same guarded cosmetic path.
+    private func requestWorkingReaction() {
+        guard canReactToWorkingAvatar else { return }
+        CharacterWorkingReaction.request(for: identity.id)
     }
 
     @ViewBuilder
@@ -461,14 +525,20 @@ public struct CharacterIdentityView: View {
                 mode: character.mode, reduceMotion: reduceMotion, sceneIsActive: scenePhase == .active,
                 isAllowed: motionAllowed
             ) {
-                idleCapableCreatureArtwork(character, state: state)
-                    .phaseAnimator(CharacterTransitionPhase.allCases, trigger: activity) { content, phase in
-                        content.modifier(CharacterArtworkPose(transform: CharacterTransitionMotion.transform(
-                            activity: activity, mode: character.mode, phase: phase,
-                            reduceMotion: false, sceneIsActive: true), size: size))
-                    } animation: { phase in
-                        .easeOut(duration: CharacterTransitionMotion.duration(for: phase))
-                    }
+                if CharacterIdleMotion.isWorking(activity) && showsWorkingEffects {
+                    // Acknowledgement/status changes keep the same continuous
+                    // working trajectory, rather than stacking pose accents on it.
+                    idleCapableCreatureArtwork(character, state: CharacterActivityDescriptor(activity: .thinkingOrWorking))
+                } else {
+                    idleCapableCreatureArtwork(character, state: state)
+                        .phaseAnimator(CharacterTransitionPhase.allCases, trigger: activity) { content, phase in
+                            content.modifier(CharacterArtworkPose(transform: CharacterTransitionMotion.transform(
+                                activity: activity, mode: character.mode, phase: phase,
+                                reduceMotion: false, sceneIsActive: true), size: size))
+                        } animation: { phase in
+                            .easeOut(duration: CharacterTransitionMotion.duration(for: phase))
+                        }
+                }
             } else {
                 creatureArtwork(character, state: state)
                     .modifier(CharacterArtworkPose(transform: CharacterTransitionMotion.transform(
@@ -486,8 +556,9 @@ public struct CharacterIdentityView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
-        // Reused identities get a fresh visibility observation. SwiftUI owns
-        // the idle loop; no app timer, clock or frame publisher is installed.
+        // Reused identities get a fresh visibility observation. Core Animation
+        // owns the idle loop on the render server (CharacterIdleMotionHost); no
+        // app timer, clock, frame publisher or per-frame SwiftUI update exists.
         .id(identity.id)
         .onChange(of: identity.id) { _, _ in artworkIsVisible = false }
         .onDisappear { artworkIsVisible = false }
@@ -500,14 +571,24 @@ public struct CharacterIdentityView: View {
                                          reduceMotion: reduceMotion, sceneIsActive: scenePhase == .active,
                                          isVisible: artworkIsVisible, isAllowed: motionAllowed) {
             let seed = CharacterIdleMotion.seed(identityID: identity.id, appearanceSeed: character.deterministicSeed)
-            creatureArtwork(character, state: state)
-                .phaseAnimator(CharacterIdleMotion.phases(seed: seed)) { content, phase in
-                    content.modifier(CharacterArtworkPose(transform: CharacterIdleMotion.transform(
-                        activity: activity, mode: character.mode, phase: phase,
-                        reduceMotion: false, sceneIsActive: true, isVisible: true), size: size))
-                } animation: { _ in
-                    .easeInOut(duration: CharacterIdleMotion.cycleDuration(seed: seed) / 3)
+            if CharacterIdleMotion.isWorking(activity) && showsWorkingEffects {
+                let raster = character.builtInAvatar == .guide || character.builtInAvatar == .fin
+                CharacterIdleMotionHost(seed: seed, size: size, colorScheme: colorScheme,
+                    customKeyframes: CharacterWorkingMotion.keyframes(seed: seed, part: raster ? .rasterBody : .body),
+                    workingEffectsSeed: seed, reactionTime: reactionTime,
+                    rasterBacking: raster ? character.builtInAvatar : nil) {
+                    creatureArtwork(character, state: state)
+                        .environment(\.characterWorkingFaceSeed, raster ? nil : seed)
                 }
+            } else if CharacterIdleMotion.isWorking(activity) {
+                creatureArtwork(character, state: state)
+            } else {
+                CharacterIdleMotionHost(seed: seed, size: size, colorScheme: colorScheme,
+                                        activity: activity, isSelected: isSelected) {
+                    creatureArtwork(character, state: state)
+                        .environment(\.characterEyeMotion, CharacterEyeMotion.Configuration(seed: seed, isWorking: false))
+                }
+            }
         } else {
             creatureArtwork(character, state: state)
         }
@@ -551,12 +632,10 @@ public struct CharacterIdentityView: View {
                     .stroke(.primary.opacity(contrast == .increased ? 1 : 0.72), lineWidth: lineWidth)
             }
             .overlay {
-                CharacterEyesView(
-                    dialect: character.eyes,
-                    state: state,
-                    size: size,
-                    increasedContrast: contrast == .increased
-                )
+                CharacterWorkingFaceLayer(size: size) {
+                    CharacterEyesView(dialect: character.eyes, state: state, size: size,
+                                      increasedContrast: contrast == .increased)
+                }
             }
             .overlay {
                 CharacterIdentityMarkShape(mark: character.mark)
@@ -600,6 +679,65 @@ public struct CharacterIdentityView: View {
             appearance = character.accessibleDescription
         }
         return "\(identity.role). \(appearance). Status: \(state.visibleLabel)."
+    }
+}
+
+/// A native semantic target supplies AXPress and the exact face bounds without
+/// intercepting pointer events from SwiftUI's existing hover/tap or sidebar row.
+struct CharacterWorkingAccessibilityTarget: NSViewRepresentable {
+    let identityID: UUID
+    var conversationID: UUID? = nil
+    let name: String
+    let canReact: Bool
+    let onPress: @MainActor () -> Void
+
+    func makeNSView(context: Context) -> CharacterWorkingAccessibilityView {
+        let view = CharacterWorkingAccessibilityView(frame: .zero)
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: CharacterWorkingAccessibilityView, context: Context) { update(nsView) }
+
+    private func update(_ view: CharacterWorkingAccessibilityView) {
+        view.identityID = identityID
+        view.conversationID = conversationID
+        view.botName = name
+        view.canReact = canReact
+        view.onPress = onPress
+    }
+
+    static func dismantleNSView(_ nsView: CharacterWorkingAccessibilityView, coordinator: ()) {
+        nsView.canReact = false
+        nsView.onPress = nil
+    }
+}
+
+@MainActor
+final class CharacterWorkingAccessibilityView: NSView {
+    var identityID = UUID()
+    var conversationID: UUID?
+    var botName = ""
+    var canReact = false
+    var onPress: (@MainActor () -> Void)?
+
+    override var acceptsFirstResponder: Bool { false }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+    override func accessibilityLabel() -> String? { "\(botName) is working" }
+    override func accessibilityHelp() -> String? { "Play a brief reaction. Work continues." }
+    override func accessibilityIdentifier() -> String {
+        if let conversationID {
+            return "working-avatar-\(identityID.uuidString)-in-\(conversationID.uuidString)"
+        }
+        return "working-avatar-\(identityID.uuidString)"
+    }
+    override func isAccessibilityEnabled() -> Bool { canReact && onPress != nil }
+    override func accessibilityPerformPress() -> Bool {
+        guard canReact, let onPress else { return false }
+        onPress()
+        return true
     }
 }
 
@@ -723,9 +861,17 @@ private struct CharacterEyesView: View {
     let increasedContrast: Bool
 
     var body: some View {
-        HStack(spacing: size * eyeSpacingFactor) {
-            eye
-            eye
+        CharacterEyeMotionLayer(part: .eyelids, size: size) {
+            HStack(spacing: size * eyeSpacingFactor) { eye; eye }
+                .overlay {
+                    CharacterEyeMotionLayer(part: .pupils, size: size) {
+                        HStack(spacing: size * (eyeWidthFactor + eyeSpacingFactor - pupilFactor)) {
+                            pupil
+                            pupil
+                        }
+                        .offset(x: size * state.pupilHorizontalOffsetFactor, y: size * 0.025)
+                    }
+                }
         }
         .offset(y: -size * 0.01 + size * state.eyeOffsetFactor)
     }
@@ -738,12 +884,11 @@ private struct CharacterEyesView: View {
                 Capsule(style: .continuous)
                     .stroke(.black.opacity(0.8), lineWidth: increasedContrast ? 1.5 : 0.65)
             }
-            .overlay(alignment: .center) {
-                Circle()
-                    .fill(.black)
-                    .frame(width: size * pupilFactor, height: size * pupilFactor)
-                    .offset(x: size * state.pupilHorizontalOffsetFactor, y: size * 0.025)
-            }
+    }
+
+    private var pupil: some View {
+        Circle().fill(.black)
+            .frame(width: size * pupilFactor, height: size * pupilFactor)
     }
 
     private var eyeWidthFactor: CGFloat {

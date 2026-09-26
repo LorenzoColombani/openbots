@@ -59,8 +59,14 @@ enum DomainText {
 public struct PageRequest: Equatable, Sendable {
     public let limit: Int
     public let beforeSequence: Int64?
+    /// Output classes the page leaves out. The limit, `hasMore` and the
+    /// `beforeSequence` cursor then all speak about the rows that remain, so
+    /// a reader hiding a class (the transcript hides `workAudit`) pages the
+    /// rows it shows and a long run of hidden rows is skipped, never an
+    /// empty page. Empty by default: every other reader sees every row.
+    public let excludedOutputClasses: Set<OutputClass>
 
-    public init(limit: Int, beforeSequence: Int64? = nil) throws {
+    public init(limit: Int, beforeSequence: Int64? = nil, excludedOutputClasses: Set<OutputClass> = []) throws {
         guard (1...500).contains(limit) else {
             throw DomainValidationError.invalid(
                 field: "page limit",
@@ -69,6 +75,7 @@ public struct PageRequest: Equatable, Sendable {
         }
         self.limit = limit
         self.beforeSequence = beforeSequence
+        self.excludedOutputClasses = excludedOutputClasses
     }
 }
 

@@ -215,7 +215,8 @@ private struct RecoveryFixture: Sendable {
         return try AuthoritativeMarkdownRootVerifier().verify(layout.internalMemoryRoot, inside: support)
     }
     func seed(_ db: SQLiteStore, subject: RecoverySubject) async throws {
-        let teammate = try Teammate(id: subject.bot, profile: TeammateProfile(displayName: "Recovery Fixture", role: "Synthetic QA"),
+        // Two bots never share a name, and the store now refuses a second one.
+        let teammate = try Teammate(id: subject.bot, profile: TeammateProfile(displayName: "Recovery Fixture \(subject.bot.persistedValue.prefix(8))", role: "Synthetic QA"),
             appearance: AgentAppearance(mode: .creature, grammarVersion: 1, deterministicSeed: 6, silhouette: "round",
                 paletteToken: "sky", eyeDialect: "bright", nonColorIdentityCue: "single crest", accessibleIdentityDescription: "Round creature"),
             createdAt: date, updatedAt: date)

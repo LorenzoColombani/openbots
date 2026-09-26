@@ -7,9 +7,80 @@ import XCTest
 
 /// Offscreen images of injected local readiness and handoff outcomes.
 /// No window, real inspector, provider operation or OCR is involved.
-/// Main must inspect the PNGs; passing layout checks is not visual acceptance.
+/// The images need a person's look; passing layout checks is not visual acceptance.
 @MainActor
 final class ClaudeSetupRenderTests: XCTestCase {
+    func testPrimaryActionChecksExistingSubscriptionWithoutSignInOrAnExtraLocalStep() async throws {
+        let evidence = try XCTUnwrap(ClaudeVerifiedSubscription(
+            exitCode: 0, loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty",
+            subscriptionType: "max", checkedAt: Date(timeIntervalSince1970: 1_788_000_000)))
+        let service = ClaudeSetupHandoffRenderService(statusOutcome: .verified(evidence))
+        let model = ClaudeSetupModel(service: service)
+        let view = ClaudeSetupView(model: model)
+        XCTAssertEqual(view.checkButtonTitle, "Check Claude")
+        XCTAssertFalse(view.offersSignIn)
+        let initialChecks = await service.subscriptionCalls
+        XCTAssertEqual(initialChecks, 0, "Rendering the new entry point stays inert")
+
+        // macOS 26 SwiftUI controls are not NSButton descendants. Exercise the
+        // exact view action and verify visible text separately through renders/OCR.
+        view.checkClaude()
+        let task = try XCTUnwrap(model.actionTask)
+        await task.value
+        XCTAssertEqual(model.state, .verified(evidence))
+        XCTAssertEqual(view.checkButtonTitle, "Check again")
+        XCTAssertFalse(view.offersSignIn)
+        view.signInWithClaude()
+        let localCalls = await service.localCalls
+        let statusCalls = await service.subscriptionCalls
+        let signInCalls = await service.signInCalls
+        XCTAssertEqual(localCalls, 0, "The existing status service already owns the fresh installation preflight")
+        XCTAssertEqual(statusCalls, 1)
+        XCTAssertEqual(signInCalls, 0)
+        try await render(model: model, width: 520, scheme: .light,
+                         filename: "claude-setup-connected-light-520.png")
+    }
+
+    func testSignInActionIsOfferedOnlyAfterAnExplicitSignedOutResult() async throws {
+        let outcomes: [ClaudeSetupOutcome] = [
+            .needsSignIn, .readyToConnect, .handedOffNeedsVerification,
+            .problem(.connectionCheckInconclusive), .problem(.installationRejected)
+        ]
+        for outcome in outcomes {
+            let service = ClaudeSetupHandoffRenderService(statusOutcome: outcome)
+            let model = ClaudeSetupModel(service: service)
+            model.checkSubscription()
+            await model.actionTask?.value
+            let view = ClaudeSetupView(model: model)
+            XCTAssertEqual(view.offersSignIn, outcome == .needsSignIn)
+            XCTAssertEqual(view.checkButtonTitle, "Check Claude")
+            let beforeSignIn = await service.signInCalls
+            XCTAssertEqual(beforeSignIn, 0)
+            if outcome == .needsSignIn {
+                // macOS 27 delivers the rendered pane's onDisappear a beat after its host is
+                // released, and that cancels whatever is pending. Keep the signed-out pane
+                // alive while its button is pressed, as it is for a person.
+                let signedOutPane = try await render(model: model, width: 460, scheme: .light,
+                                                     filename: "claude-setup-signed-out-light-460.png")
+                view.signInWithClaude()
+                let task = try XCTUnwrap(model.actionTask)
+                await task.value
+                XCTAssertEqual(model.state, .handedOffNeedsVerification)
+                XCTAssertFalse(view.offersSignIn)
+                view.signInWithClaude()
+                let checksAfterHandoff = await service.subscriptionCalls
+                let handoffs = await service.signInCalls
+                XCTAssertEqual(checksAfterHandoff, 1, "Terminal handoff never triggers an automatic account check")
+                XCTAssertEqual(handoffs, 1)
+                withExtendedLifetime(signedOutPane) {}
+            } else {
+                view.signInWithClaude()
+                let handoffs = await service.signInCalls
+                XCTAssertEqual(handoffs, 0, "A stale or inappropriate view action cannot start sign-in")
+            }
+        }
+    }
+
     func testTerminalHandoffRendersWithoutACompletionClaimOrAutomaticCheck() async throws {
         for (width, scheme) in [(CGFloat(460), ColorScheme.light), (CGFloat(520), ColorScheme.dark)] {
             let service = ClaudeSetupHandoffRenderService()
@@ -72,9 +143,10 @@ final class ClaudeSetupRenderTests: XCTestCase {
         }
     }
 
+    @discardableResult
     private func render(
         model: ClaudeSetupModel, width: CGFloat, scheme: ColorScheme, filename: String
-    ) async throws {
+    ) async throws -> NSViewController {
         let height: CGFloat = 820
         let controller = NSHostingController(rootView: ClaudeSetupView(model: model)
             .environment(\.colorScheme, scheme)
@@ -118,6 +190,7 @@ final class ClaudeSetupRenderTests: XCTestCase {
         try data.write(to: destination, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: destination.path)
         print("Claude setup offscreen image: \(destination.path)")
+        return controller
     }
 
     private func allSubviews(of view: NSView) -> [NSView] {
@@ -129,6 +202,11 @@ private actor ClaudeSetupHandoffRenderService: ClaudeSetupServicing {
     private(set) var localCalls = 0
     private(set) var subscriptionCalls = 0
     private(set) var signInCalls = 0
+    private let statusOutcome: ClaudeSetupOutcome
+
+    init(statusOutcome: ClaudeSetupOutcome = .problem(.connectionCheckInconclusive)) {
+        self.statusOutcome = statusOutcome
+    }
 
     func checkThisMac() async -> ClaudeSetupReport {
         localCalls += 1
@@ -146,7 +224,7 @@ private actor ClaudeSetupHandoffRenderService: ClaudeSetupServicing {
 
     func checkSubscription() async -> ClaudeSetupReport {
         subscriptionCalls += 1
-        return .init(outcome: .problem(.connectionCheckInconclusive))
+        return .init(outcome: statusOutcome)
     }
 
     func beginOfficialSignIn() async -> ClaudeSetupReport {

@@ -30,7 +30,8 @@ public actor MemoryLocalCorrectionService: ClaudeTextReplyServing {
         self.conversationContexts = conversationContexts; self.teammates = teammates; self.messages = messages
         self.authority = authority; self.clock = { MemoryPersistenceTimestamp.normalized(clock()) }
         self.anchorResolver = publications.map { MemoryLocalCorrectionAnchorResolver(publications: $0, messages: messages) }
-        let verifier = MemoryEvidenceVerifier(messages: messages, teammates: teammates, contexts: contexts)
+        let verifier = MemoryEvidenceVerifier(messages: messages, teammates: teammates, contexts: contexts,
+                                              publications: publications)
         self.verifier = verifier
         self.admission = MemoryClaimAdmissionService(memory: memory, intents: intents, contexts: contexts,
             verifier: verifier, authority: authority, clock: clock)

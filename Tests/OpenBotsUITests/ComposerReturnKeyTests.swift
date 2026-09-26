@@ -213,7 +213,7 @@ final class ComposerReturnKeyTests: XCTestCase {
                 name: NSText.didChangeNotification, object: otherEditor
             )
             defer { NotificationCenter.default.removeObserver(changes) }
-            let publication = fixture.conversation.$composerText.dropFirst().sink { _ in
+            let publication = fixture.conversation.composer.$text.dropFirst().sink { _ in
                 changes.composerPublications += 1
             }
             defer { publication.cancel() }
@@ -270,7 +270,7 @@ final class ComposerReturnKeyTests: XCTestCase {
                 name: NSText.didChangeNotification, object: editor
             )
             defer { NotificationCenter.default.removeObserver(changes) }
-            let publication = fixture.conversation.$composerText.dropFirst().sink { _ in
+            let publication = fixture.conversation.composer.$text.dropFirst().sink { _ in
                 changes.composerPublications += 1
             }
             defer { publication.cancel() }
@@ -394,9 +394,9 @@ private final class ComposerNativeFixture {
             submit: { _, conversationID, text in
                 await submissions.record(conversationID: conversationID, text: text)
             },
-            beforeSubmission: { _, _, rawText in
+            beforeSubmission: { _, _, rawText, _ in
                 attempts.rawTexts.append(rawText)
-                return true
+                return nil
             }
         )
         let teammate = TeammateRowSnapshot(

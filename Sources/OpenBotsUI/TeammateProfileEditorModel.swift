@@ -88,6 +88,7 @@ public final class TeammateProfileEditorModel: ObservableObject {
     @Published public var claudeModel = "sonnet"
     @Published public var claudeEffort = "default"
     @Published public var claudeContextWindow = "default"
+    @Published public var notificationPreference: NotificationPreference = .inherit
     @Published public var isAdvancedExpanded = false
     @Published public var isAppearanceExpanded = false
     @Published public var editsCreature = false {
@@ -113,9 +114,19 @@ public final class TeammateProfileEditorModel: ObservableObject {
     @Published public private(set) var isCancelled = false
     @Published public private(set) var requiresReopen = false
     @Published public private(set) var inlineError: String?
+    /// Names Save was refused for because another bot held them by the time
+    /// the service looked, each with the name that bot carries. The live check
+    /// reads the roster this editor was opened in, so a bot made or renamed
+    /// elsewhere meanwhile is only seen at save; the refusal is kept here,
+    /// under the field, until the typed name changes.
+    @Published private var namesRefusedAtSave: [(typed: String, existing: String)] = []
 
     private let service: any TeammateProfileEditing
     private let photoImporter: (@Sendable (URL) async throws -> ProfilePhotoAsset)?
+    /// The name another active bot already carries for the typed one, if any,
+    /// under the one rule the creation sheet and the services read. The bot
+    /// being edited is not counted, so it keeps its own name in any case.
+    private let takenName: @MainActor (String) -> String?
     private var generation: UInt64 = 0
     public private(set) var isShuttingDown = false
     public func beginShutdown() {
@@ -127,11 +138,13 @@ public final class TeammateProfileEditorModel: ObservableObject {
     public init(
         service: any TeammateProfileEditing,
         teammateID: TeammateID,
-        photoImporter: (@Sendable (URL) async throws -> ProfilePhotoAsset)? = nil
+        photoImporter: (@Sendable (URL) async throws -> ProfilePhotoAsset)? = nil,
+        takenName: @escaping @MainActor (String) -> String? = { _ in nil }
     ) {
         self.service = service
         self.teammateID = teammateID
         self.photoImporter = photoImporter
+        self.takenName = takenName
     }
 
     public var originalIdentity: TeammateIdentitySnapshot? {
@@ -220,19 +233,38 @@ public final class TeammateProfileEditorModel: ObservableObject {
             || claudeModel != original.requestedClaudeModel
             || claudeEffort != original.requestedClaudeEffort
             || claudeContextWindow != original.requestedClaudeContextWindow
+            || notificationPreference != original.notificationPreference
             || hasAppearanceChanges
     }
 
+    /// The active bot whose name the typed one would collide with, if any:
+    /// what the roster says now, or what the service said at the last save.
+    /// The bot's own saved name never collides, in any case, even where a bot
+    /// saved before the rule shares it: keeping a name is not taking one, and
+    /// the service agrees.
+    public var conflictingName: String? {
+        let name = trimmed(displayName)
+        guard !name.isEmpty else { return nil }
+        if let saved = originalTeammate?.profile.displayName, TeammateProfile.namesMatch(saved, name) { return nil }
+        return takenName(name) ?? namesRefusedAtSave.first { TeammateProfile.namesMatch($0.typed, name) }?.existing
+    }
+
     public var nameValidationMessage: String? {
-        requiredValidation(displayName, label: "name", maximum: 80)
+        if let message = requiredValidation(displayName, label: "name", maximum: 80) { return message }
+        if let existing = conflictingName { return "There is already a bot called \(existing)." }
+        return nil
     }
 
     public var titleValidationMessage: String? {
         optionalValidation(title, label: "title", maximum: 120)
     }
 
+    /// Worded as the New Bot sheet words it, since both edit the same paragraph.
     public var roleValidationMessage: String? {
-        requiredValidation(role, label: "role", maximum: 240)
+        let value = trimmed(role)
+        if value.isEmpty { return "Say what this bot does." }
+        return value.count > TeammateCreationModel.maximumRoleLength
+            ? "Keep it to \(TeammateCreationModel.maximumRoleLength) characters or fewer." : nil
     }
 
     public var instructionsValidationMessage: String? {
@@ -292,7 +324,8 @@ public final class TeammateProfileEditorModel: ObservableObject {
             builtInAvatar: pendingBuiltInAvatar,
             claudeModel: claudeModel == original.requestedClaudeModel ? nil : claudeModel,
             claudeEffort: claudeEffort == original.requestedClaudeEffort ? nil : claudeEffort,
-            claudeContextWindow: claudeContextWindow == original.requestedClaudeContextWindow ? nil : claudeContextWindow
+            claudeContextWindow: claudeContextWindow == original.requestedClaudeContextWindow ? nil : claudeContextWindow,
+            notificationPreference: notificationPreference == original.notificationPreference ? nil : notificationPreference
         )
         generation &+= 1
         let operation = generation
@@ -319,6 +352,10 @@ public final class TeammateProfileEditorModel: ObservableObject {
             if case RepositoryError.optimisticLockFailed = error {
                 requiresReopen = true
                 inlineError = "This profile changed elsewhere. Your edits remain here. Cancel and reopen to review the saved profile."
+            } else if let taken = error as? TeammateNameTakenError {
+                // The same sentence as the live check, under the field it
+                // concerns; the draft stays for another name.
+                namesRefusedAtSave.append((typed: draft.displayName, existing: taken.existingName))
             } else {
                 inlineError = "OpenBots couldn’t save this profile. Your edits remain here; try again."
             }
@@ -386,6 +423,7 @@ public final class TeammateProfileEditorModel: ObservableObject {
         claudeModel = teammate.requestedClaudeModel
         claudeEffort = teammate.requestedClaudeEffort
         claudeContextWindow = teammate.requestedClaudeContextWindow
+        notificationPreference = teammate.notificationPreference
         editsCreature = false
         pendingPhotoAsset = nil
         pendingBuiltInAvatar = nil
@@ -411,7 +449,7 @@ public final class TeammateProfileEditorModel: ObservableObject {
 
     private func requiredValidation(_ value: String, label: String, maximum: Int) -> String? {
         let value = trimmed(value)
-        if value.isEmpty { return "Enter a \(label) for this teammate." }
+        if value.isEmpty { return "Enter a \(label) for this bot." }
         return value.count > maximum ? "Keep the \(label) to \(maximum) characters or fewer." : nil
     }
 

@@ -185,6 +185,32 @@ struct ClaudeReadContextReplyIntegrationTests {
         }
     }
 
+    @Test("Wired as the app wires it, with a session store and resume paused, the second turn hears the first quoted")
+    func pausedResumeQuotesTheEarlierTurn() async throws {
+        let fixture = try ReadReplyFixture()
+        defer { fixture.remove() }
+        let store = try fixture.open()
+        try await fixture.seed(store)
+        let fact = "Orchid fact to keep: the spare key is under the blue pot."
+        let answer = "Noted, the spare key is under the blue pot."
+        let runner = ReadReplyEngine(reply: answer)
+        let service = try fixture.service(store, runner: runner, reader: ReadReplyMemoryReader(values: [:]), sessions: store)
+        #expect(await service.sendText(fixture.submission(text: fact)) { _ in }.outcome == .completed)
+        // A relaunch of the app: a new store handle and a new service over the same database.
+        let reopened = try fixture.open()
+        let again = try fixture.service(reopened, runner: runner, reader: ReadReplyMemoryReader(values: [:]), sessions: reopened)
+        #expect(await again.sendText(fixture.submission(text: "Where is the spare key?")) { _ in }.outcome == .completed)
+        let launched = await runner.requests
+        #expect(launched.count == 2)
+        let second = try #require(launched.last)
+        #expect(!second.resumesSession && !second.persistsSession && second.sessionID != launched[0].sessionID)
+        let envelope = try ReadReplyEnvelope(second.text)
+        #expect(envelope.currentUserText == "Where is the spare key?")
+        #expect(envelope.context.messages.contains { $0.text == fact })
+        #expect(envelope.context.messages.contains { $0.text == answer })
+        #expect(try await reopened.storedClaudeSession(conversationID: fixture.firstChat, teammateID: fixture.first.id) == nil)
+    }
+
     @Test("A newly created bot cannot inherit the previous bot's dialogue or memory")
     func recreatedBotDoesNotInheritPriorConversation() async throws {
         let fixture = try ReadReplyFixture()
@@ -384,7 +410,8 @@ private struct ReadReplyFixture: Sendable {
             teammateID: useSecond ? second.id : first.id, userMessageID: MessageID(UUID()), text: text)
     }
     func service(_ store: SQLiteStore, runner: ReadReplyEngine, reader: ReadReplyMemoryReader? = nil,
-                 preparation: ReadReplyPreparationCounter = ReadReplyPreparationCounter()) throws -> OfficialClaudeTextReplyService {
+                 preparation: ReadReplyPreparationCounter = ReadReplyPreparationCounter(),
+                 sessions: (any ClaudeSessionRepository)? = nil) throws -> OfficialClaudeTextReplyService {
         let target = try ClaudeConnectionTarget(executableURL: URL(fileURLWithPath: "/fixture/claude"),
             expectedExecutableSHA256: String(repeating: "a", count: 64),
             profileURL: URL(fileURLWithPath: "/fixture/HighChurn.noindex/CLIProfile"),
@@ -396,7 +423,8 @@ private struct ReadReplyFixture: Sendable {
         }
         return OfficialClaudeTextReplyService(repository: store, teammates: store, conversations: store,
             messages: store, preparer: ReadReplyPreparer(target: target, counter: preparation), runner: runner, appOwnerID: appOwner,
-            contextReader: reader == nil ? nil : store, contextAssembler: assembler)
+            contextReader: reader == nil ? nil : store, contextAssembler: assembler,
+            sessions: sessions, sessionTranscriptExists: { _, _ in true })
     }
     func assemble(_ store: SQLiteStore, reader: ReadReplyMemoryReader, text: String,
                   second useSecond: Bool = false) async throws -> ClaudeContextAssembly {

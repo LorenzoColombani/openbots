@@ -86,6 +86,58 @@ final class ClaudeModelDetailsRefreshTests: XCTestCase {
     }
 }
 
+extension ClaudeModelDetailsRefreshTests {
+    /// After a relaunch the coordinator has no session observation; Details must
+    /// still name the model the last saved reply reported, read back from the turn record.
+    func testSavedResultIsReadBackIntoDetailsWhenTheConversationShows() async throws {
+        let chat = try modelDetailsChat()
+        let request = ClaudeExecutionRequest(sessionID: UUID(),
+            selection: .init(model: "claude-opus-5", effort: "low", contextWindow: "standard"), launchModel: "claude-opus-5")
+        let evidence = ClaudeExecutionEvidence(request: request, initializedModel: "claude-opus-5", resultModel: "claude-opus-5")
+        let reply = ModelDetailsSavedRecordReplyService(evidence: evidence)
+        let model = DurableWorkspaceModel(
+            service: ModelDetailsChatService(chat: chat),
+            textReplyService: reply,
+            hiringService: ModelDetailsUnusedHiringService()
+        )
+        defer { model.finishShutdown() }
+        try await model.loadInitialWorkspace()
+        let conversationID = try XCTUnwrap(model.conversation.conversationID)
+        var status: ClaudeModelRunPresentation?
+        for _ in 0..<200 {
+            status = model.modelStatus(for: conversationID)
+            if status?.confirmedModel != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let read = try XCTUnwrap(status, "the saved record must reach Details")
+        XCTAssertEqual(read.confirmedModel, "claude-opus-5")
+        XCTAssertEqual(read.confirmedRequest, "claude-opus-5")
+        XCTAssertEqual(read.confirmedEffort, "low")
+        XCTAssertEqual(read.confirmedContextWindow, "standard")
+        XCTAssertEqual(read.observedAtStart, "claude-opus-5")
+        XCTAssertTrue(read.isFromSavedRecord)
+        let asked = await reply.conversationsAsked
+        XCTAssertEqual(asked, [ConversationID(conversationID)])
+    }
+}
+
+/// A reply service that never runs a turn and only answers for the saved record.
+private actor ModelDetailsSavedRecordReplyService: ClaudeTextReplyServing {
+    let evidence: ClaudeExecutionEvidence
+    private(set) var conversationsAsked: [ConversationID] = []
+    init(evidence: ClaudeExecutionEvidence) { self.evidence = evidence }
+    func sendText(_ submission: ClaudeTextTurnSubmission,
+                  onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
+        .init(outcome: .failed(.runtimeUnavailable))
+    }
+    func messageProvenance(conversationID: ConversationID,
+                           messageIDs: [MessageID]) async throws -> [TextTurnMessageProvenance] { [] }
+    func latestExecutionEvidence(conversationID: ConversationID) async throws -> ClaudeExecutionEvidence? {
+        conversationsAsked.append(conversationID)
+        return evidence
+    }
+}
+
 private enum ModelDetailsHarnessError: Error {
     case unusedServiceMethod
 }

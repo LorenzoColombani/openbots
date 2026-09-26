@@ -93,6 +93,17 @@ public protocol RunJournalRepository: Sendable {
     /// process-identity/absence proof; expiry alone must never kill/relaunch work.
     func recoverExpiredLocalFixtures(conversationID: ConversationID, now: Date,
                                      limit: Int) async throws -> [RunJournalRecord]
+    /// Marks one abandoned executor run interrupted. The caller must already
+    /// hold absence proof for every recorded worker process group; the
+    /// repository only re-checks that the run is executor-owned, still open and
+    /// its lease has lapsed. Never claims, resumes, kills or relaunches work.
+    func recoverAbandonedExecutorRun(id: RunID, now: Date) async throws -> RunJournalRecord
+}
+
+public extension RunJournalRepository {
+    func recoverAbandonedExecutorRun(id: RunID, now: Date) async throws -> RunJournalRecord {
+        throw RunJournalError.unavailable
+    }
 }
 
 public struct RunRecoveryReview: Equatable, Sendable, Identifiable {

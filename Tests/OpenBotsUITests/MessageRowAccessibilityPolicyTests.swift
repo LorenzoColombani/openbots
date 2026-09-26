@@ -44,3 +44,16 @@ func rosterAccessibilityMetadataIncludesExistingActivityAndOptionalRecency() {
     #expect(noHistory == "Ada, Researcher, Idle")
     #expect(!noHistory.contains("Last activity"))
 }
+
+/// A pinned row once carried nothing that said so.
+/// It now shows a pin beside the name, and the row reads "Pinned" to VoiceOver.
+@Test("A pinned row says so; an unpinned one says nothing about pins")
+func rosterAccessibilityMetadataSaysPinned() {
+    let identity = TeammateIdentitySnapshot(id: UUID(), name: "Ada", role: "Researcher", appearance: .fixture(seed: 1))
+    let pinned = TeammateRowSnapshot(identity: identity, activity: .idle, isPinned: true)
+    let unpinned = TeammateRowSnapshot(identity: identity, activity: .idle)
+    #expect(pinned.accessibilitySummary(locale: messageMetadataLocale, timeZone: messageMetadataZone)
+        == "Ada, Pinned, Researcher, Idle")
+    #expect(unpinned.accessibilitySummary(locale: messageMetadataLocale, timeZone: messageMetadataZone)
+        == "Ada, Researcher, Idle")
+}

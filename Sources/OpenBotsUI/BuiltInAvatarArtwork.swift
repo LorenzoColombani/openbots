@@ -3,7 +3,7 @@ import OpenBotsDomain
 import SwiftUI
 
 /// App-owned approved artwork. The three vector paths and facial geometry are
-/// copied unchanged from the accepted CharacterPreview drawing, not the old
+/// copied unchanged from the accepted character drawing, not the old
 /// generated grammar. Guide and Fin are immutable bundled transparent cutouts.
 @MainActor
 enum BuiltInAvatarResources {
@@ -66,7 +66,17 @@ struct BuiltInAvatarArtwork: View {
                 BuiltInAvatarBodyShape(avatar: avatar)
                     .stroke(.primary.opacity(0.72), lineWidth: 0.85)
             }
-            .overlay { eyes }
+            .overlay {
+                CharacterWorkingFaceLayer(size: size) {
+                    eyes.overlay {
+                        if avatar == .kite {
+                            BuiltInKiteExpressionShape().stroke(
+                                .black.opacity(0.8),
+                                style: StrokeStyle(lineWidth: 0.85, lineCap: .round, lineJoin: .round))
+                        }
+                    }
+                }
+            }
             .overlay {
                 BuiltInAvatarMarkShape(avatar: avatar)
                     .fill(.white.opacity(0.96))
@@ -75,19 +85,19 @@ struct BuiltInAvatarArtwork: View {
                             .stroke(.black.opacity(0.82), lineWidth: 0.85)
                     }
             }
-            .overlay {
-                if avatar == .kite {
-                    BuiltInKiteExpressionShape().stroke(
-                        .black.opacity(0.8),
-                        style: StrokeStyle(lineWidth: 0.85, lineCap: .round, lineJoin: .round)
-                    )
-                }
-            }
     }
 
     private var eyes: some View {
-        HStack(spacing: size * 0.13) { eye; eye }
-            .offset(x: avatar == .bean ? size * 0.045 : 0, y: size * 0.01)
+        CharacterEyeMotionLayer(part: .eyelids, size: size) {
+            HStack(spacing: size * 0.13) { eye; eye }
+                .overlay {
+                    CharacterEyeMotionLayer(part: .pupils, size: size) {
+                        HStack(spacing: size * (eyeWidth + 0.13 - 0.065)) { pupil; pupil }
+                            .offset(y: size * 0.025)
+                    }
+                }
+        }
+        .offset(x: avatar == .bean ? size * 0.045 : 0, y: size * 0.01)
     }
 
     private var eye: some View {
@@ -97,11 +107,11 @@ struct BuiltInAvatarArtwork: View {
             .overlay {
                 Capsule(style: .continuous).stroke(.black.opacity(0.8), lineWidth: 0.65)
             }
-            .overlay {
-                Circle().fill(.black)
-                    .frame(width: size * 0.065, height: size * 0.065)
-                    .offset(y: size * 0.025)
-            }
+    }
+
+    private var pupil: some View {
+        Circle().fill(.black)
+            .frame(width: size * 0.065, height: size * 0.065)
     }
 
     private var eyeWidth: CGFloat {
@@ -217,7 +227,7 @@ private struct BuiltInAvatarMarkShape: Shape {
         case .fin:
             break
         case .kite:
-            // Paired brows suggest the references' defined brow structure,
+            // Paired brows suggest a defined brow structure,
             // softened and gently raised so the bot does not inherit a scowl.
             path.move(to: p(0.265, 0.335))
             path.addCurve(to: p(0.435, 0.335), control1: p(0.315, 0.295), control2: p(0.395, 0.30))

@@ -27,33 +27,37 @@ extension SQLiteStore: RunJournalRepository {
     }
 
     public func enqueueRun(_ request: WorkRequest, origin: RunOrigin) async throws -> RunJournalRecord {
+        try transaction { try enqueueJournalInTransaction(request, origin: origin) }
+    }
+
+    /// Aggregate repositories call this only inside their existing transaction,
+    /// so a failed associated insert rolls back the run and its initial receipts.
+    func enqueueJournalInTransaction(_ request: WorkRequest, origin: RunOrigin) throws -> RunJournalRecord {
         try validateJournalRequest(request)
         let frozen = try journalJSON(request, maximum: 8 * 1_024 * 1_024)
-        return try transaction {
-            try validateJournalContext(request)
-            guard try query(sql: "SELECT 1 AS found FROM work_runs WHERE teammate_id=? AND state NOT IN ('succeeded','failed','interrupted') LIMIT 1;",
-                            bindings: [.text(request.teammateID.persistedValue)]).isEmpty else {
-                throw RunJournalError.conflictingActiveRun
-            }
-            guard try query(sql: "SELECT 1 AS found FROM work_runs WHERE id=?;", bindings: [.text(request.runID.persistedValue)]).isEmpty else {
-                throw RunJournalError.invalidRequest
-            }
-            try validateJournalInput(request.initialInput, conversationID: request.conversationID, submittedAt: request.submittedAt)
-            _ = try execute(sql: """
-                INSERT INTO work_runs(id,teammate_id,conversation_id,initiating_message_id,selected_project_id,
-                    profile_revision,state,created_at,updated_at) VALUES (?,?,?,?,?,?,'queued',?,?);
-                """, bindings: [.text(request.runID.persistedValue), .text(request.teammateID.persistedValue),
-                    .text(request.conversationID.persistedValue), .text(request.initiatingMessageID.persistedValue),
-                    request.selectedProjectID.map { .text($0.persistedValue) } ?? .null,
-                    .integer(Int64(request.profileRevision)), .real(request.submittedAt.timeIntervalSince1970),
-                    .real(request.submittedAt.timeIntervalSince1970)])
-            _ = try execute(sql: "INSERT INTO run_journal_metadata(run_id,request_json,origin,revision) VALUES (?,?,?,1);",
-                bindings: [.text(request.runID.persistedValue), .text(frozen), .text(origin.rawValue)])
-            try insertJournalInput(request.initialInput, runID: request.runID, submittedAt: request.submittedAt, now: request.submittedAt)
-            try insertJournalEntry(id: request.runID, revision: 1, kind: .enqueued, state: .queued,
-                                   messageID: request.initiatingMessageID, now: request.submittedAt)
-            return try requiredJournalRecord(request.runID)
+        try validateJournalContext(request)
+        guard try query(sql: "SELECT 1 AS found FROM work_runs WHERE teammate_id=? AND state NOT IN ('succeeded','failed','interrupted') LIMIT 1;",
+                        bindings: [.text(request.teammateID.persistedValue)]).isEmpty else {
+            throw RunJournalError.conflictingActiveRun
         }
+        guard try query(sql: "SELECT 1 AS found FROM work_runs WHERE id=?;", bindings: [.text(request.runID.persistedValue)]).isEmpty else {
+            throw RunJournalError.invalidRequest
+        }
+        try validateJournalInput(request.initialInput, conversationID: request.conversationID, submittedAt: request.submittedAt)
+        _ = try execute(sql: """
+            INSERT INTO work_runs(id,teammate_id,conversation_id,initiating_message_id,selected_project_id,
+                profile_revision,state,created_at,updated_at) VALUES (?,?,?,?,?,?,'queued',?,?);
+            """, bindings: [.text(request.runID.persistedValue), .text(request.teammateID.persistedValue),
+                .text(request.conversationID.persistedValue), .text(request.initiatingMessageID.persistedValue),
+                request.selectedProjectID.map { .text($0.persistedValue) } ?? .null,
+                .integer(Int64(request.profileRevision)), .real(request.submittedAt.timeIntervalSince1970),
+                .real(request.submittedAt.timeIntervalSince1970)])
+        _ = try execute(sql: "INSERT INTO run_journal_metadata(run_id,request_json,origin,revision) VALUES (?,?,?,1);",
+            bindings: [.text(request.runID.persistedValue), .text(frozen), .text(origin.rawValue)])
+        try insertJournalInput(request.initialInput, runID: request.runID, submittedAt: request.submittedAt, now: request.submittedAt)
+        try insertJournalEntry(id: request.runID, revision: 1, kind: .enqueued, state: .queued,
+                               messageID: request.initiatingMessageID, now: request.submittedAt)
+        return try requiredJournalRecord(request.runID)
     }
 
     public func run(id: RunID) async throws -> RunJournalRecord? {
@@ -95,15 +99,25 @@ extension SQLiteStore: RunJournalRepository {
 
     public func renewRunLease(id: RunID, expectedRevision: Int64, token: UUID,
                               now: Date, leaseDuration: TimeInterval) async throws -> RunJournalRecord {
-        let expiry = try journalExpiry(now: now, duration: leaseDuration)
+        _ = try journalExpiry(now: now, duration: leaseDuration)
         return try transaction {
             let current = try leasedJournalCAS(id, revision: expectedRevision, token: token, now: now)
-            let lease = try requireJournalLease(current, token: token, now: now)
-            // Renewal never shortens a valid lease when a caller uses a shorter TTL.
-            let renewed = RunLease(ownerID: lease.ownerID, token: lease.token, generation: lease.generation,
-                                   expiresAt: max(lease.expiresAt, expiry))
+            let renewed = try renewedJournalLease(current, token: token, now: now, duration: leaseDuration)
             return try updateJournal(current, state: current.state, lease: renewed, kind: .leaseRenewed, now: now)
         }
+    }
+
+    /// The lease a live write carries forward: the same owner, token and
+    /// generation, expiring at `now + duration` or when it already would,
+    /// whichever is later. Renewal never shortens a valid lease when a caller
+    /// uses a shorter TTL, and a lease that has already run out cannot be
+    /// revived here; the write that asked for it fails as expired.
+    func renewedJournalLease(_ current: RunJournalRecord, token: UUID, now: Date,
+                             duration: TimeInterval) throws -> RunLease {
+        let lease = try requireJournalLease(current, token: token, now: now)
+        let expiry = try journalExpiry(now: now, duration: duration)
+        return RunLease(ownerID: lease.ownerID, token: lease.token, generation: lease.generation,
+                        expiresAt: max(lease.expiresAt, expiry))
     }
 
     public func transitionRun(id: RunID, expectedRevision: Int64, token: UUID,
@@ -223,6 +237,37 @@ extension SQLiteStore: RunJournalRepository {
         }
     }
 
+    public func recoverAbandonedExecutorRun(id: RunID, now: Date) async throws -> RunJournalRecord {
+        try validateJournalDate(now)
+        return try transaction {
+            let current = try requiredJournalRecord(id)
+            guard current.origin == .executor, !journalTerminal(current.state) else { throw RunJournalError.invalidTransition }
+            if let lease = current.lease { guard lease.expiresAt <= now else { throw RunJournalError.leaseUnavailable } }
+            try validateJournalClock(now, current: current)
+            try markJournalUncertain(id, now: now)
+            return try updateJournal(current, state: .interrupted, lease: nil, kind: .recovered, now: now)
+        }
+    }
+
+    /// The author a committed input must carry. A handoff leg's first input
+    /// was written by the leg's sender, a report turn's by the leg's receiver,
+    /// a worker's result by the app; every later steering input is the
+    /// user's. This rehydration never asks what state the leg is in now.
+    func storedInputAuthor(_ request: WorkRequest, sequence: Int64) throws -> MessageAuthor {
+        guard sequence == 1 else { return .user }
+        // A worker's result is the app's own note.
+        if request.textTurnIdentity?.workerResultID != nil { return .system }
+        if let legID = request.textTurnIdentity?.handoffLegID {
+            guard let sender = try handoffLegSender(legID: legID) else { throw RunJournalError.inputMismatch }
+            return .teammate(sender)
+        }
+        if let legID = request.textTurnIdentity?.handoffReportLegID {
+            guard let receiver = try handoffLegReceiver(legID: legID) else { throw RunJournalError.inputMismatch }
+            return .teammate(receiver)
+        }
+        return .user
+    }
+
     func validateJournalRequest(_ request: WorkRequest) throws {
         guard request.profileRevision > 0, request.profileRevision <= UInt64(Int64.max),
               request.initiatingMessageID == request.initialInput.messageID, request.initialInput.sequence == 1 else {
@@ -240,13 +285,18 @@ extension SQLiteStore: RunJournalRepository {
     }
 
     func validateJournalContext(_ request: WorkRequest) throws {
+        // Hide shuts only the bot's own chat: a hidden bot keeps its seat and
+        // shows in its teams, so `is_hidden` is asked in the direct branch alone.
         guard let owner = try query(sql: """
-            SELECT t.profile_revision FROM conversations c JOIN teammates t ON t.id=c.subject_id
-            WHERE c.id=? AND c.kind='direct' AND c.subject_id=? AND c.lifecycle='active'
-              AND t.lifecycle='active' AND t.is_hidden=0
+            SELECT t.profile_revision FROM conversations c JOIN teammates t ON t.id=?
+            WHERE c.id=? AND c.lifecycle='active' AND t.lifecycle='active'
               AND EXISTS(SELECT 1 FROM conversation_participants p
-                         WHERE p.conversation_id=c.id AND p.teammate_id=t.id AND p.left_at IS NULL);
-            """, bindings: [.text(request.conversationID.persistedValue), .text(request.teammateID.persistedValue)]).first,
+                         WHERE p.conversation_id=c.id AND p.teammate_id=t.id AND p.left_at IS NULL)
+              AND ((c.kind='direct' AND c.subject_id=t.id AND t.is_hidden=0)
+                   OR (c.kind='team' AND EXISTS(SELECT 1 FROM teams tm JOIN team_memberships m ON m.team_id=tm.id
+                                                WHERE tm.id=c.subject_id AND tm.lifecycle='active'
+                                                  AND m.teammate_id=t.id AND m.revoked_at IS NULL)));
+            """, bindings: [.text(request.teammateID.persistedValue), .text(request.conversationID.persistedValue)]).first,
               try owner.integer("profile_revision") == Int64(request.profileRevision) else { throw RunJournalError.invalidRequest }
         let context = try query(sql: "SELECT teammate_id,project_id,team_id,revision FROM conversation_context_selections WHERE conversation_id=?;",
                                 bindings: [.text(request.conversationID.persistedValue)]).first
@@ -265,18 +315,30 @@ extension SQLiteStore: RunJournalRepository {
         }
     }
 
-    func validateJournalInput(_ input: WorkInput, conversationID: ConversationID, submittedAt: Date) throws {
+    /// `expectedAuthor` is the user for every direct-chat and steering input.
+    /// Only a handoff leg's first input is authored by another teammate, and
+    /// the caller proves that leg before naming its sender here.
+    func validateJournalInput(_ input: WorkInput, conversationID: ConversationID, submittedAt: Date,
+                              expectedAuthor: MessageAuthor = .user, from source: JournalRowSource = .live) throws {
         try validateJournalInputShape(input)
-        guard let message = try query(sql: "SELECT conversation_id,author_kind,output_class,created_at FROM messages WHERE id=?;",
-                                      bindings: [.text(input.messageID.persistedValue)]).first,
+        let (expectedKind, expectedTeammate): (String, String?) = switch expectedAuthor {
+        case .user: ("user", nil)
+        case .teammate(let id): ("teammate", id.persistedValue)
+        case .system: ("system", nil)
+        }
+        // A bot-authored input is the work channel (a brief, a member's
+        // report); what the user typed is always a transcript message.
+        let admittedClasses = expectedAuthor == .user ? ["conversation"] : ["conversation", "workAudit"]
+        guard let message = try journalInputMessage(input.messageID, from: source),
               try message.text("conversation_id") == conversationID.persistedValue,
-              try message.text("author_kind") == "user", try message.text("output_class") == "conversation" else {
+              try message.text("author_kind") == expectedKind,
+              try message.optionalText("author_teammate_id") == expectedTeammate,
+              admittedClasses.contains(try message.text("output_class")) else {
             throw RunJournalError.inputMismatch
         }
         let created = try message.real("created_at")
         guard created.isFinite, created <= submittedAt.timeIntervalSince1970 else { throw RunJournalError.inputMismatch }
-        let rows = try query(sql: "SELECT ordinal,kind,text_value,referenced_id FROM message_parts WHERE message_id=? ORDER BY ordinal LIMIT 101;",
-                             bindings: [.text(input.messageID.persistedValue)])
+        let rows = try journalInputParts(input.messageID, from: source)
         guard !rows.isEmpty, rows.count <= 100 else { throw RunJournalError.inputMismatch }
         var text = ""
         var attachments: [AttachmentID] = []
@@ -360,14 +422,13 @@ extension SQLiteStore: RunJournalRepository {
                         bindings: [.real(now.timeIntervalSince1970), .text(id.persistedValue)])
     }
 
-    func requiredJournalRecord(_ id: RunID) throws -> RunJournalRecord {
-        guard let record = try readJournalRecord(id) else { throw RunJournalError.unavailable }
+    func requiredJournalRecord(_ id: RunID, from source: JournalRowSource = .live) throws -> RunJournalRecord {
+        guard let record = try readJournalRecord(id, from: source) else { throw RunJournalError.unavailable }
         return record
     }
 
-    private func readJournalRecord(_ id: RunID) throws -> RunJournalRecord? {
-        guard let row = try query(sql: "SELECT r.*,m.request_json,m.origin,m.revision,m.lease_generation,m.lease_owner_id,m.lease_token,m.lease_expires_at FROM work_runs r LEFT JOIN run_journal_metadata m ON m.run_id=r.id WHERE r.id=?;",
-                                   bindings: [.text(id.persistedValue)]).first else { return nil }
+    private func readJournalRecord(_ id: RunID, from source: JournalRowSource = .live) throws -> RunJournalRecord? {
+        guard let row = try journalRunRow(id, from: source) else { return nil }
         // Old raw work_runs carry no explicit origin; never silently adopt them as fixtures.
         guard let json = try row.optionalText("request_json") else { throw RunJournalError.unavailable }
         let request: WorkRequest = try decodeJournalJSON(json, maximum: 8 * 1_024 * 1_024)
@@ -397,20 +458,20 @@ extension SQLiteStore: RunJournalRepository {
                   state != .queued, !journalTerminal(state) else { throw RunJournalError.invalidRequest }
             lease = RunLease(ownerID: ownerID, token: tokenID, generation: generation, expiresAt: Date(timeIntervalSince1970: expiry))
         }
-        guard let initial = try query(sql: "SELECT * FROM run_input_receipts WHERE run_id=? AND sequence=1;", bindings: [.text(id.persistedValue)]).first else {
+        guard let initial = try journalInitialReceipt(id, from: source) else {
             throw RunJournalError.invalidRequest
         }
-        _ = try decodeJournalInput(initial, request: request)
-        guard let last = try query(sql: "SELECT * FROM run_journal_entries WHERE run_id=? ORDER BY sequence DESC LIMIT 1;", bindings: [.text(id.persistedValue)]).first else {
+        _ = try decodeJournalInput(initial, request: request, from: source)
+        guard let last = try journalLastEntry(id, from: source) else {
             throw RunJournalError.invalidRequest
         }
-        let entry = try decodeJournalEntry(last, request: request)
+        let entry = try decodeJournalEntry(last, request: request, from: source)
         guard entry.sequence == revision, entry.state == state, entry.recordedAt.timeIntervalSince1970 == updated else { throw RunJournalError.invalidRequest }
         return RunJournalRecord(request: request, origin: origin, state: state, revision: revision, lease: lease,
                                 updatedAt: Date(timeIntervalSince1970: updated))
     }
 
-    func decodeJournalInput(_ row: SQLiteRow, request: WorkRequest) throws -> RunInputReceipt {
+    func decodeJournalInput(_ row: SQLiteRow, request: WorkRequest, from source: JournalRowSource = .live) throws -> RunInputReceipt {
         let sequence = try row.integer("sequence")
         let messageID = try parseID(MessageID.self, row.text("message_id"))
         let text = try row.text("input_text")
@@ -426,12 +487,13 @@ extension SQLiteStore: RunJournalRepository {
             guard messageID == request.initiatingMessageID, text.utf8.elementsEqual(request.initialInput.text.utf8),
                   ids == request.initialInput.attachmentIDs, submitted == request.submittedAt.timeIntervalSince1970 else { throw RunJournalError.invalidRequest }
         }
-        try validateJournalInput(input, conversationID: request.conversationID, submittedAt: Date(timeIntervalSince1970: submitted))
+        try validateJournalInput(input, conversationID: request.conversationID, submittedAt: Date(timeIntervalSince1970: submitted),
+                                 expectedAuthor: try storedInputAuthor(request, sequence: sequence), from: source)
         return RunInputReceipt(runID: request.runID, messageID: messageID, sequence: sequence, state: state,
                                updatedAt: Date(timeIntervalSince1970: updated))
     }
 
-    private func decodeJournalEntry(_ row: SQLiteRow, request: WorkRequest) throws -> RunJournalEntry {
+    private func decodeJournalEntry(_ row: SQLiteRow, request: WorkRequest, from source: JournalRowSource = .live) throws -> RunJournalEntry {
         let sequence = try row.integer("sequence")
         let time = try row.real("recorded_at")
         guard try row.text("run_id") == request.runID.persistedValue, sequence > 0,
@@ -440,8 +502,7 @@ extension SQLiteStore: RunJournalRepository {
               let state = WorkRunState(rawValue: try row.text("state")) else { throw RunJournalError.invalidRequest }
         let message = try row.optionalText("input_message_id").map { try parseID(MessageID.self, $0) }
         if [.enqueued, .inputQueued, .inputSubmitted, .inputAcknowledged].contains(kind) {
-            guard let message, try !query(sql: "SELECT 1 AS found FROM run_input_receipts WHERE run_id=? AND message_id=?;",
-                                          bindings: [.text(request.runID.persistedValue), .text(message.persistedValue)]).isEmpty else { throw RunJournalError.invalidRequest }
+            guard let message, try journalReceiptExists(request.runID, messageID: message, from: source) else { throw RunJournalError.invalidRequest }
         } else if message != nil { throw RunJournalError.invalidRequest }
         if sequence == 1 {
             guard kind == .enqueued, state == .queued, message == request.initiatingMessageID else { throw RunJournalError.invalidRequest }

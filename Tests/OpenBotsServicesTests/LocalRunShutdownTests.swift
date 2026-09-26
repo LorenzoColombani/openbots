@@ -312,10 +312,14 @@ struct LocalRunShutdownTests {
         #expect(try await store.runs(conversationID: fixture.chats[1].conversation.id, limit: 10).isEmpty)
     }
 
+    /// Waits on the clock, not on a count of yields: the start writes to SQLite
+    /// before it reaches the gate, and on a busy machine 2,000 yields passed
+    /// before that write did (23 failures in 25 runs under load).
     private func waitForGate(_ gate: LocalRunShutdownGate) async throws {
-        for _ in 0..<2_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if await gate.isWaiting { return }
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(1))
         }
         throw LocalRunShutdownTestError.gateNotReached
     }

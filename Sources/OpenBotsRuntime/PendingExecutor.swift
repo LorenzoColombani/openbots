@@ -1,10 +1,10 @@
 import Foundation
 import OpenBotsDomain
 
-/// The production executor is intentionally unavailable until Lorenzo approves
-/// a trust architecture with evidence from the bounded physical-Mac probe.
-/// Keeping this behind `TeammateExecutor` lets the rest of the app ship in
-/// milestones without representing chat-only behavior as the finished product.
+/// The production executor is intentionally unavailable: no trust
+/// architecture for it exists yet. Keeping this behind `TeammateExecutor` lets
+/// the rest of the app work without representing chat-only behavior as the
+/// finished product.
 public actor PendingArchitectureExecutor: TeammateExecutor {
     public init() {}
 

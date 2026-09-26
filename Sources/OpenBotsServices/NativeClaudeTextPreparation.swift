@@ -114,7 +114,7 @@ private enum ClaudeTextModelTierPolicy {
         guard ClaudeContextWindowPolicy.supportedValues(for: selection.model).contains(selection.contextWindow) else {
             return .contextWindowUnavailable
         }
-        // Official model-config (2026-08-31): Sonnet 4.6 [1m] requires credits
+        // Official model-config: Sonnet 4.6 [1m] requires credits
         // on every plan. Fable can silently bill credits in -p after its included
         // allowance. No allowance-only route is proven here, so refuse it without
         // reading or changing billing settings. Saved preferences stay untouched.

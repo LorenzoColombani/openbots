@@ -202,6 +202,43 @@ final class SQLiteHiringRepositoryTests: XCTestCase {
         XCTAssertEqual(teammatesAfterSecondConfirmation.count, existing.count + 1)
     }
 
+    /// Confirming a hiring draft creates a bot, so it keeps the one name rule
+    /// like every other creation path, inside its own transaction.
+    func testConfirmRefusesANameAnActiveBotCarriesAndKeepsTheDraft() async throws {
+        let fixture = try HiringStoreFixture(receipt: receipt)
+        defer { fixture.remove() }
+        let store = try fixture.open()
+        let existing = try makeTeammate(value: 1, name: "MIKA", role: "Research")
+        try await store.provisionDirectChat(
+            teammate: existing, conversation: makeConversation(value: 1, teammateID: existing.id),
+            fixtureGreeting: nil, selectConversation: false
+        )
+        let collecting = try initialSnapshot(value: 4)
+        _ = try await store.createHiringDraft(collecting)
+        let readyDraft = try collecting.draft.revised(
+            phase: .readyForReview, displayName: "Mika", role: "Evidence lead", responsibilities: "Trace claims.",
+            workingStyle: "Calm and direct.", skills: "Research; synthesis",
+            permissionIntent: "Read-only until explicitly granted more.", projectPlacement: "Research",
+            teamPlacement: "Studio", updatedAt: instant.addingTimeInterval(20)
+        )
+        _ = try await store.reviseHiringDraft(readyDraft, expectedRevision: 1, appending: [])
+        let teammate = try makeTeammate(value: 4, name: "Mika", role: "Evidence lead")
+        do {
+            try await store.confirmHiringDraft(
+                id: readyDraft.id, expectedRevision: 2, teammate: teammate,
+                conversation: makeConversation(value: 4, teammateID: teammate.id),
+                fixtureGreeting: nil, selectConversation: true
+            )
+            XCTFail("A name an active bot carries must not be confirmed.")
+        } catch let error as TeammateNameTakenError {
+            XCTAssertEqual(error, TeammateNameTakenError(existingName: "MIKA"))
+        }
+        let draftAfterRefusal = try await store.latestHiringDraft()
+        XCTAssertNotNil(draftAfterRefusal, "the draft stays for another name")
+        let refusedTeammate = try await store.teammate(id: teammate.id)
+        XCTAssertNil(refusedTeammate)
+    }
+
     func testNotReadyAndMalformedConfirmationRollBackWithoutConsumingDraft() async throws {
         let fixture = try HiringStoreFixture(receipt: receipt)
         defer { fixture.remove() }

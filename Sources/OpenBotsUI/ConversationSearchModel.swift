@@ -12,7 +12,7 @@ public enum ConversationSearchState: Equatable, Sendable {
 @MainActor
 public final class ConversationSearchModel: ObservableObject {
     public static let scopeDisclosure =
-        "Searches active teammates and saved messages in their direct chats. Unsent drafts and secret-card input are not searched."
+        "Searches active bots and saved messages in their direct chats. Unsent drafts and secret-card input are not searched."
 
     @Published public private(set) var query = ""
     @Published public private(set) var state = ConversationSearchState.idle

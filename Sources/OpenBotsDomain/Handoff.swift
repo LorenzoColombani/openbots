@@ -205,7 +205,7 @@ public enum HandoffEvent: Equatable, Sendable {
     }
 }
 
-/// One directed, process-independent handoff state machine. The Sprint 3A
+/// One directed, process-independent handoff state machine. The handoff
 /// service uses it only to build a deterministic local review fixture; no
 /// persistence or runtime delivery is implied by constructing this value.
 public struct Handoff: Equatable, Sendable {
@@ -219,6 +219,9 @@ public struct Handoff: Equatable, Sendable {
     private var fanInReceipt: HandoffFanInReceipt?
 
     public var resultForOrigin: HandoffFanInReceipt? { fanInReceipt }
+    public var resultSummary: String? { completedResult?.summary }
+    public var completedAt: Date? { completedResult?.completedAt }
+    public var returnedAt: Date? { fanInReceipt?.returnedAt }
 
     public init(provenance: HandoffProvenance, brief: HandoffBrief) {
         self.provenance = provenance
@@ -228,6 +231,45 @@ public struct Handoff: Equatable, Sendable {
         lastTransitionAt = provenance.createdAt
         completedResult = nil
         fanInReceipt = nil
+    }
+
+    /// Rebuilds a persisted handoff without replaying events. A succeeded or
+    /// returned state needs its result; a returned state needs its return time.
+    public init(rehydrating provenance: HandoffProvenance, brief: HandoffBrief, state: HandoffState,
+                recovery: HandoffRecovery?, lastTransitionAt: Date, resultSummary: String?,
+                completedAt: Date?, returnedAt: Date?) throws {
+        self.provenance = provenance
+        self.brief = brief
+        self.state = state
+        self.recovery = recovery
+        self.lastTransitionAt = lastTransitionAt
+        switch state {
+        case .succeeded, .returnedToOrigin:
+            guard let resultSummary, let completedAt else {
+                throw DomainValidationError.invalid(field: "handoff result", reason: "a completed handoff needs a result")
+            }
+            let result = HandoffResultReference(provenance: provenance,
+                summary: try DomainText.required(resultSummary, field: "handoff result summary", maximum: 2_000),
+                completedAt: completedAt)
+            completedResult = result
+            if state == .returnedToOrigin {
+                guard let returnedAt else {
+                    throw DomainValidationError.invalid(field: "handoff fan-in", reason: "a returned handoff needs its return time")
+                }
+                fanInReceipt = HandoffFanInReceipt(provenance: provenance, result: result, returnedAt: returnedAt)
+            } else {
+                fanInReceipt = nil
+            }
+        case .needsRecovery:
+            guard recovery != nil else {
+                throw DomainValidationError.invalid(field: "handoff recovery", reason: "a handoff needing recovery carries its recovery")
+            }
+            completedResult = nil
+            fanInReceipt = nil
+        case .staged, .accepted, .working:
+            completedResult = nil
+            fanInReceipt = nil
+        }
     }
 
     public mutating func apply(_ event: HandoffEvent) throws {
@@ -273,9 +315,13 @@ public struct Handoff: Equatable, Sendable {
             )
             state = .returnedToOrigin
 
+        // A succeeded handoff is one whose result has not yet been returned;
+        // a return that fails (the lead's report turn) leaves it needing
+        // attention like any other broken step, never `succeeded` for ever.
         case let (.staged, .requireRecovery(recovery)),
              let (.accepted, .requireRecovery(recovery)),
-             let (.working, .requireRecovery(recovery)):
+             let (.working, .requireRecovery(recovery)),
+             let (.succeeded, .requireRecovery(recovery)):
             self.recovery = recovery
             completedResult = nil
             fanInReceipt = nil

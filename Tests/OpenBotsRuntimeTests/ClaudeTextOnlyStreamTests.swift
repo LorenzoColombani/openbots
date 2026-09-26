@@ -111,13 +111,21 @@ func claudeTextStreamPreservesPrefixOnProtocolLimits() throws {
 @Test("Error result carrying text never becomes a successful reply")
 func claudeTextStreamRejectsProviderError() throws {
     let request = try textOnlyTestRequest()
-    let overrides: [[String: Any]] = [["is_error": true], ["is_error": 0], ["subtype": "error_max_turns"],
+    let overrides: [[String: Any]] = [["is_error": true], ["is_error": 0], ["subtype": "error_during_execution"],
                                      ["result": " "], ["permission_denials": [["tool_name": "Read"]]]]
     for override in overrides {
         var stream = ClaudeTextOnlyStream(request: request)
         _ = try stream.consume(textOnlyTestInit(request))
         #expect(throws: ClaudeTextOnlyFailure.providerFailed) { try stream.consume(textOnlyTestResult(request, override: override)) }
     }
+    // The turn cap is an error result too, and never a reply; it is reported
+    // as the cap it is rather than as a provider fault.
+    var capped = ClaudeTextOnlyStream(request: request)
+    _ = try capped.consume(textOnlyTestInit(request))
+    #expect(throws: ClaudeTextOnlyFailure.turnLimitReached) {
+        try capped.consume(textOnlyTestResult(request, override: ["subtype": "error_max_turns", "is_error": true]))
+    }
+    #expect(capped.finish(exitCode: 0) == .failed(.invalidStream))
 }
 
 @Test("Hook, control, tool and descendant events cannot enter the text stream")
@@ -168,6 +176,50 @@ func claudeTextStreamIgnoresReviewedInformationalFrames() throws {
     #expect(stream.ignoredInformationalEventCount == 4)
     #expect(stream.finish(exitCode: 0) == .success(.init(sessionID: request.sessionID,
         actualModel: "claude-sonnet-5", text: "Hello back", confirmedActualModel: "claude-sonnet-5")))
+}
+
+/// CLI 2.1.261+ streams a live thinking-token estimate during headless turns. The
+/// job path accepted it; the text path once rejected it as an unexpected
+/// system event and every text reply failed with the current CLI (2.1.263).
+@Test("The CLI's thinking-token progress frames are bounded metadata inside a text turn and grant nothing")
+func claudeTextStreamIgnoresThinkingTokenFrames() throws {
+    let request = try textOnlyTestRequest()
+    var stream = ClaudeTextOnlyStream(request: request)
+    let thinking: [String: Any] = [
+        "type": "system", "subtype": "thinking_tokens", "session_id": request.sessionID.uuidString,
+        "uuid": UUID().uuidString, "estimated_tokens": 42, "estimated_tokens_delta": 42
+    ]
+    let frames = try textOnlyTestInit(request) + textOnlyTestLine(thinking) + textOnlyTestReplay(request)
+        + textOnlyTestLine(thinking) + textOnlyTestDelta(request, text: "Hello") + textOnlyTestLine(thinking)
+        + textOnlyTestResult(request)
+    #expect(try stream.consume(frames) == [
+        .initialized(sessionID: request.sessionID, actualModel: "claude-sonnet-5"),
+        .inputAcknowledged(messageID: request.messageID), .textSnapshot("Hello"), .textSnapshot("Hello back")
+    ])
+    #expect(stream.ignoredInformationalEventCount == 0)
+    #expect(stream.thinkingTokenFrameCount == 3)
+    #expect(stream.finish(exitCode: 0) == .success(.init(sessionID: request.sessionID,
+        actualModel: "claude-sonnet-5", text: "Hello back", confirmedActualModel: "claude-sonnet-5")))
+
+    let session = request.sessionID.uuidString
+    let prohibited: [[String: Any]] = [
+        ["type": "system", "subtype": "thinking_tokens", "session_id": UUID().uuidString, "estimated_tokens": 1],
+        ["type": "system", "subtype": "thinking_tokens", "estimated_tokens": 1],
+        ["type": "system", "subtype": "thinking_tokens", "session_id": session, "estimated_tokens": ["nested": 1]],
+        ["type": "system", "subtype": "thinking_tokens", "session_id": session, "text": "free text"],
+        ["type": "system", "subtype": "thinking_tokens", "session_id": session, "tool_use_id": "tool-1"],
+        ["type": "system", "subtype": "thinking_tokens", "session_id": session, "Estimated": 1],
+        ["type": "system", "subtype": "thinking_tokens", "session_id": session, "parent_tool_use_id": "tool-1"]
+    ]
+    for value in prohibited {
+        var rejecting = ClaudeTextOnlyStream(request: request)
+        #expect(throws: (any Error).self) {
+            try rejecting.consume(textOnlyTestInit(request) + textOnlyTestLine(value)) { _ in }
+        }
+    }
+    // Before initialization the frame proves nothing and is refused.
+    var early = ClaudeTextOnlyStream(request: request)
+    #expect(throws: (any Error).self) { try early.consume(textOnlyTestLine(thinking)) { _ in } }
 }
 
 @Test("Unknown informational labels still reject uncorrelated, nested, sensitive and reserved shapes")
@@ -469,9 +521,18 @@ func claudeTextStreamStaticInitializationDiagnostics() throws {
         (["tools": ["Read"]], .initializationToolsInvalid),
         (["mcp_servers": [["name": "synthetic"]]], .initializationMCPInvalid),
         (["plugins": [["name": "synthetic"]]], .initializationPluginsInvalid),
-        (["permissionMode": "default"], .initializationPermissionMismatch),
+        (["permissionMode": "acceptEdits"], .initializationPermissionMismatch),
+        (["permissionMode": "bypassPermissions"], .initializationPermissionMismatch),
+        (["permissionMode": "plan"], .initializationPermissionMismatch),
         (["apiKeySource": "synthetic-secret-never-returned"], .initializationKeySourceInvalid),
-        (["model": "unrecognized-model-never-returned"], .initializationModelInvalid)
+        (["model": "unrecognized-model-never-returned"], .initializationModelInvalid),
+        // Loaded from a folder, which the command forbids: a skill, a slash
+        // command, an agent this turn never defined, an output style.
+        (["skills": ["planted-skill"]], .initializationExtensionsInvalid),
+        (["slash_commands": ["planted-command"]], .initializationExtensionsInvalid),
+        (["agents": [ClaudeTextHelperPolicy.agentType]], .initializationExtensionsInvalid),
+        (["output_style": "planted-style"], .initializationExtensionsInvalid),
+        (["skills": NSNull()], .initializationExtensionsInvalid)
     ]
     for (override, code) in overrides {
         var stream = ClaudeTextOnlyStream(request: request)
@@ -496,10 +557,10 @@ func claudeTextStreamRawTransportMetadata() throws {
     let request = try textOnlyTestRequest()
     var stream = ClaudeTextOnlyStream(request: request)
     let heartbeat = try textOnlyTestLine(["type": "keep_alive"])
-    let frames = try textOnlyTestCommandLifecycle(request, state: "queued") + heartbeat
-        + textOnlyTestInit(request) + textOnlyTestCommandLifecycle(request, state: "started")
-        + textOnlyTestReplay(request) + textOnlyTestDelta(request, text: "Hello ")
-        + textOnlyTestResult(request) + textOnlyTestCommandLifecycle(request, state: "completed") + heartbeat
+    var frames = try textOnlyTestCommandLifecycle(request, state: "queued") + heartbeat
+    frames += try textOnlyTestInit(request) + textOnlyTestCommandLifecycle(request, state: "started")
+    frames += try textOnlyTestReplay(request) + textOnlyTestDelta(request, text: "Hello ")
+    frames += try textOnlyTestResult(request) + textOnlyTestCommandLifecycle(request, state: "completed") + heartbeat
     #expect(try stream.consume(frames) == [
         .initialized(sessionID: request.sessionID, actualModel: "claude-sonnet-5"),
         .inputAcknowledged(messageID: request.messageID), .textSnapshot("Hello "), .textSnapshot("Hello back")
@@ -584,6 +645,51 @@ func claudeTextStreamRejectsOtherEventsAfterResult() throws {
     }
 }
 
+@Test("The CLI's retry notice lets it retry: the turn does not fail on it, and the budget is finite")
+func claudeTextStreamLetsTheCLIRetry() throws {
+    let request = try textOnlyTestRequest()
+    // The frame as the 2.1.263 binary writes it: retry counters, the failed
+    // request's status, its error snapshot and, sometimes, a no-response detail.
+    func retry(_ extra: [String: Any] = [:]) throws -> Data {
+        var value: [String: Any] = ["type": "system", "subtype": "api_retry", "session_id": request.sessionID.uuidString,
+            "uuid": UUID().uuidString, "attempt": 1, "max_retries": 10, "retry_delay_ms": 2_000, "error_status": 529,
+            "error": ["name": "APIError", "message": "overloaded", "status": 529],
+            "no_response": ["waited_ms": 60_000, "retry_wait_ms": 1_000]]
+        value.merge(extra) { _, new in new }
+        return try textOnlyTestLine(value)
+    }
+    var stream = ClaudeTextOnlyStream(request: request)
+    var frames = try textOnlyTestInit(request)
+    frames += try retry()
+    frames += try textOnlyTestReplay(request)
+    frames += try retry(["error_status": NSNull()])
+    frames += try textOnlyTestDelta(request, text: "Hello ")
+    frames += try textOnlyTestResult(request)
+    #expect(try stream.consume(frames) == [
+        .initialized(sessionID: request.sessionID, actualModel: "claude-sonnet-5"),
+        .inputAcknowledged(messageID: request.messageID), .textSnapshot("Hello "), .textSnapshot("Hello back")
+    ])
+    #expect(stream.apiRetryFrameCount == 2)
+    #expect(stream.finish(exitCode: 0) == .success(.init(sessionID: request.sessionID,
+        actualModel: "claude-sonnet-5", text: "Hello back", confirmedActualModel: "claude-sonnet-5")))
+    // Before initialization it is still a provider failure, and so is a frame
+    // for another session, one with a key that was never reviewed, or one
+    // whose counters are not numbers.
+    var early = ClaudeTextOnlyStream(request: request)
+    #expect(throws: ClaudeTextOnlyFailure.providerFailed) { try early.consume(retry()) }
+    let refused: [[String: Any]] = [["session_id": UUID().uuidString], ["message": "retrying"],
+                                    ["attempt": "one"], ["retry_delay_ms": NSNull()]]
+    for extra in refused {
+        var rejecting = ClaudeTextOnlyStream(request: request)
+        _ = try rejecting.consume(textOnlyTestInit(request))
+        #expect(throws: ClaudeTextOnlyFailure.providerFailed) { try rejecting.consume(retry(extra)) }
+    }
+    var flooded = ClaudeTextOnlyStream(request: request)
+    _ = try flooded.consume(textOnlyTestInit(request))
+    for _ in 0..<ClaudeTextOnlyStream.maximumAPIRetryFrames { _ = try flooded.consume(retry()) }
+    #expect(throws: ClaudeTextOnlyFailure.providerFailed) { try flooded.consume(retry()) }
+}
+
 // Convenience for the original all-success or immediate-failure unit cases.
 // Production exposes only callback delivery so a throwing batch cannot discard
 // its validated prefix. Prefix/error regressions above exercise that API directly.
@@ -593,5 +699,259 @@ private extension ClaudeTextOnlyStream {
         do { try consume(data) { events.append($0) } }
         catch let rejection as ClaudeTextOnlyRejection { throw rejection.failure }
         return events
+    }
+}
+
+@Test("A refused control request's shape names the nested subtype, tool and agent presence, never a value")
+func refusedControlRequestShapeNamesTheQuestion() throws {
+    let request = try textOnlyTestRequest()
+    let root: [String: Any] = [
+        "type": "control_request", "request_id": "6f0d",
+        "request": ["subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "toolu_1",
+                    "agent_id": "agent-1", "input": ["command": "curl https://example.com"]],
+    ]
+    let stream = ClaudeTextOnlyStream(request: request)
+    let shape = stream.refusalShape(root)
+    #expect(shape.hasPrefix("type=control_request subtype=- keys=[request:object request_id:string(4) type:string(15)]"))
+    #expect(shape.contains("request=[subtype:can_use_tool tool_name:Bash agent_id:set keys:agent_id,input,subtype,tool_name,tool_use_id]"))
+    #expect(shape.contains("questions=0 duplicate=false initialized=false completed=false"))
+    #expect(!shape.contains("curl"))
+    var odd = root
+    odd["request"] = ["subtype": "can_use_tool", "tool_name": "We ird\u{0}", "agent_id": NSNull()]
+    #expect(stream.refusalShape(odd).contains("request=[subtype:can_use_tool tool_name:? agent_id:none keys:agent_id,subtype,tool_name]"))
+    let plain: [String: Any] = ["type": "result", "subtype": "success"]
+    #expect(stream.refusalShape(plain) == "type=result subtype=success keys=[subtype:string(7) type:string(6)]")
+}
+
+@Test("A refused stream event's shape names the event, block, delta, stop reason and model, never text")
+func refusedStreamEventShapeNamesTheEvent() throws {
+    let request = try textOnlyTestRequest()
+    let stream = ClaudeTextOnlyStream(request: request)
+    let delta: [String: Any] = [
+        "type": "stream_event", "session_id": request.sessionID.uuidString, "uuid": "u", "parent_tool_use_id": NSNull(),
+        "event": ["type": "content_block_delta", "index": 0, "delta": ["type": "citations_delta", "citation": ["cited_text": "secret"]]],
+    ]
+    #expect(stream.refusalShape(delta).contains("event=[type:content_block_delta block:- delta:citations_delta stop_reason:- model:-]"))
+    #expect(!stream.refusalShape(delta).contains("secret"))
+    let stop: [String: Any] = ["type": "stream_event", "event": ["type": "message_delta", "delta": ["stop_reason": "refusal", "stop_sequence": NSNull()]]]
+    #expect(stream.refusalShape(stop).contains("event=[type:message_delta block:- delta:- stop_reason:refusal model:-]"))
+    let start: [String: Any] = ["type": "stream_event", "event": ["type": "message_start", "message": ["model": "claude-sonnet-5", "role": "assistant", "content": []]]]
+    #expect(stream.refusalShape(start).contains("event=[type:message_start block:- delta:- stop_reason:- model:claude-sonnet-5]"))
+    let block: [String: Any] = ["type": "stream_event", "event": ["type": "content_block_start", "content_block": ["type": "server_tool_use", "name": "web search"]]]
+    #expect(stream.refusalShape(block).contains("event=[type:content_block_start block:server_tool_use delta:- stop_reason:- model:-]"))
+}
+
+/// A model that declines is the bot deciding, not a broken stream. A `refusal`
+/// stop reason once threw `responseMismatch`, so the person read "Claude's response could not be verified" about a turn in which
+/// nothing had gone wrong.
+@Test("A refusal stop reason ends the turn as declined, keeping the text already delivered")
+func refusalStopReasonEndsTheTurnWithoutRejecting() throws {
+    let request = try textOnlyTestRequest()
+    let refusal = try textOnlyTestLine(["type": "stream_event", "session_id": request.sessionID.uuidString,
+        "event": ["type": "message_delta", "delta": ["stop_reason": "refusal", "stop_sequence": NSNull()]]])
+    var stream = ClaudeTextOnlyStream(request: request)
+    var events: [ClaudeTextOnlyEvent] = []
+    try stream.consume(textOnlyTestInit(request) + textOnlyTestReplay(request)
+        + textOnlyTestDelta(request, text: "Here is what I had started") + refusal) { events.append($0) }
+    #expect(events.contains(.textSnapshot("Here is what I had started")))
+    #expect(stream.textSoFar == "Here is what I had started")
+    #expect(stream.finish(exitCode: 0) == .failed(.declined))
+
+    // The run that follows a refusal ends with no answer to carry. An empty
+    // or failed result is a provider failure everywhere else; after a refusal
+    // it is the decline, and it closes the turn so the transport stops waiting.
+    for terminal in [["result": "", "is_error": true, "subtype": "error_during_execution"],
+                     ["result": "", "is_error": false]] {
+        var withResult = ClaudeTextOnlyStream(request: request)
+        try withResult.consume(textOnlyTestInit(request) + textOnlyTestReplay(request) + refusal) { _ in }
+        try withResult.consume(textOnlyTestResult(request, override: terminal)) { _ in }
+        #expect(withResult.hasCompleted)
+        #expect(withResult.finish(exitCode: 0) == .failed(.declined))
+    }
+
+    // A refusal underneath a granted call is that call's own business. The
+    // parent turn is still free to answer, and its answer stands.
+    let granted = try textOnlyTestRequest(allowedTools: [.webSearch])
+    var nested = ClaudeTextOnlyStream(request: granted)
+    try nested.consume(textOnlyTestInit(granted, override: ["tools": ["WebSearch"]])) { _ in }
+    try nested.consume(textOnlyTestReplay(granted)) { _ in }
+    try nested.consume(textOnlyTestLine(["type": "assistant", "session_id": granted.sessionID.uuidString,
+        "message": ["role": "assistant", "model": granted.expectedResolvedModel,
+                    "content": [["type": "tool_use", "id": "search-1", "name": "WebSearch",
+                                 "input": ["query": "test"]]]]])) { _ in }
+    try nested.consume(textOnlyTestLine(["type": "stream_event", "session_id": granted.sessionID.uuidString,
+        "parent_tool_use_id": "search-1",
+        "event": ["type": "message_delta", "delta": ["stop_reason": "refusal", "stop_sequence": NSNull()]]])) { _ in }
+    try nested.consume(textOnlyTestResult(granted, override: ["result": "Parent answer"])) { _ in }
+    #expect(nested.finish(exitCode: 0) == .success(.init(sessionID: granted.sessionID,
+        actualModel: granted.expectedResolvedModel, text: "Parent answer",
+        confirmedActualModel: granted.expectedResolvedModel)))
+}
+
+/// Claude Code 2.1.280 to
+/// 2.1.282 write a `system` frame when the model refuses and no other model
+/// takes over, and another when one does. Both were refused as
+/// `unexpectedSystemEvent`, so a decline read as "sent something OpenBots does
+/// not understand". The frames are built from the 2.1.282 bundle's own
+/// stream-json serializer (the `Fe({type:"system",subtype:"model_refusal_…"})`
+/// branches), not captured: a provider refusal is not something to provoke.
+func refusalNoFallbackFrame(_ request: ClaudeTextOnlyRequest, override: [String: Any] = [:]) throws -> Data {
+    var frame: [String: Any] = ["type": "system", "subtype": "model_refusal_no_fallback",
+        "uuid": "2f0c3b64-7a51-4d7e-9a53-0d6b1a7c9e11", "session_id": request.sessionID.uuidString.lowercased(),
+        "original_model": request.expectedResolvedModel, "request_id": "req_011CfPtvso4KShikxL4bzAwN",
+        "api_refusal_category": NSNull(), "api_refusal_explanation": NSNull(), "refused_user_message_uuid": NSNull(),
+        "content": ""]
+    for (key, value) in override { frame[key] = value }
+    return try textOnlyTestLine(frame)
+}
+
+@Test("The CLI's refusal frame with no fallback ends the turn as declined, with or without a refusal stop reason before it")
+func refusalNoFallbackFrameDeclines() throws {
+    let request = try textOnlyTestRequest()
+    let stopReason = try textOnlyTestLine(["type": "stream_event", "session_id": request.sessionID.uuidString,
+        "event": ["type": "message_delta", "delta": ["stop_reason": "refusal", "stop_sequence": NSNull()]]])
+    for (leadIn, terminal) in [(stopReason, ["result": "", "is_error": true, "subtype": "error_during_execution"] as [String: Any]),
+                               (stopReason, ["result": "", "is_error": false] as [String: Any]),
+                               (Data(), ["result": "", "is_error": false] as [String: Any])] {
+        var stream = ClaudeTextOnlyStream(request: request)
+        try stream.consume(textOnlyTestInit(request) + textOnlyTestReplay(request)
+            + textOnlyTestDelta(request, text: "I started") + leadIn + refusalNoFallbackFrame(request,
+                override: ["api_refusal_category": "cyber", "api_refusal_explanation": "Declined by policy.",
+                           "refused_user_message_uuid": request.messageID.uuidString.lowercased()])) { _ in }
+        try stream.consume(textOnlyTestResult(request, override: terminal)) { _ in }
+        #expect(stream.hasCompleted)
+        var diagnostics: [ClaudeTextOnlyDiagnosticCode] = []
+        #expect(stream.finish(exitCode: 0) { diagnostics.append($0) } == .failed(.declined))
+        #expect(diagnostics.isEmpty)
+    }
+}
+
+@Test("A refusal frame for another session, under a tool call, with a key the CLI never writes or a value too long is refused")
+func refusalNoFallbackFrameIsChecked() throws {
+    let request = try textOnlyTestRequest()
+    for override: [String: Any] in [["session_id": UUID().uuidString.lowercased()],
+                                    ["parent_tool_use_id": "toolu_1"],
+                                    ["model": "claude-opus-5"],
+                                    ["content": String(repeating: "x", count: 5_000)],
+                                    ["original_model": 7]] {
+        var stream = ClaudeTextOnlyStream(request: request)
+        try stream.consume(textOnlyTestInit(request) + textOnlyTestReplay(request)) { _ in }
+        #expect(throws: ClaudeTextOnlyRejection.self, "\(override.keys)") {
+            try stream.consume(refusalNoFallbackFrame(request, override: override)) { _ in }
+        }
+    }
+}
+
+@Test("A refusal frame that hands the reply to another model ends the turn as declined at that frame")
+func refusalFallbackFrameEndsTheTurnAsDeclined() throws {
+    let request = try textOnlyTestRequest()
+    var stream = ClaudeTextOnlyStream(request: request)
+    try stream.consume(textOnlyTestInit(request) + textOnlyTestReplay(request) + textOnlyTestDelta(request, text: "I started")) { _ in }
+    let fallback = try textOnlyTestLine(["type": "system", "subtype": "model_refusal_fallback",
+        "uuid": "6b1f2e0a-3c4d-4e5f-8a9b-0c1d2e3f4a5b", "session_id": request.sessionID.uuidString.lowercased(),
+        "trigger": "refusal", "direction": "retry", "scope": "local", "original_model": request.expectedResolvedModel,
+        "fallback_model": "claude-opus-5", "request_id": "req_1", "api_refusal_category": NSNull(),
+        "api_refusal_explanation": NSNull(), "refused_user_message_uuid": NSNull(), "content": "Switched model."])
+    #expect(throws: ClaudeTextOnlyRejection(failure: .declined, code: .unexpectedSystemEvent)) {
+        try stream.consume(fallback) { _ in }
+    }
+    #expect(stream.textSoFar == "I started")
+}
+
+@Test("Claude Code 2.1.272 forces the default permission mode under the app's environment scrub; a turn with no control channel accepts it, because its fences are the empty tool set and the deny list, not the mode")
+func forcedDefaultModeIsAcceptedWithoutAControlChannel() throws {
+    // The init frame exactly as the installed CLI (2.1.272)
+    // announced it for the shipped tool-free command, session id substituted.
+    // Its stderr said: "Permission mode forced to default —
+    // CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set (allowed_non_write_users hardening)".
+    func realInit(_ request: ClaudeTextOnlyRequest, tools: [String]) -> [String: Any] {
+        ["agents": [], "analytics_disabled": true, "apiKeySource": "none",
+         "capabilities": ["interrupt_receipt_v1", "interrupt_cancel_queued_v1", "msg_lifecycle_v1"],
+         "claude_code_version": "2.1.272", "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+         "fast_mode_disabled_reason": "sdk_opt_in_required", "fast_mode_state": "off", "mcp_servers": [],
+         "messaging_socket_path": "/tmp/cc-socks-501/78135.sock", "model": request.expectedResolvedModel,
+         "output_style": "default", "permissionMode": "default", "plugins": [], "product_feedback_disabled": true,
+         "session_id": request.sessionID.uuidString.lowercased(), "skills": [], "slash_commands": [],
+         "subtype": "init", "tools": tools, "type": "system", "uuid": UUID().uuidString.lowercased()]
+    }
+    let text = try textOnlyTestRequest(model: "claude-haiku-4-5-20251001")
+    var stream = ClaudeTextOnlyStream(request: text)
+    #expect(try stream.consume(textOnlyTestLine(realInit(text, tools: []))) == [.initialized(sessionID: text.sessionID, actualModel: "claude-haiku-4-5-20251001"), .runtimeVersion("2.1.272")])
+    // The status frames of the same CLI carry the same forced mode.
+    #expect(try stream.consume(textOnlyTestLine(["type": "system", "subtype": "status", "status": "requesting",
+        "uuid": UUID().uuidString, "session_id": text.sessionID.uuidString, "permissionMode": "default"])).isEmpty)
+    let web = try textOnlyTestRequest(allowedTools: [.webSearch, .webFetch])
+    var webStream = ClaudeTextOnlyStream(request: web)
+    #expect(try webStream.consume(textOnlyTestLine(realInit(web, tools: ["WebFetch", "WebSearch"]))) == [.initialized(sessionID: web.sessionID, actualModel: web.expectedResolvedModel), .runtimeVersion("2.1.272")])
+    // The command line still asks for dontAsk, byte for byte as reviewed.
+    #expect(ClaudeTextOnlyCommandBuilder.arguments(for: text).contains("dontAsk"))
+    // A mode that would let the CLI act without asking, or that plans instead of answering, still closes the turn.
+    for mode in ["acceptEdits", "bypassPermissions", "plan", "dontask", ""] {
+        var wrong = ClaudeTextOnlyStream(request: text)
+        #expect(throws: ClaudeTextOnlyRejection(failure: .unsafeInitialization, code: .initializationPermissionMismatch)) {
+            try wrong.consume(textOnlyTestInit(text, override: ["permissionMode": mode])) { _ in Issue.record("\(mode) escaped") }
+        }
+        var status = ClaudeTextOnlyStream(request: text)
+        #expect(throws: ClaudeTextOnlyRejection(failure: .unsafeInitialization, code: .statusPermissionMismatch)) {
+            try status.consume(textOnlyTestLine(["type": "system", "subtype": "status", "status": "requesting",
+                "uuid": UUID().uuidString, "session_id": text.sessionID.uuidString, "permissionMode": mode])) { _ in }
+        }
+    }
+}
+
+@Test("The init frame names the Claude Code version, and the parser passes it on when it is a plain version")
+func initFrameNamesTheClaudeCodeVersion() throws {
+    let request = try textOnlyTestRequest()
+    var stream = ClaudeTextOnlyStream(request: request)
+    #expect(try stream.consume(textOnlyTestInit(request, override: ["claude_code_version": "2.1.272", "permissionMode": "default"]))
+        == [.initialized(sessionID: request.sessionID, actualModel: request.expectedResolvedModel), .runtimeVersion("2.1.272")])
+    // A CLI that says nothing about its version, or says something that is not a version, adds nothing and breaks nothing.
+    var silent = ClaudeTextOnlyStream(request: request)
+    #expect(try silent.consume(textOnlyTestInit(request)) == [.initialized(sessionID: request.sessionID, actualModel: request.expectedResolvedModel)])
+    for odd in ["2.1.272 <script>", "", String(repeating: "9", count: 40), "v2"] {
+        var stream = ClaudeTextOnlyStream(request: request)
+        #expect(try stream.consume(textOnlyTestInit(request, override: ["claude_code_version": odd]))
+            == [.initialized(sessionID: request.sessionID, actualModel: request.expectedResolvedModel)], Comment(rawValue: odd))
+    }
+}
+
+@Test("A resumed turn whose session the CLI no longer holds is named as a lost session, not an unverifiable reply")
+func lostSessionIsNamed() throws {
+    // The frame exactly as 2.1.272 sent it for `--resume 00000000-dead-beef-…`:
+    // no init, one error result, nothing else.
+    let request = try textOnlyTestRequest(resumesSession: true)
+    let frame: [String: Any] = [
+        "type": "result", "subtype": "error_during_execution", "duration_ms": 0, "duration_api_ms": 0,
+        "is_error": true, "num_turns": 0, "stop_reason": NSNull(), "session_id": request.sessionID.uuidString.lowercased(),
+        "total_cost_usd": 0, "usage": ["input_tokens": 0, "output_tokens": 0], "modelUsage": [String: Any](),
+        "permission_denials": [], "result_index": 0, "uuid": UUID().uuidString.lowercased(),
+        "errors": ["No conversation found with session ID: \(request.sessionID.uuidString.lowercased())"],
+    ]
+    var stream = ClaudeTextOnlyStream(request: request)
+    var codes: [ClaudeTextOnlyDiagnosticCode] = []
+    #expect(throws: ClaudeTextOnlyRejection(failure: .sessionNotFound, code: .sessionNotFound)) {
+        try stream.consume(textOnlyTestLine(frame)) { if case .diagnostic(let code) = $0 { codes.append(code) } }
+    }
+    // The same frame on a turn that never asked to resume is still a broken stream.
+    let freshRequest = try textOnlyTestRequest()
+    var fresh = ClaudeTextOnlyStream(request: freshRequest)
+    let freshFrame = frame.merging(["session_id": freshRequest.sessionID.uuidString.lowercased()]) { _, new in new }
+    #expect(throws: ClaudeTextOnlyRejection(failure: .invalidStream, code: .responseMismatch)) {
+        try fresh.consume(textOnlyTestLine(freshFrame)) { _ in }
+    }
+    // An error result naming anything else is not a lost session.
+    var other = ClaudeTextOnlyStream(request: request)
+    let otherFrame = frame.merging(["errors": ["Something else went wrong"]]) { _, new in new }
+    #expect(throws: ClaudeTextOnlyRejection(failure: .invalidStream, code: .responseMismatch)) {
+        try other.consume(textOnlyTestLine(otherFrame)) { _ in }
+    }
+    // Nor is one with no session id, or with another session's.
+    for session in [nil, UUID().uuidString.lowercased()] as [String?] {
+        var unnamed = ClaudeTextOnlyStream(request: request)
+        var unnamedFrame = frame
+        unnamedFrame["session_id"] = session
+        #expect(throws: ClaudeTextOnlyRejection(failure: .invalidStream, code: .responseMismatch)) {
+            try unnamed.consume(textOnlyTestLine(unnamedFrame)) { _ in }
+        }
     }
 }

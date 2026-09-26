@@ -21,20 +21,23 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
             workspace.conversation.composerText = "A's unfinished note"
             let loadGate = ReferenceCreationGate()
             defer { loadGate.release() }
+            let create: Task<Bool, Never>
             if holdEarlierNavigation {
                 await scenario.service.holdNextLoad(conversationID: b.id, gate: loadGate)
                 workspace.sidebar.selection = b.teammate.id.rawValue
                 try await referenceWaitUntil { loadGate.arrivals == 1 }
-                workspace.beginTeammateCreation()
+                create = try referencePressCreate(workspace, name: "Nova")
                 try await referenceWaitUntil { workspace.isCreatingTeammate }
                 // Creation is now waiting for B. C is a later user intent.
                 workspace.sidebar.selection = c.teammate.id.rawValue
                 await workspace.selectionTask?.value
                 loadGate.release()
             } else {
-                // No suspension between these calls: capture must happen at
-                // the button entry, before its unstarted Task can observe C.
-                workspace.beginTeammateCreation()
+                // Create's work captures the moment it begins; C, chosen once
+                // it has begun, is the later intent even though the service
+                // has not yet been reached.
+                create = try referencePressCreate(workspace, name: "Nova")
+                try await referenceWaitUntil { workspace.isCreatingTeammate }
                 workspace.sidebar.selection = c.teammate.id.rawValue
                 await workspace.selectionTask?.value
             }
@@ -44,8 +47,14 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
             try await referenceWaitUntil { workspace.draftCoordinator?.activeDraft?.status == .saved }
             workspace.conversation.composerText = "C remains the current draft"
             scenario.gate.release()
+            let created = await create.value
+            XCTAssertTrue(created)
             try await referenceWaitUntil { !workspace.isCreatingTeammate }
             XCTAssertEqual(workspace.sidebar.rows.count, 4)
+            // The seeded bots may carry built-in names, so the free placeholder varies.
+            let newName = try XCTUnwrap(workspace.sidebar.rows.first?.name)
+            XCTAssertTrue(newName.hasPrefix("New Bot"), newName)
+            XCTAssertFalse(scenario.chats.map(\.teammate.profile.displayName).contains(newName))
             XCTAssertEqual(workspace.sidebar.selection, c.teammate.id.rawValue)
             XCTAssertEqual(workspace.conversation.conversationID, c.id.rawValue)
             XCTAssertEqual(workspace.conversation.composerText, "C remains the current draft")
@@ -91,12 +100,13 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         let hit = try XCTUnwrap(search.model.page?.messages.first)
         XCTAssertEqual(hit.id.rawValue, messageIDs[4])
         search.close()
-        workspace.beginTeammateCreation()
+        let create = try referencePressCreate(workspace, name: "Nova")
+        try await referenceWaitUntil { workspace.isCreatingTeammate }
         if waitUntilCreationServiceIsHeld {
             try await referenceWaitUntil { scenario.gate.arrivals == 1 }
         }
-        // In the second variant these are the same actor turn as New Bot:
-        // its queued worker must not dismiss this newer navigation intent.
+        // In the second variant Create's work has begun but not reached the
+        // service: it must not dismiss this newer navigation intent either.
         search.present()
         search.openMessage(hit)
         try await referenceWaitUntil {
@@ -113,6 +123,8 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         try await referenceWaitUntil { scenario.gate.arrivals == 1 }
         let loadCountBeforeCommit = await scenario.service.messageLoadCount
         scenario.gate.release()
+        let created = await create.value
+        XCTAssertTrue(created)
         try await referenceWaitUntil { !workspace.isCreatingTeammate }
         XCTAssertEqual(workspace.sidebar.rows.count, 2)
         XCTAssertEqual(workspace.sidebar.selection, chat.teammate.id.rawValue)
@@ -139,17 +151,21 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         let conversationID = workspace.conversation.conversationID
         let rows = workspace.sidebar.rows
         workspace.conversation.composerText = "Keep my draft through a failed creation"
-        workspace.beginTeammateCreation()
-        workspace.beginTeammateCreation() // Same actor turn, before the first task starts.
+        let create = try referencePressCreate(workspace, name: "Nova")
+        workspace.beginTeammateCreation() // Same actor turn: New Bot again makes nothing more.
         try await referenceWaitUntil { scenario.gate.arrivals == 1 }
         XCTAssertTrue(workspace.isCreatingTeammate)
+        workspace.beginTeammateCreation() // Pressed again while the first is being made.
         await workspace.createTeammateImmediately() // Direct reentry is guarded too.
         XCTAssertEqual(workspace.sidebar.selection, selection)
         XCTAssertEqual(workspace.conversation.conversationID, conversationID)
         XCTAssertNil(workspace.hiringModel)
         scenario.gate.release()
+        let failed = await create.value
+        XCTAssertFalse(failed)
         try await referenceWaitUntil { !workspace.isCreatingTeammate }
-        XCTAssertNotNil(workspace.creationError)
+        // The failure is told where the person is looking, and nothing moved.
+        XCTAssertEqual(workspace.creationError, "Couldn’t create the bot. Your current chat and drafts are unchanged.")
         XCTAssertEqual(workspace.sidebar.rows, rows)
         XCTAssertEqual(workspace.sidebar.selection, selection)
         XCTAssertEqual(workspace.conversation.conversationID, conversationID)
@@ -160,12 +176,14 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         XCTAssertEqual(unchanged.count, 1, "Failed provisioning must not leave a phantom roster entry")
 
         await scenario.service.setFailure(false)
-        await workspace.createTeammateImmediately()
+        let retried = await (try referencePressCreate(workspace, name: "Nova")).value
+        XCTAssertTrue(retried)
         XCTAssertNil(workspace.creationError)
         XCTAssertFalse(workspace.isCreatingTeammate)
         XCTAssertEqual(workspace.sidebar.rows.count, 2)
+        XCTAssertEqual(workspace.sidebar.rows.first?.name.hasPrefix("New Bot"), true)
         XCTAssertNotEqual(workspace.sidebar.selection, selection)
-        XCTAssertTrue(workspace.conversation.messages.isEmpty)
+        XCTAssertEqual(workspace.conversation.messages.map(\.body), [BotSelfSetup.firstQuestion])
         workspace.sidebar.selection = selection
         await workspace.selectionTask?.value
         XCTAssertEqual(workspace.conversation.composerText, "Keep my draft through a failed creation")
@@ -181,11 +199,12 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         let selection = workspace.sidebar.selection
         let conversationID = workspace.conversation.conversationID
         let rows = workspace.sidebar.rows
-        workspace.beginTeammateCreation()
+        let create = try referencePressCreate(workspace, name: "Nova")
         try await referenceWaitUntil { scenario.gate.arrivals == 1 }
         workspace.beginShutdown()
         workspace.finishShutdown()
         scenario.gate.release()
+        _ = await create.value
         try await referenceWaitUntil { !workspace.isCreatingTeammate }
         XCTAssertEqual(workspace.sidebar.rows, rows)
         XCTAssertEqual(workspace.sidebar.selection, selection)
@@ -195,6 +214,7 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         XCTAssertNil(workspace.creationError)
         XCTAssertNil(workspace.hiringModel)
         workspace.beginTeammateCreation()
+        XCTAssertFalse(workspace.isCreatingTeammate, "Shutdown must reject New Bot")
         await workspace.createTeammateImmediately()
         let attempts = await scenario.service.attempts
         XCTAssertEqual(attempts, 1, "Shutdown must reject new creation admission")
@@ -205,7 +225,7 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         try await fresh.loadInitialWorkspace()
         XCTAssertEqual(fresh.sidebar.rows.count, 2)
         XCTAssertNotEqual(fresh.sidebar.selection, selection)
-        XCTAssertTrue(fresh.conversation.messages.isEmpty)
+        XCTAssertEqual(fresh.conversation.messages.map(\.body), [BotSelfSetup.firstQuestion])
     }
 
     func testImmediateLocalCreationPreservesChatsDraftsAndProfileRoutesAcrossReopen() async throws {
@@ -310,7 +330,11 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         XCTAssertTrue(workspace.conversation.composerText.utf8.elementsEqual(firstDraft.utf8))
         XCTAssertTrue(workspace.attachmentDraft === attachmentModel)
         XCTAssertEqual(workspace.attachmentDraft.rows, attachmentRows)
-        XCTAssertEqual(workspace.conversation.messages.map(\.id), [messageID])
+        // The user's edit of the bot's words is said in its chat.
+        XCTAssertEqual(workspace.conversation.messages.first?.id, messageID)
+        XCTAssertEqual(workspace.conversation.messages.map(\.author), [.user, .system(label: "OpenBots")])
+        XCTAssertEqual(workspace.conversation.messages.last?.body,
+                       "You renamed \(first.profile.displayName) to Ada Local Review and changed its title and instructions.")
         let flushed = await workspace.draftCoordinator?.flushAll()
         XCTAssertEqual(flushed, true)
         workspace.finishShutdown()
@@ -326,8 +350,8 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
         XCTAssertEqual(reopened.sidebar.selection, first.id.rawValue)
         XCTAssertEqual(reopened.conversation.conversationID, firstChatID)
         XCTAssertTrue(reopened.conversation.composerText.utf8.elementsEqual(firstDraft.utf8))
-        XCTAssertEqual(reopened.conversation.messages.map(\.id), [messageID])
-        XCTAssertEqual(reopened.conversation.messages.map(\.author), [.user])
+        XCTAssertEqual(reopened.conversation.messages.first?.id, messageID)
+        XCTAssertEqual(reopened.conversation.messages.map(\.author), [.user, .system(label: "OpenBots")])
         XCTAssertEqual(reopened.selectedTeammate, savedProfile)
         reopened.sidebar.selection = second.id.rawValue
         await reopened.selectionTask?.value
@@ -340,6 +364,21 @@ final class ReferenceWorkspaceFlowTests: XCTestCase {
             let rows = try await reopenedStore.query(sql: "SELECT COUNT(*) AS count FROM \(table)")
             XCTAssertEqual(try rows.first?.integer("count"), 0, "Local creation/profile/save must not create \(table)")
         }
+    }
+}
+
+/// New Bot the way the person does it: one press,
+/// and the bot is made under a placeholder name. The returned task ends when
+/// the creation has, true when a bot came of it. `name` is kept for the call
+/// sites; the bot names itself later.
+@MainActor
+private func referencePressCreate(_ workspace: DurableWorkspaceModel, name: String) throws -> Task<Bool, Never> {
+    let before = workspace.sidebar.rows.count
+    workspace.beginTeammateCreation()
+    return Task { @MainActor in
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while workspace.isCreatingTeammate, Date() < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        return workspace.sidebar.rows.count > before
     }
 }
 
@@ -468,6 +507,14 @@ private actor ReferenceHeldCreationService: DurableTeammateChatServing {
         try await gate.wait()
         if failsCreation { throw CocoaError(.fileWriteUnknown) }
         return try await backing.createTeammateAndDirectChat(draft)
+    }
+    func createSelfSettingTeammateAndDirectChat(teammateID: TeammateID, placeholderName: String,
+                                                appearance: AgentAppearance) async throws -> DurableTeammateChatCreationSnapshot {
+        attempts += 1
+        try await gate.wait()
+        if failsCreation { throw CocoaError(.fileWriteUnknown) }
+        return try await backing.createSelfSettingTeammateAndDirectChat(teammateID: teammateID,
+            placeholderName: placeholderName, appearance: appearance)
     }
     func loadMessages(conversationID: ConversationID, beforeSequence: Int64?, limit: Int) async throws -> DurableMessagePageSnapshot {
         messageLoadCount += 1

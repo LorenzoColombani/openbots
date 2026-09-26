@@ -433,7 +433,7 @@ private struct SecretPresenceRow: View {
     }
 }
 
-private struct ConversationCardShell<Content: View>: View {
+struct ConversationCardShell<Content: View>: View {
     let id: UUID
     let title: String
     let symbolName: String
@@ -480,7 +480,7 @@ private struct InlineCardReadOnlyNotice: View {
     }
 }
 
-private struct InlineCardStateLabel: View {
+struct InlineCardStateLabel: View {
     enum Role {
         case neutral
         case success

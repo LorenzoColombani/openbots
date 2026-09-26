@@ -83,6 +83,8 @@ public struct TeammateProfileEditDraft: Equatable, Sendable {
     public let claudeEffort: String?
     /// Nil preserves the saved choice; "default" explicitly resets context.
     public let claudeContextWindow: String?
+    /// Nil preserves the existing per-bot notification override.
+    public let notificationPreference: NotificationPreference?
 
     public init(
         displayName: String,
@@ -94,7 +96,8 @@ public struct TeammateProfileEditDraft: Equatable, Sendable {
         builtInAvatar: BuiltInAvatar? = nil,
         claudeModel: String? = nil,
         claudeEffort: String? = nil,
-        claudeContextWindow: String? = nil
+        claudeContextWindow: String? = nil,
+        notificationPreference: NotificationPreference? = nil
     ) {
         self.displayName = displayName
         self.title = title
@@ -106,6 +109,7 @@ public struct TeammateProfileEditDraft: Equatable, Sendable {
         self.claudeModel = claudeModel
         self.claudeEffort = claudeEffort
         self.claudeContextWindow = claudeContextWindow
+        self.notificationPreference = notificationPreference
     }
 }
 
@@ -139,6 +143,7 @@ public actor TeammateProfileService: TeammateProfileEditing {
     }
 
     public func createQuickTeammate(_ draft: QuickTeammateDraft) async throws -> Teammate {
+        try await refuseTakenName(draft.displayName, excluding: nil)
         let id = TeammateID(uuidGenerator.next())
         let now = clock.now()
         let appearance = try Self.defaultAppearance(for: id)
@@ -178,6 +183,13 @@ public actor TeammateProfileService: TeammateProfileEditing {
         guard teammate.profile.revision == expectedRevision else {
             throw RepositoryError.optimisticLockFailed(entity: "teammate", id: teammateID.persistedValue)
         }
+        // The rule is about giving a bot a name. A save that keeps the bot's
+        // own name gives it none, so it is never refused, even where a bot
+        // saved before the rule already shares that name; refusing it would
+        // leave both bots unable to save anything else until one is renamed.
+        if !TeammateProfile.namesMatch(draft.displayName, teammate.profile.displayName) {
+            try await refuseTakenName(draft.displayName, excluding: teammateID)
+        }
         if let model = draft.claudeModel {
             try Self.validateSelectionToken(model, field: "Claude model")
             teammate.claudeModel = model
@@ -190,12 +202,27 @@ public actor TeammateProfileService: TeammateProfileEditing {
             try Self.validateSelectionToken(context, field: "Claude context window")
             teammate.claudeContextWindow = context
         }
+        if let preference = draft.notificationPreference {
+            teammate.notificationPreference = preference
+        }
+        let asItWas = teammate.profile
         teammate.profile = try teammate.profile.revised(
             displayName: draft.displayName,
             title: .some(draft.title),
             role: draft.role,
             detailedInstructions: .some(draft.detailedInstructions)
         )
+        // The person has saved the words, so they are theirs: a hirer that wrote
+        // them is no longer named as their author. A save that changes
+        // no word — picking a model, an effort or a notification choice, the
+        // fields the editor shows first while the role and the instructions sit
+        // inside Advanced, collapsed — leaves the words as the hirer wrote them,
+        // and its author line with them.
+        if teammate.profile.displayName != asItWas.displayName || teammate.profile.title != asItWas.title
+            || teammate.profile.role != asItWas.role
+            || teammate.profile.detailedInstructions != asItWas.detailedInstructions {
+            teammate.profileWrittenByHirer = nil
+        }
         if let avatar = draft.builtInAvatar {
             let appearance = teammate.appearance
             guard appearance.revision < UInt64.max else {
@@ -234,6 +261,17 @@ public actor TeammateProfileService: TeammateProfileEditing {
         // retry a rejected edit against the newer profile silently.
         try await repository.update(teammate, expectedProfileRevision: expectedRevision)
         return teammate
+    }
+
+    /// Two bots never share a name. The roster is read here, inside the
+    /// service, so a caller that never opened the sheet (a hiring bot, a
+    /// script) cannot create or rename into a duplicate; the bot being renamed
+    /// keeps its own name in any case, and an archived bot has given its up.
+    private func refuseTakenName(_ name: String, excluding: TeammateID?) async throws {
+        let roster = try await repository.listTeammates(includingArchived: false)
+        if let holder = roster.activeBot(named: name, excluding: excluding) {
+            throw TeammateNameTakenError(existingName: holder.profile.displayName)
+        }
     }
 
     private static func validateSelectionToken(_ token: String, field: String) throws {

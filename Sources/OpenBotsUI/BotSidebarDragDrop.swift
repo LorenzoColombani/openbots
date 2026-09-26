@@ -38,6 +38,9 @@ struct BotSidebarDragDropOverlay: NSViewRepresentable {
     var horizontalVisualOutset: CGFloat = 0
     var openBotSettings: (@MainActor (UUID) -> Void)? = nil
     var archiveBot: (@MainActor (UUID) -> Void)? = nil
+    var pinBot: (@MainActor (UUID) -> Void)? = nil
+    var hideBot: (@MainActor (UUID) -> Void)? = nil
+    var deleteBot: (@MainActor (UUID) -> Void)? = nil
 
     func makeNSView(context: Context) -> BotSidebarDragSourceView {
         let view = BotSidebarDragSourceView(sidebar: sidebar, rowID: rowID)
@@ -53,6 +56,9 @@ struct BotSidebarDragDropOverlay: NSViewRepresentable {
         view.isReorderingEnabled = isEnabled && environmentEnabled
         view.openBotSettings = openBotSettings
         view.archiveBot = archiveBot
+        view.pinBot = pinBot
+        view.hideBot = hideBot
+        view.deleteBot = deleteBot
         view.increasedContrast = contrast == .increased
         view.reduceMotion = reduceMotion
         view.refreshHoverAvailability()
@@ -130,6 +136,9 @@ class BotSidebarDragSourceView: NSView, NSDraggingSource {
     var isReorderingEnabled = true
     var openBotSettings: (@MainActor (UUID) -> Void)?
     var archiveBot: (@MainActor (UUID) -> Void)?
+    var pinBot: (@MainActor (UUID) -> Void)?
+    var hideBot: (@MainActor (UUID) -> Void)?
+    var deleteBot: (@MainActor (UUID) -> Void)?
     private(set) var sourceToken: UUID?
     private(set) var contextMenuTargetID: UUID?
     private(set) var hoveredRowID: UUID?
@@ -286,7 +295,8 @@ class BotSidebarDragSourceView: NSView, NSDraggingSource {
     override func rightMouseUp(with event: NSEvent) {}
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard isEnabled, openBotSettings != nil || archiveBot != nil,
+        guard isEnabled,
+              openBotSettings != nil || archiveBot != nil || pinBot != nil || hideBot != nil || deleteBot != nil,
               let target = sidebar.rowModels.first(where: { $0.id == rowID }) else { return nil }
         let id = rowID
         let menu = NSMenu()
@@ -299,12 +309,36 @@ class BotSidebarDragSourceView: NSView, NSDraggingSource {
                 openBotSettings(id)
             })
         }
+        if let pinBot {
+            let title = target.snapshot.isPinned ? "Unpin Bot" : "Pin Bot"
+            menu.addItem(BotSidebarMenuItem(title: title) { [weak self] in
+                guard let self, self.isEnabled,
+                      self.sidebar.rowModels.contains(where: { $0.id == id }) else { return }
+                pinBot(id)
+            })
+        }
+        if let hideBot {
+            menu.addItem(BotSidebarMenuItem(title: "Hide Bot") { [weak self] in
+                guard let self, self.isEnabled,
+                      self.sidebar.rowModels.contains(where: { $0.id == id }) else { return }
+                hideBot(id)
+            })
+        }
         if let archiveBot {
             menu.addItem(BotSidebarMenuItem(title: "Archive Bot") { [weak self] in
                 guard let self, self.isEnabled,
                       self.sidebar.rowModels.contains(where: { $0.id == id }) else { return }
                 archiveBot(id)
             })
+        }
+        if let deleteBot {
+            let item = BotSidebarMenuItem(title: "Delete Bot") { [weak self] in
+                guard let self, self.isEnabled,
+                      self.sidebar.rowModels.contains(where: { $0.id == id }) else { return }
+                deleteBot(id)
+            }
+            item.isAlternate = false
+            menu.addItem(item)
         }
         return menu.items.isEmpty ? nil : menu
     }
@@ -534,7 +568,7 @@ class BotSidebarDragSourceView: NSView, NSDraggingSource {
 
     private var acceptsMouseInteraction: Bool {
         isEnabled && ((isReorderingEnabled && sidebar.canReorder)
-            || openBotSettings != nil || archiveBot != nil)
+            || openBotSettings != nil || archiveBot != nil || pinBot != nil || hideBot != nil || deleteBot != nil)
     }
 }
 

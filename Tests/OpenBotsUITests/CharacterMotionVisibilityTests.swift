@@ -105,36 +105,57 @@ final class CharacterMotionVisibilityTests: XCTestCase {
         XCTAssertTrue(published.isEmpty)
     }
 
-    func testWindowSubscriptionsFollowOnlyTheOwningWindow() async throws {
+    func testWindowSubscriptionsFollowOnlyTheOwningWindow() throws {
         // Open on macOS 15 only: after the view moves to another window, the OLD window's resize
-        // notification still yields one assessment there (2 instead of 1) in ~4 of 6 CI runs;
-        // never on macOS 26. That is a real ordering difference in the view's window-subscription
-        // handling, tracked in docs/2026-09-01-sqlite-trusted-schema-handoff.md — fix the view,
-        // then remove this skip. Every other test keeps gating on macOS 15.
+        // notification still yields one assessment there (2 instead of 1) in most CI runs; never
+        // on macOS 26. Fix the view's window-subscription handling, then remove this skip. Every
+        // other test keeps gating on macOS 15.
         if #unavailable(macOS 26) {
-            throw XCTSkip("Known macOS 15 ordering difference in window subscriptions; see handoff doc.")
+            throw XCTSkip("Known macOS 15 ordering difference in window subscriptions.")
         }
         let first = MotionVisibilityFixture()
         let second = MotionVisibilityFixture()
         defer { first.dispose(); second.dispose() }
-        try await waitForAssessment { first.view.assessmentCount > 0 && second.view.assessmentCount > 0 }
-        let initial = first.view.assessmentCount
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: second.window)
-        await drainNativeCallbacks()
-        XCTAssertEqual(first.view.assessmentCount, initial)
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: first.window)
-        try await waitForAssessment { first.view.assessmentCount > initial }
 
-        let beforeMove = first.view.assessmentCount
+        assertAssessmentRequests(0, posting: NSWindow.didResizeNotification, object: second.window, to: first.view)
+        assertAssessmentRequests(1, posting: NSWindow.didResizeNotification, object: first.window, to: first.view)
+
         second.document.addSubview(first.view)
-        try await waitForAssessment { first.view.assessmentCount > beforeMove }
-        let afterMove = first.view.assessmentCount
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: first.window)
-        await drainNativeCallbacks()
-        XCTAssertEqual(first.view.assessmentCount, afterMove, "Old window subscriptions are removed.")
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: second.window)
-        try await waitForAssessment { first.view.assessmentCount > afterMove }
-        XCTAssertEqual(first.view.lastSnapshot?.permitsMotion, false)
+        XCTAssertTrue(first.view.window === second.window)
+        for name in [NSWindow.didResizeNotification, NSWindow.willCloseNotification] {
+            // willClose always requests an assessment when received, so zero also
+            // establishes that the old window cannot set the probe's closing state.
+            assertAssessmentRequests(0, posting: name, object: first.window, to: first.view)
+            assertAssessmentRequests(1, posting: name, object: second.window, to: first.view)
+        }
+        for name in [NSView.frameDidChangeNotification, NSView.boundsDidChangeNotification] {
+            assertAssessmentRequests(0, posting: name, object: first.document, to: first.view)
+            assertAssessmentRequests(1, posting: name, object: second.document, to: first.view)
+        }
+    }
+
+    func testAncestorSubscriptionsFollowReparentingWithinTheSameWindow() {
+        let fixture = MotionVisibilityFixture()
+        defer { fixture.dispose() }
+        let firstParent = NSView(frame: fixture.document.bounds)
+        let secondParent = NSView(frame: fixture.document.bounds)
+        fixture.document.addSubview(firstParent)
+        fixture.document.addSubview(secondParent)
+        firstParent.addSubview(fixture.view)
+
+        for name in [NSView.frameDidChangeNotification, NSView.boundsDidChangeNotification] {
+            assertAssessmentRequests(1, posting: name, object: firstParent, to: fixture.view)
+            assertAssessmentRequests(0, posting: name, object: secondParent, to: fixture.view)
+        }
+
+        secondParent.addSubview(fixture.view)
+        XCTAssertTrue(fixture.view.window === fixture.window)
+        for name in [NSView.frameDidChangeNotification, NSView.boundsDidChangeNotification] {
+            assertAssessmentRequests(0, posting: name, object: firstParent, to: fixture.view)
+            assertAssessmentRequests(1, posting: name, object: secondParent, to: fixture.view)
+            assertAssessmentRequests(1, posting: name, object: fixture.document, to: fixture.view)
+        }
+        assertAssessmentRequests(1, posting: NSWindow.didResizeNotification, object: fixture.window, to: fixture.view)
     }
 
     func testDismantleCancelsPendingAssessmentAndRemovesNativeSubscriptions() async throws {
@@ -177,6 +198,21 @@ final class CharacterMotionVisibilityTests: XCTestCase {
         )
     }
 
+    private func assertAssessmentRequests(
+        _ expected: Int, posting name: Notification.Name, object: AnyObject,
+        to view: RecordingMotionVisibilityView, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        // Selector notifications are delivered synchronously on this MainActor.
+        // Count only requests attributable to this post: deferred assessments also
+        // include later AppKit layout after reparenting, independently of this post.
+        let before = view.assessmentRequestCount
+        NotificationCenter.default.post(name: name, object: object)
+        XCTAssertEqual(
+            view.assessmentRequestCount - before, expected, name.rawValue,
+            file: file, line: line
+        )
+    }
+
     private func waitForAssessment(_ predicate: () -> Bool) async throws {
         let deadline = ContinuousClock.now + .seconds(1)
         while !predicate(), ContinuousClock.now < deadline {
@@ -193,8 +229,14 @@ final class CharacterMotionVisibilityTests: XCTestCase {
 @MainActor
 private final class RecordingMotionVisibilityView: CharacterMotionVisibilityView {
     var syntheticSnapshot: CharacterMotionVisibilitySnapshot?
+    private(set) var assessmentRequestCount = 0
     private(set) var assessmentCount = 0
     private(set) var lastSnapshot: CharacterMotionVisibilitySnapshot?
+
+    override func requestVisibilityAssessment() {
+        assessmentRequestCount += 1
+        super.requestVisibilityAssessment()
+    }
 
     override func currentVisibilitySnapshot() -> CharacterMotionVisibilitySnapshot {
         assessmentCount += 1

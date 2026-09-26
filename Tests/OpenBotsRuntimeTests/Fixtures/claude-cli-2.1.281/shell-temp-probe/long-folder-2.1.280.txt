@@ -1,0 +1,15 @@
+claude_code_version: 2.1.280
+$ echo TMPDIR=$TMPDIR; touch "$TMPDIR/probe" && echo TOUCH_OK
+Exit code 1
+TMPDIR=/var/folders/xx/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/T/OpenBotsNext-Shell.noindex/F9540D90-927A-4F99-8431-F1C054B7BA34
+touch: /var/folders/xx/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/T/OpenBotsNext-Shell.noindex/F9540D90-927A-4F99-8431-F1C054B7BA34/probe: Operation not permitted
+
+$ swift --version 2>&1; echo EXIT=$?
+error: permissionDenied
+EXIT=1
+
+$ printf 'print(1+1)\n' > hello.swift && swift hello.swift 2>&1; echo EXIT=$?
+error: permissionDenied
+EXIT=1
+
+debug log: CLAUDE_CODE_TMPDIR makes the per-uid temp dir 123 bytes, too long for AF_UNIX sockets; child-process $TMPDIR falls back to /tmp/claude-501. Shorten CLAUDE_CODE_TMPDIR to ≤~30 bytes if child processes should use your override.

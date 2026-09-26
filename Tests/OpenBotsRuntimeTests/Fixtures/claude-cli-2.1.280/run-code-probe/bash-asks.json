@@ -1,0 +1,98 @@
+{
+ "claude_code_version": "2.1.280",
+ "captured": "2026-09-23",
+ "launch": "a probe of the work shape (the app's work-turn settings: default mode, sandbox on, autoAllowBashIfSandboxed off, --permission-prompt-tool stdio)",
+ "bot_folder": "/private/tmp/run-code-probe.noindex/Bot",
+ "runs": [
+  {
+   "run": "a-sort-opus",
+   "model": "claude-opus-5",
+   "prompt": "Write a Python script that lists the files in this folder sorted by date, oldest first, and run it.",
+   "bash_asks": [
+    {
+     "command": "python3 Outbox/list_by_date.py .",
+     "probe_answer": "allow"
+    }
+   ]
+  },
+  {
+   "run": "b-sort-sonnet",
+   "model": "sonnet",
+   "prompt": "Write a Python script that lists the files in this folder sorted by date, oldest first, and run it.",
+   "bash_asks": [
+    {
+     "command": "python3 Outbox/list_files_by_date.py",
+     "probe_answer": "allow"
+    }
+   ]
+  },
+  {
+   "run": "c-pip",
+   "model": "claude-opus-5",
+   "prompt": "Write a Python script that fetches https://example.com with the requests package and prints the page title, install requests if it is missing, and run it.",
+   "bash_asks": [
+    {
+     "command": "python3 -c \"import requests; print('requests', requests.__version__)\" 2>&1; echo \"---\"; ls",
+     "probe_answer": "allow"
+    },
+    {
+     "command": "python3 -m venv \"$TMPDIR/venv\" 2>&1 | tail -5 && \"$TMPDIR/venv/bin/pip\" install --quiet requests 2>&1 | tail -20",
+     "probe_answer": "deny"
+    },
+    {
+     "command": "python3 -m pip install --user requests 2>&1 | tail -20",
+     "probe_answer": "deny"
+    },
+    {
+     "command": "python3 -m py_compile Outbox/fetch_title.py && echo \"syntax OK\"; python3 - <<'EOF' 2>&1 | tail -3\nimport urllib.request, re\nh = urllib.request.urlopen(\"https://example.com\", timeout=10).read().decode()\nprint(\"egress OK, title:\", re.search(r\"<title[^>]*>(.*?)</title>\", h, re.S|re.I).group(1).strip())\nEOF",
+     "probe_answer": "allow"
+    },
+    {
+     "command": "rm -rf Outbox/__pycache__ && ls Outbox",
+     "probe_answer": "deny"
+    }
+   ]
+  },
+  {
+   "run": "d-stop",
+   "model": "claude-opus-5",
+   "prompt": "Write a Python script that counts from 1 to 300, printing one number per second, and run it in the foreground so I see the count.",
+   "bash_asks": [
+    {
+     "command": "python3 Outbox/count_to_300.py",
+     "probe_answer": "allow"
+    }
+   ]
+  },
+  {
+   "run": "e-png",
+   "model": "claude-opus-5",
+   "prompt": "Write a Python script, standard library only, that draws a simple bar chart of the sizes of the files in this folder and saves it as chart.png in the Outbox folder, then run it.",
+   "bash_asks": [
+    {
+     "command": "cd \"/private/tmp/run-code-probe.noindex/Bot\" && python3 Outbox/bar_chart.py && ls -l Outbox",
+     "probe_answer": "allow"
+    },
+    {
+     "command": "cd \"/private/tmp/run-code-probe.noindex/Bot\" && python3 -c \"\nimport importlib.util,sys\nspec=importlib.util.spec_from_file_location('bc','Outbox/bar_chart.py')\nm=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\nfor k,v in m.FONT.items():\n    if len(v)!=35: print(repr(k), len(v))\n\"",
+     "probe_answer": "allow"
+    },
+    {
+     "command": "cd \"/private/tmp/run-code-probe.noindex/Bot\" && python3 - <<'EOF'\nimport re\np='Outbox/bar_chart.py'\ns=open(p).read()\nfixes={\n \"A\": [\".###.\",\"#...#\",\"#...#\",\"#####\",\"#...#\",\"#...#\",\"#...#\"],\n \"H\": [\"#...#\",\"#...#\",\"#...#\",\"#####\",\"#...#\",\"#...#\",\"#...#\"],\n \"S\": [\".###.\",\"#....\",\"#....\",\".###.\",\"....#\",\"....#\",\"####.\"],\n \"X\": [\"#...#\",\"#...#\",\".#.#.\",\"..#..\",\".#.#.\",\"#...#\",\"#...#\"],\n \"2\": [\".###.\",\"#...#\",\"....#\",\"...#.\",\"..#..\",\".#...\",\"#####\"],\n \"3\": [\"####.\",\"...#.\",\"..#..\",\"...#.\",\"....#\",\"#...#\",\".###.\"],\n \".\": [\".....\",\".....\",\".....\",\".....\",\".....\",\".##..\",\".##..\"],\n \"-\": [\".....\",\".....\",\".....\",\"#####\",\".....\",\".....\",\".....\"],\n \"_\": [\".....\",\".....\",\".....\",\".....\",\".....\",\".....\",\"#####\"],\n \"/\": [\"....#\",\"....#\",\"...#.\",\"..#..\",\".#...\",\"#....\",\"#....\"],\n}\nfor k,rows in fixes.items():\n    new='\"%s\": \"%s\",'%(k,''.join(rows))\n    s=re.sub(r'\"%s\": \"[^\"]*\",'%re.escape(k), new.replace('\\\\','\\\\\\\\'), s, count=1)\nopen(p,'w').write(s)\nEOF\npython3 -c \"\nimport importlib.util\nspec=importlib.util.spec_from_file_location('bc','Outbox/bar_chart.py')\nm=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\nprint([k for k,v in m.FONT.items() if len(v)!=35] or 'all glyphs 35px')\n\" && python3 Outbox/bar_chart.py",
+     "probe_answer": "allow"
+    }
+   ]
+  },
+  {
+   "run": "h-stop-bg",
+   "model": "claude-opus-5",
+   "prompt": "Write a Python script that counts from 1 to 300, writing one number per second to count.log, and start it in the background so it keeps running after your reply. Then tell me it started.",
+   "bash_asks": [
+    {
+     "command": "cd \"/private/tmp/run-code-probe.noindex/Bot/Outbox\" && nohup python3 count.py > /dev/null 2>&1 &\necho \"pid=$!\"; sleep 3; cat \"/private/tmp/run-code-probe.noindex/Bot/Outbox/count.log\"",
+     "probe_answer": "allow"
+    }
+   ]
+  }
+ ]
+}

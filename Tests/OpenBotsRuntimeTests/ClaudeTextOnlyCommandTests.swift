@@ -12,7 +12,7 @@ func claudeTextCommandContract() throws {
         "--include-partial-messages", "--replay-user-messages", "--verbose", "--safe-mode", "--restricted",
         "--no-session-persistence", "--no-chrome", "--disable-slash-commands", "--strict-mcp-config",
         "--mcp-config", "{\"mcpServers\":{}}", "--settings",
-        "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\",\"deny\":[\"*\"]}}",
+        "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,\"enabledPlugins\":{\"agents-md@builtin\":false},\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\",\"deny\":[\"*\"]}}",
         "--setting-sources", "", "--permission-mode", "dontAsk", "--tools", "", "--disallowedTools", "*",
         "--model", "sonnet", "--max-turns", "1", "--session-id", request.sessionID.uuidString.lowercased(),
         "--system-prompt-file", ClaudeTextOnlyCommandBuilder.systemPromptFileURL(for: request).path])
@@ -34,6 +34,8 @@ func claudeTextEnvironmentContract() throws {
     #expect(environment["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] == "1")
     #expect(environment["CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING"] == "1")
     #expect(environment["CLAUDE_CODE_DISABLE_ATTACHMENTS"] == "1")
+    // A refused reply is never handed to another model.
+    #expect(environment["CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK"] == "1")
     #expect(ClaudeConnectionCommandBuilder.environment(for: target)["CLAUDE_CODE_DISABLE_ATTACHMENTS"] == nil)
     for poison in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
                    "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
@@ -180,7 +182,14 @@ func claudeTextFrozenExecutionRequest() throws {
 
 func textOnlyTestRequest(target: ClaudeConnectionTarget? = nil, text: String = "Hello",
                          systemPrompt: String = "You are a text-only teammate.", model: String = "sonnet",
-                         effort: String? = nil, contextWindow: String = "default") throws -> ClaudeTextOnlyRequest {
+                         effort: String? = nil, contextWindow: String = "default",
+                         allowedTools: Set<ClaudeTextOnlyTool> = [],
+                         workAccess: ClaudeTextWorkAccess? = nil,
+                         connectorAccess: ClaudeTextConnectorAccess? = nil,
+                         persistsSession: Bool = false, resumesSession: Bool = false,
+                         grantsHiring: Bool = false, grantsWorkers: Bool = false,
+                         readAccess: ClaudeTextReadAccess? = nil,
+                         sessionHoldsPrivateRead: Bool = false) throws -> ClaudeTextOnlyRequest {
     let fallback = try ClaudeConnectionTarget(
         executableURL: URL(fileURLWithPath: "/private/tmp/not-created-text.noindex/claude"),
         expectedExecutableSHA256: String(repeating: "a", count: 64),
@@ -192,7 +201,10 @@ func textOnlyTestRequest(target: ClaudeConnectionTarget? = nil, text: String = "
         runID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!,
         sessionID: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!,
         messageID: UUID(uuidString: "00000000-0000-4000-8000-000000000003")!, text: text, systemPrompt: systemPrompt,
-        model: model, effort: effort, contextWindow: contextWindow)
+        model: model, effort: effort, contextWindow: contextWindow, allowedTools: allowedTools,
+        workAccess: workAccess, connectorAccess: connectorAccess,
+        persistsSession: persistsSession, resumesSession: resumesSession, grantsHiring: grantsHiring,
+        grantsWorkers: grantsWorkers, readAccess: readAccess, sessionHoldsPrivateRead: sessionHoldsPrivateRead)
 }
 
 func textOnlyTestLine(_ value: [String: Any]) throws -> Data {
@@ -201,9 +213,21 @@ func textOnlyTestLine(_ value: [String: Any]) throws -> Data {
     return data
 }
 
+/// The app's own server as the CLI announces it on a turn that carries it
+/// (hiring, or the login handoff on a Control this Mac turn), for init frames
+/// a test writes by hand.
+func appServerEntries(_ request: ClaudeTextOnlyRequest) -> [[String: Any]] {
+    request.carriesAppServer ? [["name": ClaudeTextHirePolicy.serverName, "status": "connected"]] : []
+}
+
 func textOnlyTestInit(_ request: ClaudeTextOnlyRequest, override: [String: Any] = [:]) throws -> Data {
+    // The keys Claude Code 2.1.272 announces (Fixtures/claude-cli-2.1.272),
+    // with the values the app's command produces: nothing loaded from a
+    // folder, and the one app-defined helper on a work turn only.
     var value: [String: Any] = ["type": "system", "subtype": "init", "session_id": request.sessionID.uuidString,
         "tools": [], "mcp_servers": [], "plugins": [], "permissionMode": "dontAsk", "apiKeySource": "none",
+        "skills": [], "slash_commands": [], "output_style": "default",
+        "agents": request.grantsWork ? [ClaudeTextHelperPolicy.agentType] : [],
         "model": request.expectedResolvedModel, "email": "must-not-be-exposed@example.invalid"]
     value.merge(override) { _, new in new }
     return try textOnlyTestLine(value)
@@ -216,9 +240,11 @@ func textOnlyTestResult(_ request: ClaudeTextOnlyRequest, override: [String: Any
     return try textOnlyTestLine(value)
 }
 
-func textOnlyTestDelta(_ request: ClaudeTextOnlyRequest, text: String) throws -> Data {
-    try textOnlyTestLine(["type": "stream_event", "session_id": request.sessionID.uuidString,
-        "event": ["type": "content_block_delta", "delta": ["type": "text_delta", "text": text]]])
+func textOnlyTestDelta(_ request: ClaudeTextOnlyRequest, text: String, parent: String? = nil) throws -> Data {
+    var value: [String: Any] = ["type": "stream_event", "session_id": request.sessionID.uuidString,
+        "event": ["type": "content_block_delta", "delta": ["type": "text_delta", "text": text]]]
+    if let parent { value["parent_tool_use_id"] = parent }
+    return try textOnlyTestLine(value)
 }
 
 func textOnlyTestReplay(_ request: ClaudeTextOnlyRequest, stringContent: Bool = false,
@@ -239,4 +265,67 @@ func textOnlyTestCommandLifecycle(_ request: ClaudeTextOnlyRequest, state: Strin
         "state": state, "uuid": UUID().uuidString, "session_id": request.sessionID.uuidString]
     value.merge(override) { _, new in new }
     return try textOnlyTestLine(value)
+}
+
+@Test("A tool name the command line carries also survives into the settings JSON")
+func namesAreJSONSafe() throws {
+    // The settings JSON is assembled as a raw string, so a name that would need
+    // escaping is filtered out of it. `--tools` does no such filtering, so any
+    // name the builder can put on the command line but not in the settings
+    // would leave argv and settings describing different turns.
+    var carried = ClaudeTextOnlyRequest.workToolNames
+    carried.append(ClaudeTextOnlyRequest.questionToolName)
+    carried.append(ClaudeTextHelperPolicy.toolName)
+    carried += ClaudeTextOnlyTool.allCases.map(\.toolName)
+    carried += ClaudeTextOnlyCommandBuilder.deniableToolNames
+    for name in carried {
+        #expect(ClaudeTextOnlyCommandBuilder.isJSONSafeName(name), "\(name) would be dropped from the settings")
+    }
+    let safe = ClaudeTextOnlyCommandBuilder.jsonNames(carried).split(separator: ",").count
+    #expect(safe == carried.count)
+}
+
+@Test("A connector's own tool names reach the settings JSON, and an unquotable name never does")
+func connectorNamesAreJSONSafe() throws {
+    // A connector tool is `mcp__<server>__<tool>` and the server key is
+    // `openbots_<sha256 hex>`, so every real connector name carries digits;
+    // a plugin-named server can also carry a hyphen.
+    for name in ["mcp__openbots_9f3a2b__click", "mcp__openbots_0123456789abcdef__take_snapshot",
+                 "mcp__chrome-devtools__navigate_page", "mcp__*", "WebSearch", "Bash"] {
+        #expect(ClaudeTextOnlyCommandBuilder.isJSONSafeName(name), "\(name) must survive")
+    }
+    for name in ["", "say \"hi\"", "back\\slash", "new\nline", "semi;colon", "Read(//Users/x/**)",
+                 "sp ace", "emoji🙂", "tab\tname"] {
+        #expect(!ClaudeTextOnlyCommandBuilder.isJSONSafeName(name), "\(name) must be refused")
+    }
+    #expect(ClaudeTextOnlyCommandBuilder.jsonNames(["mcp__openbots_9f3a2b__click", "bad name"])
+        == "\"mcp__openbots_9f3a2b__click\"")
+}
+
+@Test("A turn that keeps its session drops --no-session-persistence and the prompt-history block; a turn that continues one says --resume, byte for byte otherwise")
+func resumableTurnsChangeExactlyTwoThings() throws {
+    // Probed on 2.1.272: with CLAUDE_CODE_SKIP_PROMPT_HISTORY set the CLI writes no
+    // transcript at all, so a later --resume finds nothing; without it a
+    // second turn recalled the first in 1.3 s, from another folder too.
+    let plain = try textOnlyTestRequest()
+    let kept = try textOnlyTestRequest(persistsSession: true)
+    let continued = try textOnlyTestRequest(resumesSession: true)
+    #expect(!plain.persistsSession && !plain.resumesSession)
+    #expect(kept.persistsSession && !kept.resumesSession)
+    #expect(continued.persistsSession && continued.resumesSession)
+    let shipped = ClaudeTextOnlyCommandBuilder.arguments(for: plain)
+    let keptArguments = ClaudeTextOnlyCommandBuilder.arguments(for: kept)
+    let continuedArguments = ClaudeTextOnlyCommandBuilder.arguments(for: continued)
+    #expect(keptArguments == shipped.filter { $0 != "--no-session-persistence" })
+    #expect(!continuedArguments.contains("--no-session-persistence") && !continuedArguments.contains("--session-id"))
+    let expectedContinued = shipped.filter { $0 != "--no-session-persistence" }.map { $0 == "--session-id" ? "--resume" : $0 }
+    #expect(continuedArguments == expectedContinued)
+    #expect(continuedArguments.contains(continued.sessionID.uuidString.lowercased()))
+    #expect(ClaudeTextOnlyCommandBuilder.environment(for: plain)["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] == "1")
+    #expect(ClaudeTextOnlyCommandBuilder.environment(for: kept)["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] == nil)
+    #expect(ClaudeTextOnlyCommandBuilder.environment(for: continued)["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] == nil)
+    // Everything else about the environment is the same.
+    var keptEnvironment = ClaudeTextOnlyCommandBuilder.environment(for: kept)
+    keptEnvironment["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] = "1"
+    #expect(keptEnvironment == ClaudeTextOnlyCommandBuilder.environment(for: plain))
 }

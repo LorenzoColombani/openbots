@@ -5,6 +5,23 @@ import Testing
 
 @Suite("Exact displayed-claim correction anchors")
 struct MemoryLocalCorrectionAnchorResolverTests {
+    @Test("Both historical and current renderer receipts can anchor an exact displayed correction",
+          arguments: [UInt16(1), UInt16(2)])
+    func supportedRendererVersions(_ version: UInt16) async throws {
+        let f = try AnchorFixture(bodies: ["I prefer tea."], policyVersion: version)
+        let anchor = try await f.resolver.resolve(text: "Actually, I prefer coffee.", authority: f.authority, loadedClaims: f.loaded)
+        #expect(anchor == MemoryLocalCorrectionAnchor(receiptID: f.record.publication.receipt.id, reference: f.loaded[0].reference))
+        #expect(try await f.resolve()?.reference == f.loaded[0].reference)
+    }
+
+    @Test("Unsupported renderer versions never confer a displayed correction anchor",
+          arguments: [UInt16(0), UInt16(3), UInt16.max])
+    func unsupportedRendererVersions(_ version: UInt16) async throws {
+        let f = try AnchorFixture(bodies: ["I prefer tea."], policyVersion: version)
+        #expect(try await f.resolver.resolve(text: "Actually, I prefer coffee.", authority: f.authority, loadedClaims: f.loaded) == nil)
+        #expect(try await f.resolve() == nil)
+    }
+
     @Test("Exact-body forget, confirmation and uncertainty commands anchor one of several displayed claims",
           arguments: ["Forget that ", "I confirm from first-hand knowledge: ", "Remember as uncertain: "])
     func exactBody(_ prefix: String) async throws {
@@ -121,7 +138,8 @@ private struct AnchorFixture: Sendable {
     let store: AnchorTestStore
     var resolver: MemoryLocalCorrectionAnchorResolver { .init(publications: store, messages: store) }
 
-    init(bodies: [String], displayedCount: Int? = nil, project: Bool = false, global: Bool = false, withdrawn: Bool = false) throws {
+    init(bodies: [String], displayedCount: Int? = nil, project: Bool = false, global: Bool = false, withdrawn: Bool = false,
+         policyVersion: UInt16 = MemoryPublicationReceipt.currentPolicyVersion) throws {
         let scope: MemoryScope = global ? .user : project ? .project(projectID) : .teammate(bot)
         loaded = try bodies.map { body in
             let claim = MemoryClaim(id: MemoryClaimID(UUID()), body: body,
@@ -145,7 +163,7 @@ private struct AnchorFixture: Sendable {
             createdAt: date, updatedAt: date)
         let reply = try Message(id: MessageID(UUID()), conversationID: chat, sequence: 2, author: .system, deliveryState: .completed,
             parts: [MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text(text))], createdAt: date, updatedAt: date)
-        let receipt = MemoryPublicationReceipt(id: UUID(), policyVersion: 1, runID: RunID(UUID()), messageID: reply.id,
+        let receipt = MemoryPublicationReceipt(id: UUID(), policyVersion: policyVersion, runID: RunID(UUID()), messageID: reply.id,
             teammateID: bot, selectedProjectID: project ? projectID : nil, intent: withdrawn ? .historyOverview : .overview,
             renderedTextDigest: MemoryClaimDigests.bytes(Data(text.utf8)),
             units: [.init(kind: .overview, references: shown.map(\.reference))],

@@ -3,6 +3,11 @@ import Foundation
 /// Fixed storage-read ceilings, distinct from the assembler's smaller prompt budget.
 public enum ReadContextLimits {
     public static let recentMessages = 12
+    /// How far back the recent window may look, in stored rows, for messages
+    /// this bot could be shown at all. A team room fills with other members'
+    /// replies and with handoff briefs; those are never admitted, so they must
+    /// not spend the twelve recent slots. The scan stays bounded either way.
+    public static let recentCandidateScan = 240
     public static let olderMessages = 12
     public static let messageUTF8Bytes = 8_192
     public static let memoryHeadsPerScope = 8
@@ -177,16 +182,35 @@ public struct ReadContextReceipt: Codable, Equatable, Sendable {
 /// The assembler uses the selected subset; this is the same durable, path-free receipt.
 public typealias ReadContextReferences = ReadContextReceipt
 
+/// How the turn a quoted message belongs to ended, as far as that message is
+/// concerned. A request is whole once it was acknowledged; a reply is whole
+/// only when its turn ran to the end.
+public enum ReadContextMessageEnding: String, Equatable, Sendable {
+    /// The message is complete: the turn finished.
+    case finished
+    /// The reply was cut off before it finished: Stop or a correction
+    /// ended the turn, and what is quoted is what the bot had written by then.
+    case stopped
+}
+
 public struct ReadContextMessage: Equatable, Sendable, Identifiable {
     public var id: MessageID { reference.messageID }
     public var sequence: Int64 { reference.sequence }
     public let author: MessageAuthor
     public let text: String
     public let reference: ReadContextMessageReference
+    /// `stopped` only on the reply of a stopped pair; the request
+    /// of that pair, and every message of a turn that finished, is `finished`.
+    public let ending: ReadContextMessageEnding
 
-    /// Repository output contains only succeeded, acknowledged and completed text turns.
-    public init(author: MessageAuthor, text: String, reference: ReadContextMessageReference) {
-        self.author = author; self.text = text; self.reference = reference
+    /// Repository output contains the text turns that succeeded, acknowledged
+    /// and completed, and every stopped pair, by Stop or by a correction: its
+    /// request acknowledged, its reply cut off
+    /// and marked `stopped`. A failed or declined turn and a team leg
+    /// never come out of it.
+    public init(author: MessageAuthor, text: String, reference: ReadContextMessageReference,
+                ending: ReadContextMessageEnding = .finished) {
+        self.author = author; self.text = text; self.reference = reference; self.ending = ending
     }
 }
 
@@ -218,6 +242,18 @@ public struct ReadContextSnapshot: Equatable, Sendable {
                 memoryDocuments: [MemoryDocument], omissions: ReadContextOmissions) {
         self.receipt = receipt; self.recentMessages = recentMessages; self.olderMessages = olderMessages
         self.memoryDocuments = memoryDocuments; self.omissions = omissions
+    }
+}
+
+extension ReadContextSnapshot {
+    /// The same candidates without one run's messages: a correction quotes the
+    /// turn it stopped in its own block, so that pair leaves its history. The
+    /// receipt is kept whole; a selection is always a subset of it.
+    public func leavingOut(runID: RunID) -> ReadContextSnapshot {
+        ReadContextSnapshot(receipt: receipt,
+            recentMessages: recentMessages.filter { $0.reference.runID != runID },
+            olderMessages: olderMessages.filter { $0.reference.runID != runID },
+            memoryDocuments: memoryDocuments, omissions: omissions)
     }
 }
 

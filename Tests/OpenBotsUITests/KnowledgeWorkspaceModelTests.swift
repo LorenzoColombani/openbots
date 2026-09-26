@@ -238,7 +238,7 @@ func knowledgeSnapshotChoiceRequiresExplicitConfirmation() async {
     )
     let destination = KnowledgeSnapshotDestination(
         id: knowledgeUUID(301),
-        exactDisplayPath: "/Users/lorenzo/Obsidian/OpenBots snapshot.md"
+        exactDisplayPath: "/Users/alex/Obsidian/OpenBots snapshot.md"
     )
     let recorder = KnowledgeActionRecorder()
     let model = KnowledgeWorkspaceModel(

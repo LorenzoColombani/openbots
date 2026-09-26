@@ -289,6 +289,27 @@ func compositionBootstrapsAndOpensRepositoryRoundTrip() async throws {
     #expect(context.databaseFacts.foreignKeysEnabled)
     #expect(try await context.runJournalRepository.run(id: RunID(UUID())) == nil)
     #expect(try await context.actionProposalRepository.proposals(conversationID: ConversationID(UUID()), limit: 10).isEmpty)
+    #expect(try await context.handoffRepository.records(conversationID: ConversationID(UUID())).isEmpty)
+    // The launch restores the web switches through this seam, so the context
+    // names it rather than leaving the composition root to ask a repository it
+    // was handed whether it happens to be one.
+    let switches = try await context.agenticWebSwitchRepository.loadWebSwitches()
+    #expect(switches == AgenticWebSwitchSnapshot())
+    try await context.agenticWebSwitchRepository.setAppWebSwitch(.webSearch, enabled: true)
+    #expect(try await context.agenticWebSwitchRepository.loadWebSwitches().app == [.webSearch])
+    // The connector grants come back through their own seam, for the same
+    // reason: the launch restores them before any turn can read one, and it
+    // must not have to ask a repository whether it happens to be one.
+    let connectors = try await context.connectorAccessRepository.loadConnectorAccess()
+    #expect(connectors == ConnectorAccessState())
+    var enabled = connectors
+    enabled.revision = 1
+    enabled.appEnabled = true
+    try await context.connectorAccessRepository.saveConnectorAccess(enabled, expectedRevision: 0)
+    #expect(try await context.connectorAccessRepository.loadConnectorAccess().appEnabled)
+    // The two seams are separate rows: turning connectors on leaves the web
+    // switches exactly as they were.
+    #expect(try await context.agenticWebSwitchRepository.loadWebSwitches().app == [.webSearch])
     let historyRequest = try ConversationOutcomeHistoryRequest(conversationID: ConversationID(UUID()), teammateID: TeammateID(UUID()))
     let history = try await ConversationOutcomeHistoryService(repository: context.outcomeHistoryRepository).history(historyRequest)
     #expect(history.scope == .unavailable && history.outcomes.isEmpty && !history.hasMore)
@@ -387,6 +408,59 @@ func compositionReopensExistingInstallation() async throws {
     #expect(!FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
 }
 
+/// Seen once: a five-day-old rollback bundle, launched from a Dock tile
+/// that had followed the displaced app, opened the workspace a newer build had
+/// migrated. It failed closed, as it must, but reported a generic open failure.
+@Test("Reopening a workspace whose ledger is newer than this build fails closed with its own error and touches nothing")
+func compositionRefusesAWorkspaceNewerThanThisBuildByName() async throws {
+    let fixture = try StoragePersistenceCompositionFixture()
+    let plan = try fixture.plan()
+    let decision = try fixture.decision()
+    let keychain = InMemoryKeychainClient()
+    let executor = CompositionExecutorSpy()
+    let futureVersion = StoragePersistenceCompositionService.expectedMigrationCount + 7
+    var ledgerBefore: [Int64] = []
+    do {
+        let context = try await StoragePersistenceCompositionService(
+            layout: fixture.layout, bootstrapper: fixture.bootstrapper(),
+            keychainClient: keychain, teammateExecutor: executor
+        ).bootstrapAndOpen(using: plan, protection: .ordinarySQLite, decision: decision)
+        let store = try #require(context.teammateRepository as? SQLiteStore)
+        try await store.forgeFutureMigrationForStartupTest(version: futureVersion)
+        ledgerBefore = try await store.query(sql: "SELECT version FROM schema_migrations ORDER BY version;")
+            .map { try $0.integer("version") }
+    }
+    #expect(ledgerBefore.last == Int64(futureVersion))
+    let receiptBefore = try Data(contentsOf: fixture.layout.installationReceiptURL)
+    let databaseBefore = try FileManager.default.attributesOfItem(atPath: fixture.layout.databaseURL.path)
+
+    await #expect(throws: StoragePersistenceCompositionError.self) {
+        try await StoragePersistenceCompositionService(
+            layout: fixture.layout, keychainClient: keychain, teammateExecutor: executor
+        ).reopenExisting()
+    }
+    do {
+        _ = try await StoragePersistenceCompositionService(
+            layout: fixture.layout, keychainClient: keychain, teammateExecutor: executor
+        ).reopenExisting()
+        Issue.record("a newer workspace must not open")
+    } catch let error as StoragePersistenceCompositionError {
+        guard case let .databaseNewerThanApplication(_, schemaVersion, supportedVersion) = error else {
+            Issue.record("wrong error: \(error)")
+            return
+        }
+        #expect(schemaVersion == futureVersion)
+        #expect(supportedVersion == SQLiteStore.supportedSchemaVersion)
+    }
+    // Nothing was migrated, repaired or rewritten: the receipt and the database file are as before.
+    let databaseAfter = try FileManager.default.attributesOfItem(atPath: fixture.layout.databaseURL.path)
+    #expect(databaseAfter[.size] as? UInt64 == databaseBefore[.size] as? UInt64)
+    #expect(databaseAfter[.modificationDate] as? Date == databaseBefore[.modificationDate] as? Date)
+    #expect(try Data(contentsOf: fixture.layout.installationReceiptURL) == receiptBefore)
+    #expect(await keychain.recordedOperations().isEmpty)
+    #expect(await executor.calls() == 0)
+}
+
 @Test("Full startup migrates schema 12 or 13 identity, chat and unsent draft to the current schema without authority calls", arguments: [12, 13])
 func compositionMigratesSchema12AvatarIdentityAndDraftAcrossReopen(priorSchema: Int) async throws {
     let fixture = try StoragePersistenceCompositionFixture()
@@ -432,7 +506,11 @@ func compositionMigratesSchema12AvatarIdentityAndDraftAcrossReopen(priorSchema: 
         #expect(try await store.runtimeFacts().migrationCount == priorSchema)
         #expect(try await store.query(sql: "SELECT version FROM schema_migrations ORDER BY version;")
             .map { try $0.integer("version") } == Array(1...Int64(priorSchema)))
-        #expect(try await store.nonOrderingTriggerSignaturesForStartupTest() == originalTriggers)
+        // Migration 23's handoffs trigger belongs to the handoffs table, so a
+        // rewind that drops the table legitimately takes the trigger with it.
+        // The reopen assertion below still proves 23 recreates it byte for byte.
+        #expect(try await store.nonOrderingTriggerSignaturesForStartupTest()
+            == originalTriggers.filter { !$0.hasPrefix("handoffs_") })
     }
     #expect(previousStore == nil)
     let receiptBytes = try Data(contentsOf: fixture.layout.installationReceiptURL)
@@ -446,7 +524,6 @@ func compositionMigratesSchema12AvatarIdentityAndDraftAcrossReopen(priorSchema: 
                 layout: fixture.layout, keychainClient: keychain, teammateExecutor: executor
             ).reopenExisting()
             previousStore = context.teammateRepository as? SQLiteStore
-            #expect(context.databaseFacts.migrationCount == 20)
             #expect(context.databaseFacts.migrationCount == StoragePersistenceCompositionService.expectedMigrationCount)
             #expect(context.installationReceipt.installationID == plan.installationID)
             #expect(context.installationReceipt.protectionDecision == decision)
@@ -479,18 +556,59 @@ private extension SQLiteStore {
             // Reconstruct the actual old schema, not just its migration ledger.
             // Future migrations must add their explicit inverse here; retaining
             // an unknown newer ledger entry makes the fixture assertions fail.
+            // Migration 27's chain columns, indexes and triggers belong to the
+            // handoffs table, removed below along with migrations 23 and 24.
+            // Migration 25 (work-channel record): the activity table goes; the
+            // message reclass has nothing to undo on this fixture's data.
+            _ = try execute(sql: "DROP TABLE run_activity;")
+            _ = try execute(sql: "DROP TABLE handoffs;")
+            _ = try execute(sql: "DROP TRIGGER chat_navigation_selected_direct_insert;")
+            _ = try execute(sql: "DROP TRIGGER chat_navigation_selected_direct_update;")
+            _ = try execute(sql: """
+                CREATE TRIGGER chat_navigation_selected_direct_insert
+                BEFORE INSERT ON chat_navigation_state
+                WHEN NEW.selected_conversation_id IS NOT NULL
+                BEGIN
+                    SELECT RAISE(ABORT, 'selected conversation must be direct')
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM conversations
+                        WHERE id=NEW.selected_conversation_id AND kind='direct'
+                    );
+                END;
+                """)
+            _ = try execute(sql: """
+                CREATE TRIGGER chat_navigation_selected_direct_update
+                BEFORE UPDATE OF selected_conversation_id ON chat_navigation_state
+                WHEN NEW.selected_conversation_id IS NOT NULL
+                BEGIN
+                    SELECT RAISE(ABORT, 'selected conversation must be direct')
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM conversations
+                        WHERE id=NEW.selected_conversation_id AND kind='direct'
+                    );
+                END;
+                """)
+            // Migration 31: the deleted-bot marks.
+            _ = try execute(sql: "DROP TABLE deleted_teammates;")
+            // Migration 30: each turn's stored history proof.
+            _ = try execute(sql: "DROP TABLE read_context_turn_proofs;")
+            _ = try execute(sql: "DROP INDEX agentic_job_sessions;")
+            _ = try execute(sql: "DROP TABLE agentic_job_states;")
             _ = try execute(sql: "DROP TABLE claude_text_execution_evidence;")
             _ = try execute(sql: "DROP TABLE controlled_memory_text_turns;")
             _ = try execute(sql: "DROP TABLE memory_local_correction_clarifications;")
             _ = try execute(sql: "DROP TABLE memory_local_corrections;")
             _ = try execute(sql: "DROP TABLE memory_conversation_publications;")
             _ = try execute(sql: "DROP TABLE memory_publication_intents;")
+            // Migration 29: the hirer who wrote a profile, on teammates only.
+            _ = try execute(sql: "ALTER TABLE teammates DROP COLUMN profile_written_by_hirer;")
             for table in ["teammates", "teammate_profile_revisions"] {
-                for column in ["claude_context_window", "claude_effort", "claude_model"] {
+                for column in ["seat_escalate", "seat_interfaces", "seat_never", "seat_purview",
+                               "claude_context_window", "claude_effort", "claude_model"] {
                     _ = try execute(sql: "ALTER TABLE \(table) DROP COLUMN \(column);")
                 }
             }
-            _ = try execute(sql: "DELETE FROM schema_migrations WHERE version IN (15,16,17,18,19,20);")
+            _ = try execute(sql: "DELETE FROM schema_migrations WHERE version IN (15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31);")
             for suffix in ["teammate_lifecycle", "conversation_lifecycle", "participant_insert", "participant_update", "participant_delete"] {
                 _ = try execute(sql: "DROP TRIGGER bot_sidebar_order_\(suffix);")
             }
@@ -505,8 +623,23 @@ private extension SQLiteStore {
         }
     }
 
+    /// Pretends a newer build already migrated this workspace: one ledger row
+    /// beyond this build's manifest, nothing else.
+    func forgeFutureMigrationForStartupTest(version: Int) throws {
+        try transaction {
+            _ = try execute(sql: "INSERT INTO schema_migrations(version,name,checksum,applied_at) VALUES (\(version),'future-build-test','0',0);")
+        }
+    }
+
     func nonOrderingTriggerSignaturesForStartupTest() throws -> [String] {
-        try query(sql: "SELECT name,sql FROM sqlite_master WHERE type='trigger' AND name NOT LIKE 'bot_sidebar_order_%' ORDER BY name;")
+        // bot_sidebar_order_% (migrations 14/21) and chat_navigation_selected_direct_%
+        // (migrations 3/22) are both versioned by later migrations, so they are
+        // compared elsewhere rather than expected to survive a schema rewind unchanged.
+        try query(sql: """
+            SELECT name,sql FROM sqlite_master WHERE type='trigger'
+                AND name NOT LIKE 'bot_sidebar_order_%' AND name NOT LIKE 'chat_navigation_selected_direct_%'
+            ORDER BY name;
+            """)
             .map { try $0.text("name") + "|" + $0.text("sql") }
     }
 }
@@ -566,7 +699,7 @@ func compositionRecoversOnlyMissingDisposableRoot(kind: OwnedRootKind) async thr
 }
 
 @Test("Durable teammate identity selection and fixture chat survive a discarded graph and reopen")
-func durableSprintOneStateSurvivesRelaunch() async throws {
+func durablePreviewStateSurvivesRelaunch() async throws {
     let fixture = try StoragePersistenceCompositionFixture()
     let plan = try fixture.plan()
     let decision = PreviewDatabaseProtectionDecision.receipt

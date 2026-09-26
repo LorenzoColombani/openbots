@@ -115,7 +115,7 @@ final class ReferenceUtilityAccessibilityTests: XCTestCase {
         let host = UtilitySearchNativeHost(view: view)
         defer { host.close() }
         try await host.settle()
-        let field = try XCTUnwrap(host.fields.first { $0.placeholderString == "Search teammates and saved messages" })
+        let field = try XCTUnwrap(host.fields.first { $0.placeholderString == "Search bots and saved messages" })
         XCTAssertTrue(field.isEnabled)
         XCTAssertTrue(field.isEditable)
         XCTAssertTrue(field.stringValue.utf8.elementsEqual(exactQuery.utf8))

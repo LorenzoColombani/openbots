@@ -52,6 +52,19 @@ extension SQLiteStore: ClaudeExecutionEvidenceRepository {
             return try textExecutionEvidenceRow(current)?.evidence
         }
     }
+
+    public func latestTextTurnExecutionEvidence(conversationID: ConversationID) async throws -> ClaudeExecutionEvidence? {
+        try transaction {
+            let rows = try query(sql: """
+                SELECT w.id AS id FROM work_runs w
+                JOIN claude_text_execution_evidence e ON e.run_id = w.id
+                WHERE w.conversation_id=? ORDER BY w.created_at DESC, w.id DESC LIMIT 1;
+                """, bindings: [.text(conversationID.persistedValue)])
+            guard let row = rows.first, let raw = UUID(uuidString: try row.text("id")) else { return nil }
+            let current = try requiredJournalRecord(RunID(raw))
+            return try textExecutionEvidenceRow(current)?.evidence
+        }
+    }
 }
 
 extension SQLiteStore {
@@ -119,7 +132,14 @@ extension SQLiteStore {
     }
 
     private static func executionTerminalState(_ outcome: TextTurnOutcome) -> WorkRunState {
-        switch outcome { case .succeeded: .succeeded; case .failed: .failed; case .interrupted: .interrupted }
+        // A declined turn is journalled `failed` like any other turn that ended
+        // without an answer. What tells the two apart later is the saved reply
+        // status, not the run state.
+        switch outcome {
+        case .succeeded: .succeeded
+        case .failed, .declined: .failed
+        case .interrupted: .interrupted
+        }
     }
 
     func textTurnDiagnosticMatches(_ current: RunJournalRecord, diagnosticCode: TextTurnDiagnosticCode?) throws -> Bool {

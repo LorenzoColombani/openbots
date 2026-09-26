@@ -26,15 +26,50 @@ extension SQLiteStore: TextTurnRepository {
             }
         }
         let expiry = try journalExpiry(now: now, duration: leaseDuration)
+        // A handoff leg's input is written by the sender, not the user. Only an
+        // accepted leg addressed to this receiver in this conversation earns it.
+        // Bot-to-bot traffic is the work channel: a lead's brief, a
+        // member's reply to it and the report the lead compiles from are saved
+        // as work-audit messages, kept whole and never drawn in the transcript.
+        let expectedAuthor: MessageAuthor
+        let expectedClass: OutputClass
+        let replyClass: OutputClass
+        if identity.workerResultID != nil {
+            // A worker's result wakes its holder: the app
+            // wrote the note, it is the work channel, and the holder's answer
+            // is what reaches the person.
+            guard identity.handoffLegID == nil, identity.handoffReportLegID == nil else { throw TextTurnRepositoryError.invalidRequest }
+            expectedAuthor = .system
+            expectedClass = .workAudit
+            replyClass = .conversation
+        } else if let legID = identity.handoffLegID {
+            guard identity.handoffReportLegID == nil,
+                  let sender = try handoffLegMatches(legID: legID, request: request) else { throw TextTurnRepositoryError.invalidRequest }
+            expectedAuthor = sender
+            expectedClass = .workAudit
+            replyClass = .workAudit
+        } else if let legID = identity.handoffReportLegID {
+            guard let member = try handoffReportMatches(legID: legID, request: request) else { throw TextTurnRepositoryError.invalidRequest }
+            expectedAuthor = member
+            expectedClass = .workAudit
+            // The lead may request another member. Only its terminal compile
+            // is promoted to the conversation in the finish transaction.
+            replyClass = .workAudit
+        } else {
+            expectedAuthor = .user
+            expectedClass = .conversation
+            replyClass = .conversation
+        }
         guard request.submittedAt <= now, userMessage.id == request.initiatingMessageID,
-              userMessage.conversationID == request.conversationID, userMessage.author == .user,
-              userMessage.outputClass == .conversation, userMessage.deliveryState == .pending,
+              userMessage.conversationID == request.conversationID, userMessage.author == expectedAuthor,
+              userMessage.outputClass == expectedClass, userMessage.deliveryState == .pending,
               userMessage.createdAt == request.submittedAt, userMessage.updatedAt == request.submittedAt,
               userMessage.parts.count == 1, userMessage.parts[0].content == .text(request.initialInput.text),
               userMessage.sequence < Int64.max, userMessage.id != identity.replyMessageID,
               userMessage.parts[0].id != identity.replyPartID else { throw TextTurnRepositoryError.invalidRequest }
         let reply = try Message(id: identity.replyMessageID, conversationID: request.conversationID,
-            sequence: userMessage.sequence + 1, author: controlled ? .system : .teammate(request.teammateID), deliveryState: .pending,
+            sequence: userMessage.sequence + 1, author: controlled ? .system : .teammate(request.teammateID),
+            outputClass: replyClass, deliveryState: .pending,
             parts: [MessagePart(id: identity.replyPartID, ordinal: 0, content: .status(Self.textTurnPendingStatus))],
             createdAt: request.submittedAt, updatedAt: request.submittedAt)
         let frozen = try journalJSON(request, maximum: 8 * 1_024 * 1_024)
@@ -62,9 +97,22 @@ extension SQLiteStore: TextTurnRepository {
             }
             guard try query(sql: "SELECT 1 AS found FROM work_runs WHERE teammate_id=? AND state NOT IN ('succeeded','failed','interrupted') LIMIT 1;",
                 bindings: [.text(request.teammateID.persistedValue)]).isEmpty else { throw RunJournalError.conflictingActiveRun }
+            // The leg was proved before this transaction opened. Prove it again
+            // inside it so a concurrent transition cannot slip a turn through.
+            if let legID = identity.handoffLegID {
+                guard try handoffLegMatches(legID: legID, request: request) == expectedAuthor else {
+                    throw TextTurnRepositoryError.invalidRequest
+                }
+            }
+            if let legID = identity.handoffReportLegID {
+                guard try handoffReportMatches(legID: legID, request: request) == expectedAuthor else {
+                    throw TextTurnRepositoryError.invalidRequest
+                }
+            }
             try appendMessageGraph(userMessage, expectedPreviousSequence: expectedPreviousSequence)
             try appendMessageGraph(reply, expectedPreviousSequence: userMessage.sequence)
-            try validateJournalInput(request.initialInput, conversationID: request.conversationID, submittedAt: request.submittedAt)
+            try validateJournalInput(request.initialInput, conversationID: request.conversationID, submittedAt: request.submittedAt,
+                                     expectedAuthor: expectedAuthor)
             _ = try execute(sql: """
                 INSERT INTO work_runs(id,teammate_id,conversation_id,initiating_message_id,selected_project_id,
                     profile_revision,state,created_at,updated_at) VALUES (?,?,?,?,?,?,'queued',?,?);
@@ -73,8 +121,17 @@ extension SQLiteStore: TextTurnRepository {
                     request.selectedProjectID.map { .text($0.persistedValue) } ?? .null,
                     .integer(Int64(request.profileRevision)), .real(request.submittedAt.timeIntervalSince1970),
                     .real(request.submittedAt.timeIntervalSince1970)])
+            if let legID = identity.handoffReportLegID {
+                let claimed = try execute(sql: "UPDATE handoffs SET report_run_id=? WHERE leg_id=? AND report_run_id IS NULL;",
+                    bindings: [.text(request.runID.persistedValue), .text(legID.persistedValue)])
+                guard claimed == 1 else { throw TextTurnRepositoryError.invalidRequest }
+            }
             _ = try execute(sql: "INSERT INTO run_journal_metadata(run_id,request_json,origin,revision) VALUES (?,?,'executor',1);",
                 bindings: [.text(request.runID.persistedValue), .text(frozen)])
+            // What this turn's receipt rests on is proved now, from the stored
+            // proofs of the turns it quotes, so no later read walks back past it.
+            try storeReadContextTurnProofs(conversationID: request.conversationID, teammateID: request.teammateID,
+                through: userMessage.sequence)
             try insertJournalInput(request.initialInput, runID: request.runID, submittedAt: request.submittedAt, now: request.submittedAt)
             try insertJournalEntry(id: request.runID, revision: 1, kind: .enqueued, state: .queued,
                 messageID: request.initiatingMessageID, now: request.submittedAt)
@@ -105,17 +162,21 @@ extension SQLiteStore: TextTurnRepository {
                 throw TextTurnRepositoryError.invalidEvidence
             }
             try validateTextSnapshot(text, previous: before.replyText)
+            // A checkpoint is the process proving it is alive and writing, so
+            // the lease moves on with it instead of running out under a long
+            // reply. The lease taken at the start covers only the first stretch.
+            let lease = try renewedJournalLease(current, token: token, now: now, duration: Self.textTurnLeaseDuration)
             if current.state == .starting, inputState != .queued {
-                current = try updateJournal(current, state: .running, lease: current.lease, kind: .stateChanged, now: now)
+                current = try updateJournal(current, state: .running, lease: lease, kind: .stateChanged, now: now)
             }
             if inputState != before.inputState {
                 try writeTextInput(current, state: inputState, delivery: inputState == .submitted ? .submitted : .acknowledged, now: now)
-                current = try updateJournal(current, state: current.state, lease: current.lease,
+                current = try updateJournal(current, state: current.state, lease: lease,
                     kind: inputState == .submitted ? .inputSubmitted : .inputAcknowledged,
                     messageID: current.request.initiatingMessageID, now: now)
             }
             try writeTextReply(current, text: text, delivery: .pending, status: Self.textTurnPendingStatus, now: now)
-            current = try updateJournal(current, state: current.state, lease: current.lease, kind: .stateChanged, now: now)
+            current = try updateJournal(current, state: current.state, lease: lease, kind: .stateChanged, now: now)
             return try readTextTurnSnapshot(current)
         }
     }
@@ -157,6 +218,33 @@ extension SQLiteStore: TextTurnRepository {
         }
     }
 
+    public func latestTextTurn(conversationID: ConversationID, teammateID: TeammateID) async throws -> TextTurnSnapshot? {
+        try transaction {
+            // By the request's place in the conversation, not by the clock: a
+            // stopped turn is settled after a turn that had no chance to run
+            // yet, and two turns can share one timestamp under a coarse clock.
+            // Only a turn the bot ran for the user counts: a team leg's brief
+            // and the report a lead compiles from a member's words are
+            // work-audit rows authored by a bot, and quoting one of those as
+            // "the request you were working on" would hand a correction the
+            // member's text as the user's.
+            let rows = try query(sql: """
+                SELECT r.id FROM work_runs r JOIN run_journal_metadata m ON m.run_id=r.id
+                JOIN messages u ON u.id=r.initiating_message_id AND u.conversation_id=r.conversation_id
+                WHERE r.conversation_id=? AND r.teammate_id=? AND m.origin='executor'
+                    AND u.author_kind='user' AND u.author_teammate_id IS NULL AND u.output_class='conversation'
+                    AND CASE WHEN json_valid(m.request_json)
+                        THEN json_type(m.request_json,'$.textTurnIdentity') END='object'
+                ORDER BY u.sequence DESC,r.id LIMIT 1;
+                """, bindings: [.text(conversationID.persistedValue), .text(teammateID.persistedValue)])
+            guard let row = rows.first else { return nil }
+            let snapshot = try readTextTurnSnapshot(requiredJournalRecord(parseID(RunID.self, row.text("id"))))
+            guard snapshot.run.request.conversationID == conversationID,
+                  snapshot.run.request.teammateID == teammateID else { throw TextTurnRepositoryError.invalidRequest }
+            return snapshot
+        }
+    }
+
     public func interruptTextTurn(id: RunID, expectedRevision: Int64, appOwnerID: UUID,
                                   processAbsence: TextTurnProcessAbsence, now: Date) async throws -> TextTurnSnapshot {
         try transaction {
@@ -188,15 +276,26 @@ extension SQLiteStore: TextTurnRepository {
                 """, bindings: [.text(conversationID.persistedValue)]
                     + messageIDs.map { .text($0.persistedValue) } + messageIDs.map { .text($0.persistedValue) })
             guard rows.count <= 100 else { throw TextTurnRepositoryError.invalidRequest }
+            // A page of turns is read ahead in a handful of statements, not
+            // ten per turn: the journal record, input and reply of every run
+            // come from the same rows the one-run read would fetch, one at a
+            // time, on its own.
+            let runIDs = try rows.map { try parseID(RunID.self, $0.text("id")) }
+            var page = try journalRowPage(runIDs: runIDs)
+            let records = try runIDs.map { try requiredJournalRecord($0, from: .page(page)) }
+            try addTextTurnReplies(records.map { try textIdentity($0.request).replyMessageID }, to: &page)
             var seen: Set<MessageID> = []
-            return try rows.map { row in
-                let snapshot = try readTextTurnSnapshot(requiredJournalRecord(parseID(RunID.self, row.text("id"))))
+            return try records.map { record in
+                let snapshot = try readTextTurnSnapshot(record, from: .page(page))
                 let request = snapshot.run.request, identity = try textIdentity(request)
                 guard request.conversationID == conversationID, seen.insert(request.initiatingMessageID).inserted else {
                     throw TextTurnRepositoryError.invalidRequest
                 }
+                // `requiredJournalRecord` already proves this request against
+                // the run row, so the request teammate is `work_runs.teammate_id`.
                 return TextTurnMessageProvenance(messageID: request.initiatingMessageID, replyMessageID: identity.replyMessageID,
-                    runID: snapshot.run.id, state: snapshot.run.state, inputState: snapshot.inputState)
+                    runID: snapshot.run.id, teammateID: request.teammateID,
+                    state: snapshot.run.state, inputState: snapshot.inputState, outcome: snapshot.outcome)
             }
         }
     }
@@ -204,9 +303,47 @@ extension SQLiteStore: TextTurnRepository {
     private static let textTurnPendingStatus = "Waiting for Claude's reply."
     private static let textTurnReplyLimit = 1_024 * 1_024
     private static let textTurnDiagnosticLimit = 128
+    /// How far past each checkpoint a text turn's lease runs. The service begins
+    /// a turn with this same span; every checkpoint carries it forward from its
+    /// own clock reading, so a turn lives as long as it keeps writing and its
+    /// lease lapses only once its process has stopped.
+    static let textTurnLeaseDuration: TimeInterval = 180
+
+    /// How a saved turn ended. `work_runs.state` cannot answer it alone: a
+    /// declined turn and a broken one are both journalled `failed`, and only
+    /// the saved reply status tells them apart. This is not a general outcome
+    /// column: exactly one sentence is recognised, and every other saved status
+    /// is an ordinary failure, which is what a build written before the decline
+    /// existed also concludes.
+    private static func textTurnOutcome(state: WorkRunState, replyKind: String,
+                                        replyStatus: String) -> TextTurnOutcome? {
+        switch state {
+        case .succeeded: .succeeded
+        case .interrupted: .interrupted
+        case .failed:
+            replyKind == "status" && replyStatus == TextTurnOutcome.declinedReplyStatus ? .declined : .failed
+        case .queued, .starting, .running, .waitingForUser, .stopping: nil
+        }
+    }
 
     private static func textTurnDiagnosticStatus(_ code: TextTurnDiagnosticCode) -> String {
         "OpenBots diagnostic: \(code.rawValue)"
+    }
+
+    /// The sender an accepted leg names, when that leg is addressed to this
+    /// request's receiver in this request's conversation. Nil otherwise.
+    private func handoffLegMatches(legID: HandoffLegID, request: WorkRequest) throws -> MessageAuthor? {
+        guard let parties = try handoffLegParties(legID: legID), parties.receiver == request.teammateID,
+              parties.conversationID == request.conversationID else { return nil }
+        return .teammate(parties.sender)
+    }
+
+    /// The lead answering a member's finished leg: the report is the member's
+    /// words, so the member authors the input and the lead the reply.
+    private func handoffReportMatches(legID: HandoffLegID, request: WorkRequest) throws -> MessageAuthor? {
+        guard let parties = try handoffLegReportParties(legID: legID), parties.sender == request.teammateID,
+              parties.conversationID == request.conversationID else { return nil }
+        return .teammate(parties.receiver)
     }
 
     func textIdentity(_ request: WorkRequest) throws -> TextTurnIdentity {
@@ -216,22 +353,20 @@ extension SQLiteStore: TextTurnRepository {
         return identity
     }
 
-    func readTextTurnSnapshot(_ current: RunJournalRecord) throws -> TextTurnSnapshot {
+    /// `source` is where the run's rows come from: read live for one turn,
+    /// or read ahead for a page of them (see JournalRowSource). The checks
+    /// are the same either way.
+    func readTextTurnSnapshot(_ current: RunJournalRecord, from source: JournalRowSource = .live) throws -> TextTurnSnapshot {
         guard current.origin == .executor else { throw TextTurnRepositoryError.invalidRequest }
         let identity = try textIdentity(current.request)
         let controlled = identity.controlledMemoryPolicyVersion != nil
-        if controlled { try requireControlledTextTurn(current) } else { try requireRawTextTurn(current) }
-        let rows = try query(sql: """
-            SELECT m.conversation_id,m.author_kind,m.author_teammate_id,m.output_class,m.delivery_state,
-                p.id,p.ordinal,p.kind,p.text_value,p.referenced_id
-            FROM messages m JOIN message_parts p ON p.message_id=m.id WHERE m.id=?
-            ORDER BY p.ordinal LIMIT 3;
-            """, bindings: [.text(identity.replyMessageID.persistedValue)])
-        guard (1...2).contains(rows.count), let row = rows.first,
+        if controlled { try requireControlledTextTurn(current, from: source) } else { try requireRawTextTurn(current, from: source) }
+        let rows = try textTurnReplyRows(identity.replyMessageID, from: source)
+        guard (1...28).contains(rows.count), let row = rows.first,
               try row.text("conversation_id") == current.request.conversationID.persistedValue,
               try row.text("author_kind") == (controlled ? "system" : "teammate"),
               try row.optionalText("author_teammate_id") == (controlled ? nil : current.request.teammateID.persistedValue),
-              try row.text("output_class") == "conversation", try row.text("id") == identity.replyPartID.persistedValue,
+              ["conversation", "workAudit"].contains(try row.text("output_class")), try row.text("id") == identity.replyPartID.persistedValue,
               try row.integer("ordinal") == 0, try row.optionalText("referenced_id") == nil,
               MessageDeliveryState(rawValue: try row.text("delivery_state")) != nil else {
             throw TextTurnRepositoryError.invalidReply
@@ -245,10 +380,20 @@ extension SQLiteStore: TextTurnRepository {
                       publication.publication.text.utf8.elementsEqual(saved.utf8) else { throw TextTurnRepositoryError.invalidReply }
             } else if kind != "status" { throw TextTurnRepositoryError.invalidReply }
         }
-        if rows.count == 2 {
-            let diagnostic = rows[1]
-            guard current.state == .failed || current.state == .interrupted,
-                  try diagnostic.integer("ordinal") == 1, try diagnostic.text("kind") == "status",
+        // After the text: the files the bot made for the user. A lead's
+        // compilation links all member files before its terminal save makes
+        // the reply visible; recovery preserves those links on the work record.
+        // At most one diagnostic status follows a failed or interrupted reply.
+        var index = 1
+        while index < rows.count, try rows[index].text("kind") == "attachment" {
+            guard !controlled, try rows[index].integer("ordinal") == Int64(index),
+                  try rows[index].optionalText("referenced_id") != nil else { throw TextTurnRepositoryError.invalidReply }
+            index += 1
+        }
+        if index < rows.count {
+            let diagnostic = rows[index]
+            guard index + 1 == rows.count, current.state == .failed || current.state == .interrupted,
+                  try diagnostic.integer("ordinal") == Int64(index), try diagnostic.text("kind") == "status",
                   try diagnostic.optionalText("referenced_id") == nil,
                   UUID(uuidString: try diagnostic.text("id")) != nil else {
                 throw TextTurnRepositoryError.invalidReply
@@ -259,11 +404,11 @@ extension SQLiteStore: TextTurnRepository {
                 throw TextTurnRepositoryError.invalidReply
             }
         }
-        let receipts = try query(sql: "SELECT * FROM run_input_receipts WHERE run_id=? LIMIT 2;",
-            bindings: [.text(current.id.persistedValue)])
+        let receipts = try textTurnReceipts(current.id, from: source)
         guard let receipt = receipts.onlyTextTurnRow else { throw TextTurnRepositoryError.invalidRequest }
-        let input = try decodeJournalInput(receipt, request: current.request)
-        return TextTurnSnapshot(run: current, replyText: kind == "text" ? saved : "", inputState: input.state)
+        let input = try decodeJournalInput(receipt, request: current.request, from: source)
+        return TextTurnSnapshot(run: current, replyText: kind == "text" ? saved : "", inputState: input.state,
+            outcome: Self.textTurnOutcome(state: current.state, replyKind: kind, replyStatus: saved))
     }
 
     func nextTextInputState(_ current: RunInputState, evidence: TextTurnInputEvidence) throws -> RunInputState {
@@ -316,6 +461,12 @@ extension SQLiteStore: TextTurnRepository {
             state = .succeeded; replyDelivery = .completed; userDelivery = .completed; status = "Reply completed."
         case .failed:
             state = .failed; replyDelivery = .failed; userDelivery = .failed; status = "Claude could not complete this reply."
+        case .declined:
+            // Journalled `failed` like any turn that ended without an answer,
+            // but saying what actually happened. This status is the durable
+            // record: `readTextTurnSnapshot` reads the decision back out of it.
+            state = .failed; replyDelivery = .failed; userDelivery = .failed
+            status = TextTurnOutcome.declinedReplyStatus
         case .interrupted:
             state = .interrupted; replyDelivery = .outcomeUnknown
             userDelivery = inputState == .acknowledged ? .outcomeUnknown : .failed
@@ -323,17 +474,37 @@ extension SQLiteStore: TextTurnRepository {
         }
         let receiptState: RunInputState = outcome != .succeeded && inputState == .submitted ? .outcomeUnknown : inputState
         try writeTextReply(current, text: text, delivery: replyDelivery, status: status, now: now)
+        let identity = try textIdentity(current.request)
+        if identity.handoffReportLegID != nil, outcome == .succeeded {
+            // A successfully saved successor means this reply is internal
+            // orchestration. No successor means this is the one final answer.
+            _ = try execute(sql: """
+                UPDATE messages SET output_class='conversation' WHERE id=?
+                AND NOT EXISTS (SELECT 1 FROM handoffs WHERE source_message_id=?);
+                """, bindings: [.text(identity.replyMessageID.persistedValue), .text(identity.replyMessageID.persistedValue)])
+        }
         if let diagnosticCode {
             let diagnostic = Self.textTurnDiagnosticStatus(diagnosticCode)
             guard diagnostic.utf8.count <= Self.textTurnDiagnosticLimit else { throw TextTurnRepositoryError.invalidEvidence }
             let identity = try textIdentity(current.request)
+            let ordinal = try query(sql: "SELECT MAX(ordinal) AS maximum FROM message_parts WHERE message_id=?;",
+                bindings: [.text(identity.replyMessageID.persistedValue)]).first?.optionalInteger("maximum") ?? 0
+            guard ordinal < Int64.max else { throw TextTurnRepositoryError.invalidReply }
             _ = try execute(sql: """
                 INSERT INTO message_parts(id,message_id,ordinal,kind,text_value,referenced_id)
-                VALUES (?,?,1,'status',?,NULL);
+                VALUES (?,?,?,'status',?,NULL);
                 """, bindings: [.text(MessagePartID(UUID()).persistedValue),
-                    .text(identity.replyMessageID.persistedValue), .text(diagnostic)])
+                    .text(identity.replyMessageID.persistedValue), .integer(ordinal + 1), .text(diagnostic)])
         }
         try writeTextInput(current, state: receiptState, delivery: userDelivery, now: now)
+        // A card still open is this turn's: a bot runs one turn at a time. The
+        // service closes its cards before the turn ends, so this catches the one
+        // a quit left behind, which the record would otherwise show as waiting.
+        _ = try execute(sql: """
+            UPDATE approvals SET state='expired',resolved_at=?
+            WHERE teammate_id=? AND conversation_id=? AND state='pending';
+            """, bindings: [.real(now.timeIntervalSince1970), .text(current.request.teammateID.persistedValue),
+                .text(current.request.conversationID.persistedValue)])
         let terminal = try updateJournal(current, state: state, lease: nil, kind: kind, now: now)
         return try readTextTurnSnapshot(terminal)
     }

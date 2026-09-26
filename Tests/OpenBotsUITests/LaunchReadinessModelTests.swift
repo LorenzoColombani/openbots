@@ -2,6 +2,26 @@ import OpenBotsServices
 import Testing
 @testable import OpenBotsUI
 
+// The restore dialog once named OpenBots.sqlite, its sidecars, DatabaseBackups
+// and a Damaged folder. It now says what happens to the user's data, in plain
+// words, and names the copy by its date.
+@Test("The restore words say the data is set aside, not deleted, and name the copy by its date")
+@MainActor func restoreWordsArePlain() {
+    let option = LaunchRecoveryRestoreOption(id: "a", title: "Backup from Sep 6, 2026 at 22:10",
+                                             detail: "1.5 MB · on quit")
+    #expect(LaunchStatusView.restoreConfirmation(for: option)
+        == "Your current data is set aside, not deleted, and the copy from Sep 6, 2026 at 22:10 takes its place. "
+        + "The damaged copy is kept in a folder of its own, next to your other backups. "
+        + "OpenBots then tries to open your workspace again.")
+    for sentence in [LaunchStatusView.restoreConfirmation(for: option), LaunchStatusView.restoreExplanation] {
+        for word in ["sqlite", "sidecar", "DatabaseBackups", "Damaged folder", "database"] {
+            #expect(!sentence.localizedCaseInsensitiveContains(word), "\(word): \(sentence)")
+        }
+    }
+    let unnamed = LaunchRecoveryRestoreOption(id: "b", title: "Nightly copy", detail: "")
+    #expect(LaunchStatusView.restoreConfirmation(for: unnamed).contains("and Nightly copy takes its place."))
+}
+
 private actor UIReadinessInspectorSpy: LaunchReadinessInspecting {
     private let fixedState: LaunchReadinessState
     private var inspectionCount = 0

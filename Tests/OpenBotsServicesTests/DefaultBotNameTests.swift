@@ -9,11 +9,11 @@ struct DefaultBotNameTests {
         for (avatar, expectedName) in [("fin", "Yogurt"), ("guide", "Canobi")] {
             let id = TeammateID(UUID())
             let appearance = try appearance(avatar: avatar)
-            let draft = DurableTeammateDraft(teammateID: id, role: "Not configured", appearance: appearance)
+            let draft = DurableTeammateDraft(teammateID: id, role: "Teammate", appearance: appearance)
             #expect(draft.displayName == expectedName)
             #expect(draft.teammateID == id)
             #expect(draft.appearance == appearance)
-            #expect(draft.role == "Not configured")
+            #expect(draft.role == "Teammate")
         }
     }
 

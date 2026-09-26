@@ -263,7 +263,9 @@ struct WorkspaceShutdownIntegrationTests {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let app = try String(contentsOf: root.appendingPathComponent("Apps/OpenBotsPreviewApp/OpenBotsPreviewApp.swift"), encoding: .utf8)
         let guardSource = try String(contentsOf: root.appendingPathComponent("Sources/OpenBotsUI/DraftQuitGuard.swift"), encoding: .utf8)
-        let delegate = try sourceSection(app, from: "private final class PreviewApplicationDelegate", to: "private struct WorkspaceWindowReporter")
+        // The reporter is internal (for SwiftUI window restoration), so the slice
+        // ends at the type name, whatever its access level.
+        let delegate = try sourceSection(app, from: "private final class PreviewApplicationDelegate", to: "struct WorkspaceWindowReporter")
         let scene = try sourceSection(app, from: "var body: some Scene", to: "/// AppKit owns termination")
         let settings = try #require(scene.range(of: "Settings {"))
         let workspaceReporter = try #require(scene.range(of: ".background(WorkspaceWindowReporter"))
@@ -326,10 +328,9 @@ struct WorkspaceShutdownIntegrationTests {
             "let url = try await attachmentService.revealLocation(", "try self.requireOpen()",
             "NSWorkspace.shared.activateFileViewerSelecting([url])"
         ])
-        // These live callback routes were removed with the approved chat-only
-        // composition before baseline 5324322. Their old ordering assertion
-        // referred to code that no longer existed; the underlying services and
-        // their safety tests remain. Do not restore hidden external callbacks.
+        // These callback routes were removed with the chat-only composition.
+        // The underlying services and their safety tests remain. Do not restore
+        // hidden external callbacks.
         #expect(!app.contains("revealer: { [weak self]"))
         #expect(!app.contains("chooseSnapshotDestination: { [weak self]"))
         #expect(!app.contains("createSnapshot: { [weak self]"))

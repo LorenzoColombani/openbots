@@ -133,7 +133,7 @@ private final class SidebarCreationRevealHost {
     }
 
     func newRow() -> TeammateRowSnapshot {
-        TeammateRowSnapshot(id: UUID(), name: "New Bot", role: "Not configured", activity: .idle, identitySeed: 99)
+        TeammateRowSnapshot(id: UUID(), name: "New Bot", role: "Teammate", activity: .idle, identitySeed: 99)
     }
 
     func scrolledTable() async throws -> NSTableView {

@@ -1,6 +1,17 @@
 import OpenBotsServices
 import SwiftUI
 
+/// One verified local backup the recovery screen can offer. The app derives it
+/// from the backup catalog; the screen never inspects files itself.
+public struct LaunchRecoveryRestoreOption: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let detail: String
+    public init(id: String, title: String, detail: String) {
+        self.id = id; self.title = title; self.detail = detail
+    }
+}
+
 /// Native inline startup status for the executor-independent preview. It does
 /// not create storage, open the database, request credentials, or start Claude.
 public struct LaunchStatusView: View {
@@ -10,18 +21,25 @@ public struct LaunchStatusView: View {
     private let performsAutomaticRefresh: Bool
     private let isApplicationStartup: Bool
     private let retryAction: (@MainActor () -> Void)?
+    private let restoreOptions: [LaunchRecoveryRestoreOption]
+    private let restoreAction: (@MainActor (LaunchRecoveryRestoreOption) -> Void)?
+    @State private var pendingRestore: LaunchRecoveryRestoreOption?
 
     public init(
         model: LaunchReadinessModel,
         performsAutomaticRefresh: Bool = true,
         isApplicationStartup: Bool = false,
         retryAction: (@MainActor () -> Void)? = nil,
+        restoreOptions: [LaunchRecoveryRestoreOption] = [],
+        restoreAction: (@MainActor (LaunchRecoveryRestoreOption) -> Void)? = nil,
         continueAction: @escaping @MainActor () -> Void
     ) {
         self.model = model
         self.performsAutomaticRefresh = performsAutomaticRefresh
         self.isApplicationStartup = isApplicationStartup
         self.retryAction = retryAction
+        self.restoreOptions = restoreOptions
+        self.restoreAction = restoreAction
         self.continueAction = continueAction
     }
 
@@ -39,7 +57,7 @@ public struct LaunchStatusView: View {
             statusCard
 
             if isApplicationStartup {
-                Text("Your teammates and saved conversations stay on this Mac. Claude setup is separate from opening your workspace.")
+                Text("Your bots and saved conversations stay on this Mac. Claude setup is separate from opening your workspace.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -102,7 +120,7 @@ public struct LaunchStatusView: View {
             statusLabel("Checking local state", systemImage: "magnifyingglass.circle")
             StableSelectableText(
                 isApplicationStartup
-                    ? "Opening your saved teammates and conversations. A new installation creates only OpenBots' own local folders."
+                    ? "Opening your saved bots and conversations. A new installation creates only OpenBots' own local folders."
                     : "OpenBots is checking the fixed local installation receipt, protected roots, and database readiness. It is not repairing, deleting, or creating anything.",
                 tone: .secondary
             )
@@ -141,7 +159,59 @@ public struct LaunchStatusView: View {
                     ? "Try opening the local workspace again. Existing data is not reset or removed."
                     : "Repeat the read-only readiness check. This does not repair or remove files."
             )
+            if issue.offersRestore, let restoreAction, !restoreOptions.isEmpty {
+                restoreSection(restoreAction)
+            }
         }
+    }
+
+    /// Verified local backups, newest first. Restoring is a two-step, exact-scope
+    /// action: the current database files are moved aside, never deleted. The
+    /// screen says so without naming the files.
+    private func restoreSection(_ restoreAction: @escaping @MainActor (LaunchRecoveryRestoreOption) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Restore a local backup")
+                .font(.subheadline.weight(.semibold))
+            StableSelectableText(Self.restoreExplanation, style: .caption, tone: .secondary)
+            ForEach(restoreOptions) { option in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(option.title).font(.callout)
+                        Text(option.detail).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Button("Restore…") { pendingRestore = option }
+                        .accessibilityLabel("Restore \(option.title)")
+                        .accessibilityHint("Asks first, then puts this copy in place of your current data.")
+                }
+                .accessibilityElement(children: .contain)
+            }
+        }
+        .confirmationDialog(
+            "Restore this backup?",
+            isPresented: Binding(get: { pendingRestore != nil }, set: { if !$0 { pendingRestore = nil } }),
+            presenting: pendingRestore
+        ) { option in
+            Button("Restore \(option.title)") { pendingRestore = nil; restoreAction(option) }
+            Button("Cancel", role: .cancel) { pendingRestore = nil }
+        } message: { option in
+            Text(Self.restoreConfirmation(for: option))
+        }
+    }
+
+    /// What restoring does, in plain words: no file names.
+    static let restoreExplanation = "OpenBots kept these copies of your workspace on this Mac. "
+        + "Restoring one sets your current data aside, without deleting it, and puts the copy in its place."
+
+    /// The confirmation, naming the copy by its date. The app titles each copy
+    /// "Backup from <date>"; any other title is used whole.
+    static func restoreConfirmation(for option: LaunchRecoveryRestoreOption) -> String {
+        let prefix = "Backup from "
+        let copy = option.title.hasPrefix(prefix)
+            ? "the copy from \(option.title.dropFirst(prefix.count))" : option.title
+        return "Your current data is set aside, not deleted, and \(copy) takes its place. "
+            + "The damaged copy is kept in a folder of its own, next to your other backups. "
+            + "OpenBots then tries to open your workspace again."
     }
 
     private func statusLabel(_ title: String, systemImage: String) -> some View {
@@ -153,6 +223,16 @@ public struct LaunchStatusView: View {
 }
 
 private extension LaunchRecoveryIssue {
+    /// Only a database that will not open or fails its checks is a restore case; a
+    /// workspace newer than this build must not be rolled back to an older copy.
+    var offersRestore: Bool {
+        switch self {
+        case .databaseOpenFailed, .databaseValidationFailed: true
+        case .installationReceiptUnavailable, .ownedRootVerificationFailed,
+             .databaseProtectionUnavailable, .workspaceNewerThanApplication: false
+        }
+    }
+
     var applicationGuidance: String {
         switch self {
         case .installationReceiptUnavailable:
@@ -165,6 +245,8 @@ private extension LaunchRecoveryIssue {
             "Your saved conversations couldn't be opened. The existing files have been left in place."
         case .databaseValidationFailed:
             "Your saved workspace needs attention before it can open. OpenBots has not reset or replaced it."
+        case .workspaceNewerThanApplication:
+            "Your saved workspace was last opened by a newer OpenBots Next. Open the newer copy from Applications; this older copy left everything as it was."
         }
     }
 
@@ -180,6 +262,8 @@ private extension LaunchRecoveryIssue {
             "Database could not be opened"
         case .databaseValidationFailed:
             "Database check failed"
+        case .workspaceNewerThanApplication:
+            "This copy of OpenBots Next is older than your workspace"
         }
     }
 
@@ -195,6 +279,8 @@ private extension LaunchRecoveryIssue {
             "The existing control database could not be opened. Its files and app-owned roots were left in place."
         case .databaseValidationFailed:
             "The control database did not pass the startup checks. OpenBots did not repair, replace, or delete it."
+        case .workspaceNewerThanApplication:
+            "The control database's schema ledger names a version newer than this build's manifest. OpenBots did not migrate, repair, or replace it; the newer build opens it."
         }
     }
 }

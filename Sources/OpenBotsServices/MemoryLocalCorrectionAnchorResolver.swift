@@ -46,7 +46,7 @@ public struct MemoryLocalCorrectionAnchorResolver: Sendable {
               record.authority.teammateID == authority.teammateID,
               record.authority.selectedProjectID == authority.selectedProjectID,
               receipt.teammateID == authority.teammateID, receipt.selectedProjectID == authority.selectedProjectID,
-              receipt.messageID == latest.id, receipt.policyVersion == MemoryConversationPublicationService.rendererPolicyVersion,
+              receipt.messageID == latest.id, MemoryPublicationReceipt.supportsPolicyVersion(receipt.policyVersion),
               receipt.renderedTextDigest == MemoryClaimDigests.bytes(Data(record.publication.text.utf8)),
               latest.parts.count == 1, case let .text(shownText) = latest.parts[0].content,
               shownText.utf8.elementsEqual(record.publication.text.utf8),

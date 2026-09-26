@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension ChatMessageSnapshot {
     /// App-authored status text has no action. Mixed messages keep their card
@@ -26,6 +27,7 @@ struct TranscriptMessagePartsView: View {
     var cardInteractions: ConversationCardInteractionModel?
 
     var body: some View {
+        let _ = LayoutStormCounters.hit("parts.body")
         VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing8) {
             if message.parts.isEmpty {
                 emptyContent
@@ -41,9 +43,10 @@ struct TranscriptMessagePartsView: View {
     @ViewBuilder
     private var emptyContent: some View {
         if message.streamState == .streaming {
-            Label("Receiving response", systemImage: "waveform")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            // Presence: the creature shows it is working. No transport caption.
+            Color.clear
+                .frame(height: 0)
+                .accessibilityLabel(TranscriptEmptyStreamChrome.accessibilityLabel)
         } else if !message.body.isEmpty {
             text(message.body)
         }
@@ -106,6 +109,11 @@ struct TranscriptMessagePartsView: View {
             )
         case .handoff(let handoff):
             HandoffTrailView(snapshot: handoff)
+        case .handoffCard(let card):
+            InlineHandoffCardView(
+                snapshot: card,
+                interaction: cardInteractions?.handoff(messageID: message.id, partID: part.id, cardID: card.id)
+            )
         }
     }
 
@@ -127,6 +135,7 @@ private struct AttachmentPartChip: View {
     @Environment(\.attachmentPresentation) private var presentation
     @StateObject private var model = AttachmentPartPresentationModel()
     @StateObject private var previewModel = AttachmentPreviewModel()
+    @StateObject private var inlineImage = InlineAttachmentImageModel()
     let messageID: UUID
     let partID: UUID
     let attachment: ChatAttachmentSnapshot
@@ -137,8 +146,22 @@ private struct AttachmentPartChip: View {
 
     private var displayName: String { model.asset?.displayName ?? attachment.displayName }
 
+    /// An image attachment shows itself in the bubble; everything else is a chip.
+    private var isImage: Bool {
+        guard let type = model.asset?.typeIdentifier, let utType = UTType(type) else { return false }
+        return utType.conforms(to: .image)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing8) {
+            if let image = inlineImage.image {
+                Image(image.cgImage, scale: 1, label: Text("Image \(displayName)"))
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: 360, maxHeight: 240, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: OpenBotsVisualStyle.radiusMedium, style: .continuous))
+                    .accessibilityLabel("Image \(displayName)")
+            }
             HStack(spacing: OpenBotsVisualStyle.spacing8) {
                 Image(systemName: "paperclip")
                     .foregroundStyle(.secondary)
@@ -169,11 +192,26 @@ private struct AttachmentPartChip: View {
                         .accessibilityIdentifier("attachment-preview-\(messageID)-\(partID)")
                         .help("Inspect a bounded read-only preview of the saved local copy")
                     }
+                    if presentation?.open != nil,
+                       AttachmentOpenPolicy.mayOpen(typeIdentifier: model.asset?.typeIdentifier, filename: displayName) {
+                        Button("Open") { Task { await model.open() } }
+                            .disabled(!model.canReveal)
+                            .accessibilityLabel("Open \(displayName)")
+                            .accessibilityIdentifier("attachment-open-\(messageID)-\(partID)")
+                            .help("Open the saved local copy with its usual app")
+                    }
                     Button("Reveal in Finder") { Task { await model.reveal() } }
                         .disabled(!model.canReveal)
                         .accessibilityLabel("Reveal \(displayName) in Finder")
                         .accessibilityIdentifier("attachment-reveal-\(messageID)-\(partID)")
                         .help("Show the saved local copy without opening or executing it")
+                    if presentation?.save != nil {
+                        Button("Save to…") { Task { await model.save() } }
+                            .disabled(!model.canReveal)
+                            .accessibilityLabel("Save \(displayName) to a place you choose")
+                            .accessibilityIdentifier("attachment-save-\(messageID)-\(partID)")
+                            .help("Copy the saved local copy to a folder you pick; nothing is overwritten unless you say so")
+                    }
                 }
                 if model.isLoading || model.isRevealing {
                     HStack(spacing: OpenBotsVisualStyle.spacing8) {
@@ -208,6 +246,10 @@ private struct AttachmentPartChip: View {
         .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("attachment-\(messageID)-\(partID)")
         .task(id: route) { await model.load(route: route, presentation: presentation) }
+        .task(id: model.asset?.id) {
+            guard isImage else { return }
+            await inlineImage.load(route: route, previewer: presentation?.preview)
+        }
         .sheet(isPresented: Binding(
             get: { previewModel.isPresented },
             set: { if !$0 { previewModel.close() } }
@@ -263,4 +305,10 @@ private struct ArtifactPartCard: View {
             .compactMap { $0 }
             .joined(separator: ". ")
     }
+}
+
+/// Empty streaming paint: VoiceOver still hears Working; no transport caption.
+enum TranscriptEmptyStreamChrome {
+    static let accessibilityLabel = "Working"
+    static var transportCaption: String? { nil }
 }

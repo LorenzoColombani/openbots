@@ -39,6 +39,12 @@ public struct WorkRequest: Codable, Equatable, Sendable {
     /// App-selected context provenance only, never copied prompt or memory bodies.
     /// Older requests decode without this receipt and retain their recorded scope.
     public let readContextReceipt: ReadContextReceipt?
+    /// The run this request's message stopped, when the message corrected a
+    /// turn still running. The read context admits that stopped
+    /// turn's request and partial reply as history on the strength of this
+    /// link, so a later fresh turn sees what the correction saw. Nil on every
+    /// other turn and on older JSON.
+    public let supersededRunID: RunID?
 
     public init(
         runID: RunID,
@@ -50,7 +56,8 @@ public struct WorkRequest: Codable, Equatable, Sendable {
         initialInput: WorkInput,
         submittedAt: Date,
         textTurnIdentity: TextTurnIdentity? = nil,
-        readContextReceipt: ReadContextReceipt? = nil
+        readContextReceipt: ReadContextReceipt? = nil,
+        supersededRunID: RunID? = nil
     ) throws {
         guard profileRevision > 0 else {
             throw DomainValidationError.invalid(field: "profile revision", reason: "must be positive")
@@ -71,6 +78,7 @@ public struct WorkRequest: Codable, Equatable, Sendable {
         self.submittedAt = submittedAt
         self.textTurnIdentity = textTurnIdentity
         self.readContextReceipt = readContextReceipt
+        self.supersededRunID = supersededRunID
     }
 }
 

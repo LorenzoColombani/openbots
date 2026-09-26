@@ -46,15 +46,19 @@ struct SQLiteMemoryConversationPublicationRepositoryTests {
         }
     }
 
-    @Test("Complete qualified projection, local user and receipt survive reopen without a provider run or old-row changes")
-    func atomicReopen() async throws {
+    @Test("Policy 1 and 2 qualified projections survive reopen without changing their exact original wording",
+          arguments: [UInt16(1), UInt16(2)])
+    func atomicReopen(_ version: UInt16) async throws {
         let f = try ConversationPublicationFixture(); defer { f.remove() }
         let store = try f.open(); let seeded = try await f.seed(store)
-        let prepared = try await f.prepare(store, seeded: seeded)
+        let prepared = try await f.prepare(store, seeded: seeded, policyVersion: version)
         let before = try await store.page(conversationID: f.chat, request: PageRequest(limit: 10)).elements
         let saved = try await store.appendMemoryConversationPublication(prepared.request, now: f.now)
         #expect(saved.publication.text.contains("I may have this wrong:"))
-        #expect(saved.publication.text.hasSuffix("Does that apply here?"))
+        #expect(saved.publication.receipt.policyVersion == version)
+        #expect(saved.publication.text == (version == 1
+            ? "I may have this wrong: \"I prefer quieter places\". Does that apply here?"
+            : "I may have this wrong: \"I prefer quieter places\"."))
         #expect(saved.userMessage.author == .user && saved.userMessage.deliveryState == .completed)
         #expect(saved.replyMessage.author == .system && saved.replyMessage.deliveryState == .completed)
         #expect(saved.replyMessage.parts.map(\.content) == [.text(saved.publication.text)])
@@ -69,6 +73,26 @@ struct SQLiteMemoryConversationPublicationRepositoryTests {
         // Exact retry is a historical read even after its host assertion expires.
         #expect(try await reopened.appendMemoryConversationPublication(prepared.request, now: f.now.addingTimeInterval(60)) == saved)
         #expect(try await reopened.page(conversationID: f.chat, request: PageRequest(limit: 10)).elements.count == 4)
+    }
+
+    @Test("Unsupported renderer policies are refused even with matching fresh host digests",
+          arguments: [UInt16(0), UInt16(3), UInt16.max])
+    func unsupportedRendererPolicy(_ version: UInt16) async throws {
+        let f = try ConversationPublicationFixture(); defer { f.remove() }
+        let store = try f.open(); let seeded = try await f.seed(store)
+        let prepared = try await f.prepare(store, seeded: seeded)
+        let unsupported = f.publication(prepared.request.publication, policyVersion: version)
+        let validation = MemoryConversationPublicationValidation(authority: prepared.request.validation.authority,
+            publicationDigest: try MemoryConversationPublicationValidation.digest(of: unsupported),
+            userSourceStamps: prepared.request.validation.userSourceStamps, checkedAt: f.now)
+        await expectConversationPublicationError(.invalidRequest) {
+            _ = try await store.appendMemoryConversationPublication(
+                f.request(prepared.request, publication: unsupported, validation: validation), now: f.now)
+        }
+        let reopened = try f.open()
+        #expect(try await reopened.memoryConversationPublication(id: unsupported.receipt.id) == nil)
+        #expect(try await reopened.message(id: prepared.request.userMessageID) == nil)
+        #expect(try await reopened.page(conversationID: f.chat, request: PageRequest(limit: 10)).elements.count == 2)
     }
 
     @Test("Raw prose cannot reuse a valid host assertion; reconstruction, not a digest, is the semantic boundary")
@@ -243,20 +267,24 @@ struct SQLiteMemoryConversationPublicationRepositoryTests {
         }
     }
 
-    @Test("A grounded local explanation retains the exact earlier publication dependency after reopen")
-    func groundedExplanation() async throws {
+    @Test("A current grounded explanation retains its exact policy 1 or 2 publication dependency after reopen",
+          arguments: [UInt16(1), UInt16(2)])
+    func groundedExplanation(_ version: UInt16) async throws {
         let f = try ConversationPublicationFixture(); defer { f.remove() }
         let store = try f.open(); let seeded = try await f.seed(store)
-        let first = try await f.prepare(store, seeded: seeded)
+        let first = try await f.prepare(store, seeded: seeded, policyVersion: version)
         let saved = try await store.appendMemoryConversationPublication(first.request, now: f.now)
         let second = try await f.prepare(store, seeded: seeded, userText: "Why did you say that?",
                                           explainedReceiptID: saved.publication.receipt.id)
         let explained = try await store.appendMemoryConversationPublication(second.request, now: f.now)
+        #expect(saved.publication.receipt.policyVersion == version)
+        #expect(explained.publication.receipt.policyVersion == MemoryPublicationReceipt.currentPolicyVersion)
         #expect(explained.publication.text.contains("That reply drew on"))
         #expect(explained.publication.text.contains("Not established; it is only a possibility."))
         #expect(explained.publication.receipt.lineage == .derived(receiptIDs: [saved.publication.receipt.id]))
         #expect(explained.publication.receipt.dependencies == saved.publication.receipt.dependencies)
         let reopened = try f.open()
+        #expect(try await reopened.memoryConversationPublication(id: saved.publication.receipt.id) == saved)
         #expect(try await reopened.memoryConversationPublication(id: explained.publication.receipt.id) == explained)
         #expect(try await reopened.runs(conversationID: f.chat, limit: 10).isEmpty)
     }
@@ -331,7 +359,8 @@ private struct ConversationPublicationFixture {
     }
     struct Prepared { let request: MemoryConversationPublicationAppend; let publisher: MemoryConversationPublicationService; let context: MemoryPublicationContext }
     func prepare(_ store: SQLiteStore, seeded: Seeded, userText: String = "What should I keep in mind?",
-                 operationID: RunID = RunID(UUID()), explainedReceiptID: UUID? = nil) async throws -> Prepared {
+                 operationID: RunID = RunID(UUID()), explainedReceiptID: UUID? = nil,
+                 policyVersion: UInt16 = MemoryPublicationReceipt.currentPolicyVersion) async throws -> Prepared {
         let selection = try await store.loadContext(conversationID: chat)
         let snapshot = try await store.loadReadContextCandidates(ReadContextRequest(conversationID: chat, teammateID: bot,
             profileRevision: 1, selection: selection, beforeSequence: Int64.max))
@@ -344,8 +373,14 @@ private struct ConversationPublicationFixture {
         let resolver = ConversationPublicationResolver(claim: seeded.claim, reference: seeded.reference,
                                                        scope: seeded.document.scope, authority: authority, store: store)
         let publisher = MemoryConversationPublicationService(resolver: resolver)
-        let publication = try await publisher.publish(.init(units: [.init(kind: explainedReceiptID == nil ? .claim : .explanation,
+        let current = try await publisher.publish(.init(units: [.init(kind: explainedReceiptID == nil ? .claim : .explanation,
             references: [seeded.reference])]), context: context)
+        // Model an existing policy 1 publication with its literal original text.
+        // Current reconstruction must validate it before persistence can proceed.
+        let publication = self.publication(current,
+            text: policyVersion == 1 && explainedReceiptID == nil
+                ? "I may have this wrong: \"I prefer quieter places\". Does that apply here?" : nil,
+            policyVersion: policyVersion)
         let revalidated = try await publisher.revalidate(publication, context: context)
         #expect(revalidated)
         let stamps = seeded.appSource ? [] : [try MemoryPublicationUserMessageEvidence(messageID: sourceID,
@@ -376,9 +411,9 @@ private struct ConversationPublicationFixture {
               expectedPreviousSequence: original.expectedPreviousSequence, validation: validation ?? original.validation)
     }
     func publication(_ original: MemoryConversationPublication, text: String? = nil,
-                     lineage: MemoryPublicationLineage? = nil) -> MemoryConversationPublication {
+                     lineage: MemoryPublicationLineage? = nil, policyVersion: UInt16? = nil) -> MemoryConversationPublication {
         let r = original.receipt, rendered = text ?? original.text
-        let receipt = MemoryPublicationReceipt(id: r.id, policyVersion: r.policyVersion, runID: r.runID, messageID: r.messageID,
+        let receipt = MemoryPublicationReceipt(id: r.id, policyVersion: policyVersion ?? r.policyVersion, runID: r.runID, messageID: r.messageID,
             teammateID: r.teammateID, selectedProjectID: r.selectedProjectID, intent: r.intent,
             renderedTextDigest: MemoryClaimDigests.bytes(Data(rendered.utf8)), units: r.units, dependencies: r.dependencies,
             omittedUnitCount: r.omittedUnitCount, lineage: lineage ?? r.lineage, createdAt: r.createdAt)

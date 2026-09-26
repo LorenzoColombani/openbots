@@ -86,3 +86,115 @@ func deterministicAppearance() async throws {
 
     #expect(firstTeammate.appearance == secondTeammate.appearance)
 }
+
+@Test("Creation refuses a name a bot still carries, compared without case; an archived bot has given its name up")
+func creationRefusesTakenName() async throws {
+    let repository = TeammateRepositorySpy()
+    let service = TeammateProfileService(repository: repository)
+    let ada = try await service.createQuickTeammate(QuickTeammateDraft(displayName: "Ada", role: "Research partner"))
+
+    for typed in ["Ada", "ada", "  ADA "] {
+        await #expect(throws: TeammateNameTakenError(existingName: "Ada"), "typed \(typed)") {
+            try await service.createQuickTeammate(QuickTeammateDraft(displayName: typed, role: "A second Ada"))
+        }
+    }
+    #expect(try await repository.listTeammates(includingArchived: true) == [ada], "A refused name creates nothing")
+
+    var archived = ada
+    archived.lifecycle = .archived
+    try await repository.update(archived, expectedProfileRevision: ada.profile.revision)
+    let successor = try await service.createQuickTeammate(QuickTeammateDraft(displayName: "ada", role: "Takes over"))
+    #expect(successor.profile.displayName == "ada")
+}
+
+@Test("A rename refuses another bot's name, compared without case, and a bot keeps its own name in any case")
+func renameRefusesTakenName() async throws {
+    let repository = TeammateRepositorySpy()
+    let service = TeammateProfileService(repository: repository)
+    let ada = try await service.createQuickTeammate(QuickTeammateDraft(displayName: "Ada", role: "Research partner"))
+    let rook = try await service.createQuickTeammate(QuickTeammateDraft(displayName: "Rook", role: "Builder"))
+
+    await #expect(throws: TeammateNameTakenError(existingName: "Ada")) {
+        try await service.saveProfile(
+            teammateID: rook.id, expectedRevision: rook.profile.revision,
+            draft: TeammateProfileEditDraft(displayName: " ada ", role: rook.profile.role)
+        )
+    }
+    #expect(try await repository.teammate(id: rook.id) == rook, "A refused rename writes nothing")
+
+    let shouted = try await service.saveProfile(
+        teammateID: rook.id, expectedRevision: rook.profile.revision,
+        draft: TeammateProfileEditDraft(displayName: "ROOK", role: rook.profile.role)
+    )
+    #expect(shouted.profile.displayName == "ROOK")
+
+    var archived = ada
+    archived.lifecycle = .archived
+    try await repository.update(archived, expectedProfileRevision: ada.profile.revision)
+    let renamed = try await service.saveProfile(
+        teammateID: rook.id, expectedRevision: shouted.profile.revision,
+        draft: TeammateProfileEditDraft(displayName: "Ada", role: rook.profile.role)
+    )
+    #expect(renamed.profile.displayName == "Ada", "An archived bot's name is free to take")
+}
+
+/// Two bots saved with one name before the rule existed (the old one-call
+/// New Bot named every bot "New Bot") must stay editable: the rule is about
+/// giving a bot a name, and a save that keeps the bot's own name gives it none.
+@Test("A save that keeps the bot's own name is never refused, even while a bot from before the rule shares it; a rename into that name still is")
+func keepingItsOwnNameIsNeverRefused() async throws {
+    let repository = TeammateRepositorySpy()
+    let service = TeammateProfileService(repository: repository)
+    let ada = try await service.createQuickTeammate(QuickTeammateDraft(displayName: "Ada", role: "Research partner"))
+    let twin = try Teammate(id: TeammateID(UUID()), profile: TeammateProfile(displayName: "Ada", role: "Saved before the rule"),
+        appearance: ada.appearance, createdAt: ada.createdAt, updatedAt: ada.updatedAt)
+    try await repository.insert(twin)
+    let rook = try await service.createQuickTeammate(QuickTeammateDraft(displayName: "Rook", role: "Builder"))
+
+    let edited = try await service.saveProfile(
+        teammateID: twin.id, expectedRevision: twin.profile.revision,
+        draft: TeammateProfileEditDraft(displayName: "Ada", role: "Changes its role only", claudeEffort: "low")
+    )
+    #expect(edited.profile.displayName == "Ada")
+    #expect(edited.profile.role == "Changes its role only")
+    #expect(edited.claudeEffort == "low")
+
+    await #expect(throws: TeammateNameTakenError(existingName: "Ada")) {
+        try await service.saveProfile(
+            teammateID: rook.id, expectedRevision: rook.profile.revision,
+            draft: TeammateProfileEditDraft(displayName: "ada", role: rook.profile.role)
+        )
+    }
+    #expect(try await repository.teammate(id: rook.id) == rook, "A rename into a shared name is still refused")
+
+    let shouted = try await service.saveProfile(
+        teammateID: ada.id, expectedRevision: ada.profile.revision,
+        draft: TeammateProfileEditDraft(displayName: "ADA", role: ada.profile.role)
+    )
+    #expect(shouted.profile.displayName == "ADA", "Its own name in another case is still its own")
+}
+
+/// A save must not clear the mark when only the model changed: the editor's
+/// first fields are the model and the notifications while the role and the
+/// instructions sit inside Advanced, collapsed, so picking a model for a new
+/// hire would take the hirer's name off words the person had never seen.
+@Test("Saving a hired bot's model leaves its hirer named as the author; saving its words takes the name off")
+func savingOnlyAModelKeepsTheHirerAsAuthor() async throws {
+    let repository = TeammateRepositorySpy()
+    let service = TeammateProfileService(repository: repository)
+    var hired = try await service.createQuickTeammate(QuickTeammateDraft(displayName: "Ledgerkeep", role: "Keeps the receipts"))
+    hired.profileWrittenByHirer = "Canobi"
+    try await repository.update(hired, expectedProfileRevision: hired.profile.revision)
+
+    let model = try await service.saveProfile(
+        teammateID: hired.id, expectedRevision: hired.profile.revision,
+        draft: TeammateProfileEditDraft(displayName: hired.profile.displayName, role: hired.profile.role,
+                                        claudeModel: "claude-sonnet-5", claudeEffort: "high"))
+    #expect(model.claudeModel == "claude-sonnet-5")
+    #expect(model.profileWrittenByHirer == "Canobi", "the person changed no word of the profile")
+
+    let reworded = try await service.saveProfile(
+        teammateID: hired.id, expectedRevision: model.profile.revision,
+        draft: TeammateProfileEditDraft(displayName: hired.profile.displayName, role: "Keeps the team's receipts, reworded"))
+    #expect(reworded.profileWrittenByHirer == nil, "the person saved the words, so they are theirs")
+}

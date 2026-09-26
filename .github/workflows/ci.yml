@@ -15,24 +15,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - name: Machine paths, competitor names, secrets, PII
-        run: |
-          set -eu
-          fail=0
-          # Machine paths: the real leak signature is the author's actual home
-          # directory. Synthetic fixture roots (/Users/x, /Users/example,
-          # /Users/lorenzo, /Users/private) are deliberate negative-test
-          # sentinels and are allowed. The bundle id com.lorenzocolombani.* is
-          # public by design and does not match a path.
-          if grep -rn --exclude-dir=.git "/Users/lorenzo""colombani" . ; then fail=1; fi
-          # Competitor / reference-product names must not appear.
-          if grep -rni --exclude-dir=.git --exclude-dir=.github --exclude=export-public.sh "grok" . ; then fail=1; fi
-          # Secret shapes.
-          if grep -rnE --exclude-dir=.git --exclude-dir=.github --exclude=export-public.sh "sk-ant-|BEGIN [A-Z]+ PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|xoxb-" . ; then fail=1; fi
-          # Real-looking emails: only fixture domains are allowed.
-          if grep -rhoE "[A-Za-z0-9._%+-]{2,}@[A-Za-z0-9.-]{3,}\.[A-Za-z]{2,}" --include="*.swift" . \
-            | grep -v "example.invalid" | grep -v "example.com" ; then fail=1; fi
-          exit $fail
+      - name: Secrets, home folders and real-looking addresses
+        # Searches every file and the rebuilt text of every recorded Claude
+        # Code run (streamed text can split a path or an email across frames).
+        run: python3 Scripts/public-gate.py .
 
   tests:
     strategy:

@@ -5,6 +5,23 @@ import Testing
 
 @Suite("TeammateProfileEditingTests")
 struct TeammateProfileEditingTests {
+    @Test("An explicit notification override is saved and an unrelated profile edit preserves it")
+    func notificationOverridePersists() async throws {
+        let original = try profileEditingTeammate()
+        let repository = ProfileEditingRepository(original)
+        let service = TeammateProfileService(repository: repository)
+        let saved = try await service.saveProfile(teammateID: original.id,
+            expectedRevision: original.profile.revision,
+            draft: .init(displayName: original.profile.displayName, role: original.profile.role,
+                         notificationPreference: .disabled))
+        #expect(saved.notificationPreference == .disabled)
+        let renamed = try await service.saveProfile(teammateID: saved.id,
+            expectedRevision: saved.profile.revision,
+            draft: .init(displayName: "Renamed", role: saved.profile.role))
+        #expect(renamed.notificationPreference == .disabled)
+        #expect(renamed.appearance == original.appearance)
+    }
+
     @Test("Built-in model choices preserve the saved grammar and change only the explicit appearance")
     func builtInModelsPreserveGeneratedIdentity() async throws {
         for avatar in BuiltInAvatar.allCases {

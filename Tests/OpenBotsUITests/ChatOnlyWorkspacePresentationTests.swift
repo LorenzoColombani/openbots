@@ -7,7 +7,6 @@ import SwiftUI
 import XCTest
 @testable import OpenBotsUI
 
-/// Replaces the withdrawn pane requirements, not their historical failures.
 /// These injected, non-key windows are native composition/render evidence;
 /// they do not establish physical keyboard, VoiceOver, or helper behavior.
 @MainActor

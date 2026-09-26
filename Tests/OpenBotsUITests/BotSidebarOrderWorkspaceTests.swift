@@ -320,11 +320,90 @@ final class BotSidebarOrderWorkspaceTests: XCTestCase {
         }
     }
 
+    /// Found live: Pin Bot saved the flag and the row stayed where it was, with
+    /// nothing to show it was pinned. The row now moves
+    /// above the unpinned bots at once, carries the flag, and is still there after
+    /// a reopen; Unpin sends it back to its place.
+    func testPinMovesTheRowAboveTheUnpinnedAtOnceAndAfterReopen() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let workspace = makeWorkspace(fixture, store: store, navigation: true)
+        defer { workspace.finishShutdown() }
+        try await seed(workspace, count: 3)
+        let initial = workspace.sidebar.rows.map(\.id)
+        let bottom = try XCTUnwrap(initial.last)
+
+        await workspace.togglePinBot(id: bottom)
+        XCTAssertEqual(workspace.sidebar.rows.map(\.id), [bottom] + initial.dropLast())
+        XCTAssertEqual(workspace.sidebar.rows.first?.isPinned, true)
+        let flushed = await workspace.draftCoordinator?.flushAll()
+        XCTAssertEqual(flushed, true)
+        workspace.finishShutdown()
+
+        let reopened = try fixture.open()
+        let reloaded = makeWorkspace(fixture, store: reopened, navigation: true)
+        defer { reloaded.finishShutdown() }
+        try await reloaded.loadInitialWorkspace()
+        XCTAssertEqual(reloaded.sidebar.rows.map(\.id), [bottom] + initial.dropLast())
+        await reloaded.togglePinBot(id: bottom)
+        XCTAssertEqual(reloaded.sidebar.rows.map(\.id), initial)
+        XCTAssertEqual(reloaded.sidebar.rows.last?.isPinned, false)
+    }
+
+    /// A new bot was once drawn above the pinned ones
+    /// while the saved order read it below them, so the next drag failed as stale.
+    func testANewBotLandsBelowThePinsWhereTheSavedOrderReadsItAndADragThenSaves() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let workspace = makeWorkspace(fixture, store: store, navigation: true)
+        defer { workspace.finishShutdown() }
+        try await seed(workspace, count: 2)
+        let pinned = try XCTUnwrap(workspace.sidebar.rows.last?.id)
+        let other = try XCTUnwrap(workspace.sidebar.rows.first?.id)
+        await workspace.togglePinBot(id: pinned)
+
+        await workspace.createTeammateImmediately()
+        let created = try XCTUnwrap(workspace.sidebar.selection)
+        XCTAssertEqual(workspace.sidebar.rows.map(\.id), [pinned, created, other])
+        let savedAfterCreation = try await store.loadBotSidebarOrder()
+        XCTAssertEqual(savedAfterCreation.teammateIDs.map(\.rawValue), [pinned, created, other])
+        XCTAssertEqual(workspace.sidebar.creationRevealID, created)
+        try await draftReady(workspace)
+
+        await workspace.sidebarOrderCoordinator?.reorder([pinned, other, created], fromSnapshot: [pinned, created, other])
+        XCTAssertNil(workspace.sidebar.orderError)
+        XCTAssertEqual(workspace.sidebar.rows.map(\.id), [pinned, other, created])
+    }
+
+    /// A hidden bot stays in the saved order but not in the list; comparing the
+    /// two made every drag read as stale while any bot was hidden.
+    func testADragSavesWhileABotIsHidden() async throws {
+        let fixture = try ReferenceLocalWorkspaceFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+        let store = try fixture.open()
+        let workspace = makeWorkspace(fixture, store: store, navigation: true)
+        defer { workspace.finishShutdown() }
+        try await seed(workspace, count: 3)
+        let rows = workspace.sidebar.rows.map(\.id)
+        await workspace.hideBot(id: rows[1])
+        let shown = workspace.sidebar.rows.map(\.id)
+        XCTAssertEqual(shown, [rows[0], rows[2]])
+
+        await workspace.sidebarOrderCoordinator?.reorder(shown.reversed(), fromSnapshot: shown)
+        XCTAssertNil(workspace.sidebar.orderError)
+        XCTAssertEqual(workspace.sidebar.rows.map(\.id), [rows[2], rows[0]])
+        let savedAfterDrag = try await store.loadBotSidebarOrder()
+        XCTAssertEqual(savedAfterDrag.teammateIDs.map(\.rawValue), [rows[2], rows[0]])
+    }
+
     private func makeWorkspace(_ fixture: ReferenceLocalWorkspaceFixture, store: SQLiteStore,
-                               ordering: (any BotSidebarOrdering)? = nil) -> DurableWorkspaceModel {
+                               ordering: (any BotSidebarOrdering)? = nil, navigation: Bool = false) -> DurableWorkspaceModel {
         DurableWorkspaceModel(service: fixture.chatService(store: store), hiringService: ReferenceUnusedHiringService(),
             profileService: TeammateProfileService(repository: store),
             archiveService: TeammateArchiveService(repository: store),
+            navigationService: navigation ? TeammateNavigationService(repository: store) : nil,
             sidebarOrderService: ordering ?? BotSidebarOrderService(repository: store),
             draftService: ConversationDraftService(repository: store))
     }

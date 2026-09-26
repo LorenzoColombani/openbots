@@ -5,6 +5,10 @@ public struct TeammateProfile: Codable, Equatable, Sendable {
     public let title: String?
     public let role: String
     public let detailedInstructions: String?
+    /// What work is theirs, what they hand off, who they work with and what
+    /// they escalate. Nil when none is written; an empty seat is
+    /// held as none. Absent from profiles saved before seats existed.
+    public let seat: TeammateSeat?
     public let revision: UInt64
 
     public init(
@@ -12,6 +16,7 @@ public struct TeammateProfile: Codable, Equatable, Sendable {
         title: String? = nil,
         role: String,
         detailedInstructions: String? = nil,
+        seat: TeammateSeat? = nil,
         revision: UInt64 = 1
     ) throws {
         guard revision > 0 else {
@@ -25,6 +30,7 @@ public struct TeammateProfile: Codable, Equatable, Sendable {
             field: "teammate instructions",
             maximum: 20_000
         )
+        self.seat = seat?.isEmpty == false ? seat : nil
         self.revision = revision
     }
 
@@ -32,7 +38,8 @@ public struct TeammateProfile: Codable, Equatable, Sendable {
         displayName: String? = nil,
         title: String?? = nil,
         role: String? = nil,
-        detailedInstructions: String?? = nil
+        detailedInstructions: String?? = nil,
+        seat: TeammateSeat?? = nil
     ) throws -> Self {
         guard revision < UInt64.max else {
             throw DomainValidationError.invalid(field: "profile revision", reason: "cannot advance further")
@@ -42,8 +49,42 @@ public struct TeammateProfile: Codable, Equatable, Sendable {
             title: title ?? self.title,
             role: role ?? self.role,
             detailedInstructions: detailedInstructions ?? self.detailedInstructions,
+            seat: seat ?? self.seat,
             revision: revision + 1
         )
+    }
+}
+
+/// Thrown wherever a bot would be given a name another bot still carries: by
+/// creation, by a rename, and by restoring an archived bot whose name was
+/// taken while it was away. `existingName` is the name as that bot spells it,
+/// so the sentence shown can name it.
+public struct TeammateNameTakenError: Error, Equatable, Sendable {
+    public let existingName: String
+    public init(existingName: String) { self.existingName = existingName }
+}
+
+public extension TeammateProfile {
+    /// The one rule for whether two bot names are the same name: compared
+    /// without case, after trimming, the way the handoff fence routes `@Name`.
+    /// Creation, the rename path, restoring and the fence all read this one
+    /// function, so no two paths can drift into two rules.
+    static func namesMatch(_ left: String, _ right: String) -> Bool {
+        left.trimmingCharacters(in: .whitespacesAndNewlines)
+            .caseInsensitiveCompare(right.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame
+    }
+}
+
+public extension Sequence where Element == Teammate {
+    /// The bot that still holds `name`, if any: one that is not archived,
+    /// other than `excluded` (the bot being renamed keeps its own name in any
+    /// case), whose name matches under `TeammateProfile.namesMatch`. An
+    /// archived bot has given its name up.
+    func activeBot(named name: String, excluding excluded: TeammateID? = nil) -> Teammate? {
+        first {
+            $0.lifecycle != .archived && $0.id != excluded
+                && TeammateProfile.namesMatch($0.profile.displayName, name)
+        }
     }
 }
 
@@ -197,6 +238,11 @@ public struct Teammate: Codable, Equatable, Sendable, Identifiable {
     public var claudeEffort: String?
     /// Nil keeps the model's normal context behavior; explicit default resets it.
     public var claudeContextWindow: String?
+    /// The bot whose hire wrote this bot's role, instructions and seat, named
+    /// as it was at the hire: another bot's reply wrote them, so
+    /// nothing may present them as the person's. Nil for a bot the person
+    /// made, and cleared the first time the person saves the profile.
+    public var profileWrittenByHirer: String?
     public let createdAt: Date
     public var updatedAt: Date
 
@@ -217,7 +263,8 @@ public struct Teammate: Codable, Equatable, Sendable, Identifiable {
         claudeEffort: String? = nil,
         claudeContextWindow: String? = nil,
         createdAt: Date,
-        updatedAt: Date
+        updatedAt: Date,
+        profileWrittenByHirer: String? = nil
     ) throws {
         guard updatedAt >= createdAt else {
             throw DomainValidationError.invalid(
@@ -235,6 +282,7 @@ public struct Teammate: Codable, Equatable, Sendable, Identifiable {
         self.claudeModel = claudeModel
         self.claudeEffort = claudeEffort
         self.claudeContextWindow = claudeContextWindow
+        self.profileWrittenByHirer = try DomainText.optional(profileWrittenByHirer, field: "hirer name", maximum: 80)
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

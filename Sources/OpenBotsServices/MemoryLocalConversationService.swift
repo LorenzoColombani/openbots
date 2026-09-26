@@ -46,6 +46,50 @@ public actor MemoryLocalConversationService: ClaudeTextReplyServing {
         try await fallback.messageProvenance(conversationID: conversationID, messageIDs: messageIDs)
     }
 
+    /// The saved execution record lives with the provider turns, behind this wrapper.
+    public func latestExecutionEvidence(conversationID: ConversationID) async throws -> ClaudeExecutionEvidence? {
+        try await fallback.latestExecutionEvidence(conversationID: conversationID)
+    }
+
+    /// A card belongs to the provider turn behind this wrapper; the answer goes
+    /// straight through. Without this, the default answer (false) swallowed
+    /// every Approve press.
+    public func answerUserQuestion(id: UUID, answer: ClaudeTextQuestionAnswer?) async -> Bool {
+        await fallback.answerUserQuestion(id: id, answer: answer)
+    }
+
+    public func decideApproval(id: UUID, allow: Bool) async -> Bool {
+        await fallback.decideApproval(id: id, allow: allow)
+    }
+
+    public func allowApprovalForTurn(id: UUID) async -> Bool {
+        await fallback.allowApprovalForTurn(id: id)
+    }
+
+    public func replaceMissingFile(id: UUID, with url: URL) async -> Bool {
+        await fallback.replaceMissingFile(id: id, with: url)
+    }
+
+    /// No memory intents apply to a handoff brief; this always reaches the provider.
+    public func sendHandoffLeg(_ submission: HandoffLegSubmission,
+                               onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
+        await fallback.sendHandoffLeg(submission, onProgress: onProgress)
+    }
+
+    public func sendHandoffReport(_ submission: HandoffReportSubmission,
+                               onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
+        await fallback.sendHandoffReport(submission, onProgress: onProgress)
+    }
+
+    public func sendWorkerResult(_ submission: WorkerResultSubmission,
+                                 onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
+        await fallback.sendWorkerResult(submission, onProgress: onProgress)
+    }
+
+    public func saveWorkerLine(_ line: String, conversationID: ConversationID) async -> Bool {
+        await fallback.saveWorkerLine(line, conversationID: conversationID)
+    }
+
     public func sendText(_ submission: ClaudeTextTurnSubmission,
                          onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
         guard active.insert(submission.teammateID).inserted else { return .init(outcome: .failed(.busy)) }

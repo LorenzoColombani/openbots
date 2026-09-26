@@ -146,8 +146,8 @@ final class ComposerDraftStatusViewTests: XCTestCase {
             if !buttons.isEmpty {
                 XCTAssertEqual(buttons.count, expectedActions.count)
                 XCTAssertEqual(buttons.filter { !$0.isEnabled }.count, expectedDisabledActions)
-                // In-process `accessibilityRole()` is AXUnknown for every NSButton on every macOS
-                // (see Scripts/ci-ax-probe.swift); only an external AX client gets AXButton.
+                // AXUnknown shows in-process and AXButton through an external client,
+                // so the check reads the cell class instead.
                 XCTAssertTrue(buttons.allSatisfy { $0.cell is NSButtonCell })
             }
             print("Draft status \(model.statusText), viewport \(width): measured \(measured), native buttons \(buttons.count), observable labels \(labels)")

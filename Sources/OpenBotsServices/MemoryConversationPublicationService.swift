@@ -20,14 +20,15 @@ public protocol MemoryConversationPublicationResolving: Sendable {
 /// A local publication foundation. It launches nothing and writes nothing. Only
 /// complete app-rendered plain-text units escape; provider prose has no output path.
 public struct MemoryConversationPublicationService: Sendable {
-    public static let rendererPolicyVersion: UInt16 = 1
+    public static let rendererPolicyVersion = MemoryPublicationReceipt.currentPolicyVersion
     private let resolver: any MemoryConversationPublicationResolving
 
     public init(resolver: any MemoryConversationPublicationResolving) { self.resolver = resolver }
 
     public func publish(_ candidate: MemoryPublicationCandidate,
                         context: MemoryPublicationContext) async throws -> MemoryConversationPublication {
-        let result = try await materialize(candidate, context: context, id: UUID(), createdAt: context.now)
+        let result = try await materialize(candidate, context: context, id: UUID(), createdAt: context.now,
+                                           policyVersion: Self.rendererPolicyVersion)
         guard try await resolver.revalidate(result.receipt, context: context) else {
             throw MemoryConversationPublicationError.publicationChanged
         }
@@ -39,7 +40,7 @@ public struct MemoryConversationPublicationService: Sendable {
     public func revalidate(_ publication: MemoryConversationPublication,
                            context: MemoryPublicationContext) async throws -> Bool {
         let receipt = publication.receipt
-        guard receipt.policyVersion == Self.rendererPolicyVersion,
+        guard MemoryPublicationReceipt.supportsPolicyVersion(receipt.policyVersion),
               receipt.runID == context.runID, receipt.messageID == context.messageID,
               receipt.teammateID == context.teammateID, receipt.selectedProjectID == context.selectedProjectID,
               receipt.intent == context.intent,
@@ -48,19 +49,21 @@ public struct MemoryConversationPublicationService: Sendable {
               receipt.renderedTextDigest == MemoryClaimDigests.bytes(Data(publication.text.utf8)) else { return false }
         let rebuilt = try await materialize(.init(units: receipt.units), context: context,
                                             id: receipt.id, createdAt: receipt.createdAt,
+                                            policyVersion: receipt.policyVersion,
                                             carriedOmissions: receipt.omittedUnitCount)
         guard rebuilt == publication else { return false }
         return try await resolver.revalidate(receipt, context: context)
     }
 
     private func materialize(_ candidate: MemoryPublicationCandidate, context: MemoryPublicationContext,
-                             id: UUID, createdAt: Date, carriedOmissions: Int = 0) async throws -> MemoryConversationPublication {
+                             id: UUID, createdAt: Date, policyVersion: UInt16,
+                             carriedOmissions: Int = 0) async throws -> MemoryConversationPublication {
         try Self.validate(candidate, context: context)
         if let limitation = context.explanationLimitation {
             guard carriedOmissions == 0 else { throw MemoryConversationPublicationError.invalidReceipt }
             return makePublication(units: [limitation.text],
                 candidate: candidate, context: context, id: id, createdAt: createdAt, dependencies: [],
-                lineage: .independent, omitted: 0)
+                lineage: .independent, omitted: 0, policyVersion: policyVersion)
         }
         var accepted: [MemoryPublicationUnit] = []
         var omitted = carriedOmissions
@@ -91,7 +94,7 @@ public struct MemoryConversationPublicationService: Sendable {
         if context.intent == .explanation && explainedReceipt == nil {
             return makePublication(units: ["I don't have a recorded link explaining that wording, so I can't reliably say why it was used."],
                 candidate: .init(units: []), context: context, id: id, createdAt: createdAt, dependencies: [],
-                lineage: .independent, omitted: omitted)
+                lineage: .independent, omitted: omitted, policyVersion: policyVersion)
         }
 
         let roots = accepted.flatMap(\.references).map(Node.claim)
@@ -110,7 +113,9 @@ public struct MemoryConversationPublicationService: Sendable {
                 }
                 let text: String
                 switch context.intent {
-                case .reply: text = MemoryConversationPublicationRendering.statement(value.snapshot, framing: framing)
+                case .reply:
+                    text = MemoryConversationPublicationRendering.statement(value.snapshot, framing: framing,
+                        kind: unit.kind, policyVersion: policyVersion)
                 case .explanation: text = MemoryConversationPublicationRendering.explanation(value.snapshot, framing: framing)
                 case .overview, .historyOverview:
                     text = "• " + MemoryConversationPublicationRendering.overview(value.snapshot, framing: framing)
@@ -136,7 +141,8 @@ public struct MemoryConversationPublicationService: Sendable {
         let receiptIDs = graph.receiptOrder
         let result = makePublication(units: rendered, candidate: .init(units: accepted), context: context, id: id,
             createdAt: createdAt, dependencies: dependencies,
-            lineage: receiptIDs.isEmpty ? .independent : .derived(receiptIDs: receiptIDs), omitted: omitted)
+            lineage: receiptIDs.isEmpty ? .independent : .derived(receiptIDs: receiptIDs), omitted: omitted,
+            policyVersion: policyVersion)
         guard result.text.utf8.count <= MemoryPublicationLimits.renderedBytes else {
             throw MemoryConversationPublicationError.boundsExceeded
         }
@@ -146,9 +152,9 @@ public struct MemoryConversationPublicationService: Sendable {
     private func makePublication(units: [String], candidate: MemoryPublicationCandidate,
                                  context: MemoryPublicationContext, id: UUID, createdAt: Date,
                                  dependencies: [MemoryPublicationDependency], lineage: MemoryPublicationLineage,
-                                 omitted: Int) -> MemoryConversationPublication {
+                                 omitted: Int, policyVersion: UInt16) -> MemoryConversationPublication {
         let text = units.joined(separator: "\n\n")
-        let receipt = MemoryPublicationReceipt(id: id, policyVersion: Self.rendererPolicyVersion,
+        let receipt = MemoryPublicationReceipt(id: id, policyVersion: policyVersion,
             runID: context.runID, messageID: context.messageID, teammateID: context.teammateID,
             selectedProjectID: context.selectedProjectID, intent: context.intent,
             renderedTextDigest: MemoryClaimDigests.bytes(Data(text.utf8)), units: candidate.units,
@@ -270,7 +276,7 @@ public struct MemoryConversationPublicationService: Sendable {
 
     private func validateReceipt(_ receipt: MemoryPublicationReceipt, expectedID: UUID,
                                  context: MemoryPublicationContext) throws {
-        guard receipt.id == expectedID, receipt.policyVersion == Self.rendererPolicyVersion,
+        guard receipt.id == expectedID, MemoryPublicationReceipt.supportsPolicyVersion(receipt.policyVersion),
               receipt.teammateID == context.teammateID, receipt.selectedProjectID == context.selectedProjectID,
               receipt.intent != .historyOverview || context.intent == .historyOverview,
               receipt.dependencies.count <= MemoryPublicationLimits.dependencyReferences,

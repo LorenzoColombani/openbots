@@ -13,6 +13,9 @@ private actor DurableWorkspaceFakeService: DurableTeammateChatServing {
     private let pageDelaysByBeforeSequence: [Int64: Duration]
     private let attachmentStore: WorkspaceDurableAttachmentStore?
     private let attachmentSendGate: WorkspaceAttachmentSendGate?
+    /// Holds every `select` until released, so a test can keep a navigation
+    /// in flight while something else happens to the roster.
+    private let selectionGate: WorkspaceAttachmentSendGate?
     private let attachmentSendOutcome: WorkspaceAttachmentSendOutcome
     private(set) var createdDraft: DurableTeammateDraft?
     private(set) var sentTargets: [(ConversationID, TeammateID, MessageID, String)] = []
@@ -29,6 +32,7 @@ private actor DurableWorkspaceFakeService: DurableTeammateChatServing {
         pageDelaysByBeforeSequence: [Int64: Duration] = [:],
         attachmentStore: WorkspaceDurableAttachmentStore? = nil,
         attachmentSendGate: WorkspaceAttachmentSendGate? = nil,
+        selectionGate: WorkspaceAttachmentSendGate? = nil,
         attachmentSendOutcome: WorkspaceAttachmentSendOutcome = .success
     ) {
         self.chats = chats
@@ -38,6 +42,7 @@ private actor DurableWorkspaceFakeService: DurableTeammateChatServing {
         self.pageDelaysByBeforeSequence = pageDelaysByBeforeSequence
         self.attachmentStore = attachmentStore
         self.attachmentSendGate = attachmentSendGate
+        self.selectionGate = selectionGate
         self.attachmentSendOutcome = attachmentSendOutcome
     }
 
@@ -46,6 +51,7 @@ private actor DurableWorkspaceFakeService: DurableTeammateChatServing {
     func selectedDirectChat() async throws -> DurableChatSelectionSnapshot? { selected }
 
     func select(teammateID: TeammateID, conversationID: ConversationID) async throws {
+        if let selectionGate { await selectionGate.wait() }
         selectionWriteCount += 1
         guard let chat = chats.first(where: {
             $0.teammate.id == teammateID && $0.conversation.id == conversationID
@@ -59,6 +65,31 @@ private actor DurableWorkspaceFakeService: DurableTeammateChatServing {
     }
 
     func clearSelection() async throws { selected = nil }
+
+    /// New Bot's own path: the placeholder name, the question, selected.
+    private(set) var selfSettingCreations: [(TeammateID, String)] = []
+    func createSelfSettingTeammateAndDirectChat(
+        teammateID: TeammateID, placeholderName: String, appearance: AgentAppearance
+    ) async throws -> DurableTeammateChatCreationSnapshot {
+        selfSettingCreations.append((teammateID, placeholderName))
+        let timestamp = Date(timeIntervalSince1970: 9_100)
+        let teammate = try Teammate(id: teammateID,
+            profile: TeammateProfile(displayName: placeholderName, role: BotSelfSetup.placeholderRole),
+            appearance: appearance, createdAt: timestamp, updatedAt: timestamp)
+        let conversation = try Conversation(id: ConversationID(UUID()), kind: .direct(teammateID: teammate.id),
+            title: placeholderName, createdAt: timestamp, updatedAt: timestamp)
+        let question = try Self.textMessage(id: MessageID(UUID()), conversationID: conversation.id, sequence: 1,
+            author: .teammate(teammate.id), text: BotSelfSetup.firstQuestion, timestamp: timestamp)
+        let chat = DurableDirectChatSnapshot(teammate: teammate, conversation: conversation)
+        chats.append(chat)
+        messages[conversation.id] = [question]
+        let selection = DurableChatSelectionSnapshot(teammate: teammate, conversation: conversation)
+        selected = selection
+        return DurableTeammateChatCreationSnapshot(teammate: teammate, conversation: conversation,
+                                                   fixtureGreeting: question, selection: selection)
+    }
+    var selfSettingCount: Int { selfSettingCreations.count }
+    var selfSettingNames: [String] { selfSettingCreations.map(\.1) }
 
     func createTeammateAndDirectChat(
         _ draft: DurableTeammateDraft
@@ -822,6 +853,34 @@ func durableWorkspaceProfileSavePreservesConversation() async throws {
     #expect(model.conversation.composerText == "Keep this unsent draft")
     #expect(model.conversation.messageRows.first === row)
     #expect(model.conversation.messages == priorMessages)
+}
+
+@Test("Renaming a bot refuses a name another active bot carries, and the bot keeps its own name in any case")
+@MainActor
+func durableWorkspaceRenameRefusesTakenName() async throws {
+    let (ada, greetingA) = try durableWorkspaceFixture(suffix: "85", name: "Ada", seed: 85)
+    let (rook, greetingB) = try durableWorkspaceFixture(suffix: "86", name: "Rook", seed: 86)
+    let service = DurableWorkspaceFakeService(chats: [ada, rook],
+        selected: DurableChatSelectionSnapshot(teammate: rook.teammate, conversation: rook.conversation),
+        messages: [ada.id: [greetingA], rook.id: [greetingB]])
+    let model = DurableWorkspaceModel(mode: .reviewFixture, service: service, hiringService: try durableHiringFixture().0,
+        profileService: WorkspaceProfileEditingFake(rook.teammate))
+    defer { model.finishShutdown() }
+    try await model.loadInitialWorkspace()
+    model.editSelectedProfile()
+    let editor = try #require(model.profileEditor)
+    await editor.load()
+
+    for typed in ["Ada", "ada", "  ADA "] {
+        editor.displayName = typed
+        #expect(editor.nameValidationMessage == "There is already a bot called Ada.", "typed \(typed)")
+        #expect(editor.canSave == false, "typed \(typed)")
+    }
+    editor.displayName = "ROOK"
+    #expect(editor.nameValidationMessage == nil, "The bot keeps its own name in any case")
+    #expect(editor.canSave)
+    let saved = try #require(await editor.save())
+    #expect(saved.profile.displayName == "ROOK")
 }
 
 @Test("Navigating from an unfinished profile preserves its exact teammate draft")
@@ -1875,10 +1934,13 @@ private actor WorkspaceTextReplyTestService: ClaudeTextReplyServing {
     private let store: DurableWorkspaceFakeService
     private let rejection: ClaudeTextTurnProblem?
     private let statusOnlyReply: Bool
+    private let pendingStatusReply: Bool
     private let pausesBeforeReply: Bool
     private var firstReplyGate: CheckedContinuation<Void, Never>?
     private var cleanupOutcome: ClaudeTextTurnOutcome?
     private var progressCallback: (@Sendable (ClaudeTextTurnProgress) async -> Void)?
+    private var retainedProgress: [UUID: @Sendable (ClaudeTextTurnProgress) async -> Void] = [:]
+    private let retainsProgress: Bool
     private var savedReplyForProgress: Message?
     private var completion: CheckedContinuation<ClaudeTextTurnOutcome, Never>?
     private var records: [TextTurnMessageProvenance] = []
@@ -1889,13 +1951,22 @@ private actor WorkspaceTextReplyTestService: ClaudeTextReplyServing {
     private(set) var waiting = false
     private(set) var provenanceWaiting = false
     private(set) var cancellationObserved = false
+    /// How many turns saw their task cancelled, for a test that stops more than one.
+    private(set) var cancellations = 0
+
+    /// A card raised while the turn waits, the way a work turn asks before a move.
+    private let cardWhileWaiting: Bool
 
     init(store: DurableWorkspaceFakeService, rejection: ClaudeTextTurnProblem? = nil,
-         statusOnlyReply: Bool = false, pausesBeforeReply: Bool = false) {
+         statusOnlyReply: Bool = false, pausesBeforeReply: Bool = false, cardWhileWaiting: Bool = false,
+         retainsProgress: Bool = false, pendingStatusReply: Bool = false) {
         self.store = store
         self.rejection = rejection
         self.statusOnlyReply = statusOnlyReply
+        self.pendingStatusReply = pendingStatusReply
         self.pausesBeforeReply = pausesBeforeReply
+        self.cardWhileWaiting = cardWhileWaiting
+        self.retainsProgress = retainsProgress
     }
 
     func sendText(_ submission: ClaudeTextTurnSubmission,
@@ -1920,17 +1991,26 @@ private actor WorkspaceTextReplyTestService: ClaudeTextReplyServing {
             }
             let reply = try Message(
                 id: MessageID(UUID()), conversationID: submission.conversationID,
-                sequence: user.sequence + 1, author: .teammate(submission.teammateID), deliveryState: statusOnlyReply ? .failed : .acknowledged,
+                sequence: user.sequence + 1, author: .teammate(submission.teammateID),
+                deliveryState: pendingStatusReply ? .pending : statusOnlyReply ? .failed : .acknowledged,
                 parts: [try MessagePart(id: MessagePartID(UUID()), ordinal: 0,
-                    content: statusOnlyReply ? .status("Claude could not produce a reply.") : .text("Actual injected provider text"))],
+                    content: pendingStatusReply ? .status("Waiting for Claude's reply.")
+                        : statusOnlyReply ? .status("Claude could not produce a reply.") : .text("Actual injected provider text"))],
                 createdAt: Date(timeIntervalSince1970: 20_000), updatedAt: Date(timeIntervalSince1970: 20_000)
             )
             await store.storeActualReplyForTest(reply)
             let runID = RunID(UUID())
-            records.append(.init(messageID: user.id, replyMessageID: reply.id, runID: runID, state: .running, inputState: .acknowledged))
+            records.append(.init(messageID: user.id, replyMessageID: reply.id, runID: runID,
+                                 teammateID: submission.teammateID, state: .running, inputState: .acknowledged))
             progressCallback = onProgress
+            if retainsProgress { retainedProgress[submission.userMessageID.rawValue] = onProgress }
             savedReplyForProgress = reply
             await onProgress(.assistantMessageSaved(reply))
+            if cardWhileWaiting {
+                await onProgress(.approvalRequired(ClaudeTextApproval(id: UUID(), runID: runID, requestID: "q1",
+                    toolName: "Bash", title: "Move or rename files with a command", detail: "mv a b",
+                    target: "Bots/Zed", expiresAt: Date().addingTimeInterval(600))))
+            }
             let requested = await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
                     if let cleanupOutcome { continuation.resume(returning: cleanupOutcome) }
@@ -1941,13 +2021,18 @@ private actor WorkspaceTextReplyTestService: ClaudeTextReplyServing {
             }
             let outcome: ClaudeTextTurnOutcome = Task.isCancelled ? .stopped : requested
             let state: WorkRunState
+            // The saved outcome the real repository would record: a declined
+            // turn is journalled failed, and only the outcome tells it apart.
+            let durable: TextTurnOutcome
             switch outcome {
-            case .completed: state = .succeeded
-            case .stopped: state = .interrupted
-            case .failed: state = .failed
+            case .completed: state = .succeeded; durable = .succeeded
+            case .stopped: state = .interrupted; durable = .interrupted
+            case .failed(let problem, _): state = .failed; durable = problem == .declined ? .declined : .failed
             }
             records.removeAll { $0.runID == runID }
-            records.append(.init(messageID: user.id, replyMessageID: reply.id, runID: runID, state: state, inputState: .acknowledged))
+            records.append(.init(messageID: user.id, replyMessageID: reply.id, runID: runID,
+                                 teammateID: submission.teammateID, state: state, inputState: .acknowledged,
+                                 outcome: durable))
             let finalReply = savedReplyForProgress ?? reply
             progressCallback = nil
             savedReplyForProgress = nil
@@ -1969,6 +2054,22 @@ private actor WorkspaceTextReplyTestService: ClaudeTextReplyServing {
         waitingBeforeReply = false
     }
 
+    /// The settled bubbles of the reply in flight, as the real service publishes them.
+    func publishBubbles(_ bubbles: [String]) async -> Bool {
+        guard let progressCallback else { return false }
+        await progressCallback(.bubbles(bubbles))
+        return true
+    }
+
+    /// A deliberately delayed service event, including one from a finished
+    /// reservation, so avatar presentation must establish its own ownership.
+    func publishAvatarProgress(_ progress: ClaudeTextTurnProgress, messageID: UUID? = nil) async -> Bool {
+        let callback = messageID.flatMap { retainedProgress[$0] } ?? (messageID == nil ? progressCallback : nil)
+        guard let callback else { return false }
+        await callback(progress)
+        return true
+    }
+
     func appendSavedReplyProgress() async throws -> Bool {
         guard let progressCallback, let previous = savedReplyForProgress,
               let part = previous.parts.first, case let .text(text) = part.content else { return false }
@@ -1983,12 +2084,13 @@ private actor WorkspaceTextReplyTestService: ClaudeTextReplyServing {
     }
 
     func releaseForCleanup() {
+        retainedProgress = [:]
         cleanupOutcome = .stopped
         releaseFirstReply()
         release(.stopped)
     }
 
-    private func observeCancellation() { cancellationObserved = true }
+    private func observeCancellation() { cancellationObserved = true; cancellations += 1 }
 
     func delayNextProvenance(fails: Bool) { delayedProvenanceFailure = fails }
 
@@ -2011,18 +2113,107 @@ private actor WorkspaceTextReplyTestService: ClaudeTextReplyServing {
             if fails { throw WorkspaceProvenanceTestError.unavailable }
             return snapshot.map { record in
                 .init(messageID: record.messageID, replyMessageID: record.replyMessageID,
-                      runID: record.runID, state: .running, inputState: .submitted)
+                      runID: record.runID, teammateID: record.teammateID, state: .running, inputState: .submitted)
             }
         }
         return snapshot
     }
 }
 
+@MainActor
+@Test("Approval and question cards pause the real avatar and matching resolutions restore its current work state")
+func durableWorkspaceCardsDriveAvatarActivity() async throws {
+    let (chat, _) = try durableWorkspaceFixture(suffix: "f2", name: "Card Activity", seed: 442)
+    let store = DurableWorkspaceFakeService(chats: [chat], selected: .init(teammate: chat.teammate, conversation: chat.conversation))
+    let live = WorkspaceTextReplyTestService(store: store, retainsProgress: true)
+    let model = DurableWorkspaceModel(service: store, textReplyService: live, hiringService: try durableHiringFixture().0)
+    try await model.loadInitialWorkspace()
+    defer { Task { await live.releaseForCleanup() } }
+    model.conversation.composerText = "Check the notes"
+    model.conversation.sendCurrentText()
+    try await waitWorkspaceAttachment { await live.waiting }
+    let messageID = try #require(await live.submissions.first).userMessageID.rawValue
+    func activity() -> TeammateActivityState? { model.sidebar.rows.first { $0.id == chat.teammate.id.rawValue }?.activity }
+    #expect(await live.publishBubbles(["I’ll check the notes."]))
+    #expect(activity() == .speaking)
+    let approval = ClaudeTextApproval(id: UUID(), runID: RunID(UUID()), requestID: "approval",
+        toolName: "Bash", title: "Move the notes", detail: "fixture move", target: "fixture", expiresAt: Date().addingTimeInterval(600))
+    #expect(await live.publishAvatarProgress(.approvalRequired(approval)))
+    #expect(model.conversation.textReplyApproval == approval && activity() == .waitingForUser)
+    let question = ClaudeTextQuestion(id: UUID(), runID: approval.runID, requestID: "question", header: "Destination",
+        prompt: "Which folder?", options: [], allowsMultiple: false, isSecret: false, position: 0, count: 1,
+        expiresAt: approval.expiresAt)
+    #expect(await live.publishAvatarProgress(.questionAsked(question)))
+    #expect(model.conversation.textReplyQuestion == question && activity() == .waitingForUser)
+    #expect(await live.publishBubbles(["The notes are ready for your choice."]))
+    #expect(activity() == .waitingForUser, "A progress bubble must not restart motion while a card still waits")
+    #expect(await live.publishAvatarProgress(.approvalResolved(id: UUID())))
+    #expect(activity() == .waitingForUser)
+    #expect(await live.publishAvatarProgress(.approvalResolved(id: approval.id)))
+    #expect(activity() == .waitingForUser, "Resolving one card leaves the other pending")
+    #expect(await live.publishAvatarProgress(.questionResolved(id: question.id)))
+    #expect(activity() == .speaking, "Restore the latest still-busy state, not an invented idle state")
+    #expect(await live.publishAvatarProgress(.stage(.saving)))
+    #expect(activity() == .thinkingOrWorking)
+    await live.release(.completed)
+    try await waitWorkspaceAttachment { model.conversation.textReplyPhase == .completed && !model.conversation.hasPendingSubmissions }
+    #expect(activity() == .idle)
+    #expect(await live.publishAvatarProgress(.questionResolved(id: question.id), messageID: messageID))
+    #expect(activity() == .idle, "A finished reservation cannot revive its avatar")
+}
+
+@MainActor
+@Test("Stopped and superseded card receipts cannot move the current avatar or clear a newer turn's waiting state")
+func durableWorkspaceStaleCardsDoNotRestartAvatar() async throws {
+    let (chat, _) = try durableWorkspaceFixture(suffix: "f3", name: "Current Activity", seed: 443)
+    let store = DurableWorkspaceFakeService(chats: [chat], selected: .init(teammate: chat.teammate, conversation: chat.conversation))
+    let live = WorkspaceTextReplyTestService(store: store, retainsProgress: true)
+    let model = DurableWorkspaceModel(service: store, textReplyService: live, hiringService: try durableHiringFixture().0)
+    try await model.loadInitialWorkspace()
+    defer { Task { await live.releaseForCleanup() } }
+    func activity() -> TeammateActivityState? { model.sidebar.rows.first { $0.id == chat.teammate.id.rawValue }?.activity }
+    model.conversation.composerText = "First request"
+    model.conversation.sendCurrentText()
+    try await waitWorkspaceAttachment { await live.waiting }
+    let oldMessage = try #require(await live.submissions.first).userMessageID.rawValue
+    let approval = ClaudeTextApproval(id: UUID(), runID: RunID(UUID()), requestID: "first-card",
+        toolName: "Bash", title: "Move a note", detail: "fixture move", target: "fixture", expiresAt: Date().addingTimeInterval(600))
+    #expect(await live.publishAvatarProgress(.approvalRequired(approval)))
+    #expect(activity() == .waitingForUser)
+    model.conversation.stopCurrentTextReply()
+    #expect(model.conversation.textReplyPhase == .stopping)
+    #expect(await live.publishAvatarProgress(.approvalResolved(id: approval.id)))
+    #expect(activity() == .waitingForUser, "A resolution during Stop must not restart working motion")
+    await live.release(.stopped)
+    try await waitWorkspaceAttachment { model.conversation.textReplyPhase == .stopped && !model.conversation.hasPendingSubmissions }
+    #expect(activity() == .idle)
+    model.conversation.composerText = "Second request"
+    model.conversation.sendCurrentText()
+    try await waitWorkspaceAttachment {
+        let count = await live.submissions.count
+        let waiting = await live.waiting
+        return count == 2 && waiting
+    }
+    let question = ClaudeTextQuestion(id: UUID(), runID: RunID(UUID()), requestID: "current-card", header: "Choice",
+        prompt: "Which note?", options: [], allowsMultiple: false, isSecret: false, position: 0, count: 1,
+        expiresAt: approval.expiresAt)
+    #expect(await live.publishAvatarProgress(.questionAsked(question)))
+    #expect(activity() == .waitingForUser)
+    #expect(await live.publishAvatarProgress(.questionResolved(id: question.id), messageID: oldMessage))
+    #expect(await live.publishAvatarProgress(.bubbles(["Late old bubble"]), messageID: oldMessage))
+    #expect(activity() == .waitingForUser && model.conversation.textReplyQuestion == question)
+    #expect(await live.publishAvatarProgress(.questionResolved(id: question.id)))
+    #expect(activity() == .thinkingOrWorking)
+    await live.release(.completed)
+    try await waitWorkspaceAttachment { model.conversation.textReplyPhase == .completed && !model.conversation.hasPendingSubmissions }
+    #expect(activity() == .idle)
+}
+
 private enum WorkspaceProvenanceTestError: Error { case unavailable }
 
-@Test("Real text activity stays working until public text, ignores repeated chunks and becomes idle after completion")
+@Test("A reply is never painted letter by letter: the creature works until the first line is settled, then speaks, then rests")
 @MainActor
-func durableWorkspaceTextReplyActivityRequiresPublicStreamingText() async throws {
+func durableWorkspaceTextReplyPaintsCommittedBubblesOnly() async throws {
     let (chat, _) = try durableWorkspaceFixture(suffix: "b1", name: "Activity Evidence", seed: 411)
     let store = DurableWorkspaceFakeService(chats: [chat],
         selected: .init(teammate: chat.teammate, conversation: chat.conversation))
@@ -2042,18 +2233,27 @@ func durableWorkspaceTextReplyActivityRequiresPublicStreamingText() async throws
     #expect(model.conversation.messages.allSatisfy { $0.isFromUser })
     #expect(await live.submissions.count == 1)
 
+    // A saved partial reply is a checkpoint, not something to show
+    // (committed bubbles, never streamed text).
     await live.releaseFirstReply()
     try await waitWorkspaceAttachment { await live.waiting }
+    #expect(row.snapshot.activity == .thinkingOrWorking)
+    #expect(model.conversation.messages.allSatisfy { $0.isFromUser }, "partial text must not be painted")
+    #expect(try await live.appendSavedReplyProgress())
+    #expect(model.conversation.messages.allSatisfy { $0.isFromUser }, "a longer partial is still not painted")
+
+    // The first settled bubble is the first thing the reader sees.
+    #expect(await live.publishBubbles(["First line."]))
+    try await waitWorkspaceAttachment { model.conversation.messages.last?.isFromUser == false }
+    #expect(model.conversation.messages.last?.body == "First line.")
+    #expect(model.conversation.messages.last?.streamState == .notStreaming)
     #expect(row.snapshot.activity == .speaking)
-    #expect(model.conversation.messages.last?.body == "Actual injected provider text")
-    #expect(model.conversation.messages.last?.streamState == .streaming)
     var repeatedActivityPublications = 0
     let observation = row.$snapshot.dropFirst().sink { _ in repeatedActivityPublications += 1 }
     defer { observation.cancel() }
-    #expect(try await live.appendSavedReplyProgress())
-    #expect(model.conversation.messages.last?.body == "Actual injected provider text with another chunk")
-    #expect(row.snapshot.activity == .speaking)
-    #expect(repeatedActivityPublications == 0, "An unchanged streaming state must not restart character motion")
+    #expect(await live.publishBubbles(["First line."]))
+    #expect(model.conversation.messages.last?.body == "First line.")
+    #expect(repeatedActivityPublications == 0, "An unchanged speaking state must not restart character motion")
     #expect(model.sidebar.rowModels.first === row)
 
     await live.release(.completed)
@@ -2084,8 +2284,9 @@ func durableWorkspaceTextReplyRoutingAndReopenProvenance() async throws {
     #expect(!model.conversation.canSend)
     try await waitWorkspaceAttachment { await live.waiting }
     defer { Task { await live.release(.stopped) } }
-    #expect(model.conversation.messages.last?.body == "Actual injected provider text")
-    #expect(model.conversation.messages.last?.streamState == .streaming)
+    // A saved partial is a checkpoint, never painted (committed bubbles only).
+    #expect(model.conversation.messages.last?.isFromUser == true)
+    #expect(model.conversation.messages.last?.body == "Only this new text")
     model.conversation.composerText = "Newer draft must survive"
     try await select(second, in: model)
     try await waitWorkspaceAttachment { model.conversation.draftSubmissionAllowed }
@@ -2255,6 +2456,33 @@ func durableWorkspaceTextReplyFencesOldProvenanceLookup(oldLookupFails: Bool) as
     #expect(await live.submissions.count == 1)
 }
 
+@MainActor
+@Test("Production projects a pending Claude status as OpenBots, and the root hides only its transport caption")
+func durableWorkspaceProjectedPendingStatusUsesAvatarFeedback() async throws {
+    let (chat, _) = try durableWorkspaceFixture(suffix: "f4", name: "Waiting Avatar", seed: 444)
+    let store = DurableWorkspaceFakeService(chats: [chat], selected: .init(teammate: chat.teammate, conversation: chat.conversation))
+    let live = WorkspaceTextReplyTestService(store: store, pendingStatusReply: true)
+    let model = DurableWorkspaceModel(service: store, textReplyService: live, hiringService: try durableHiringFixture().0)
+    try await model.loadInitialWorkspace()
+    defer { Task { await live.releaseForCleanup() } }
+    model.conversation.composerText = "Check the notes"
+    model.conversation.sendCurrentText()
+    try await waitWorkspaceAttachment { await live.waiting }
+    // This is the actual private presentedMessage result from the workspace's
+    // live progress path, not a manually authored teammate UI snapshot.
+    let projected = try #require(model.conversation.messages.last)
+    #expect(projected.author == .system(label: "OpenBots"))
+    #expect(projected.delivery == .pending && projected.streamState == .notStreaming)
+    #expect(projected.body == "Waiting for Claude's reply.")
+    #expect(NormalBusyFeedbackPolicy.hidesPlaceholder(projected))
+    #expect(model.sidebar.rows.first?.activity == .thinkingOrWorking)
+    #expect(model.conversation.textReplyPhase?.isBusy == true)
+    #expect(model.conversation.messages.contains { $0.id == projected.id && $0.body == projected.body },
+            "The work record is retained; only normal transcript feedback is hidden")
+    await live.release(.stopped)
+    try await waitWorkspaceAttachment { !model.conversation.hasPendingSubmissions }
+}
+
 @Test("A persisted status-only failure is OpenBots status, never a streamed Claude reply")
 @MainActor
 func durableWorkspaceTextReplyDoesNotStreamStatusOnlyFailure() async throws {
@@ -2272,6 +2500,7 @@ func durableWorkspaceTextReplyDoesNotStreamStatusOnlyFailure() async throws {
     #expect(status.streamState == .notStreaming)
     #expect(status.deliveryNotice == "OpenBots status · no Claude reply received")
     #expect(status.body == "Claude could not produce a reply.")
+    #expect(!NormalBusyFeedbackPolicy.hidesPlaceholder(status), "The production-projected failure stays visible")
     #expect(model.sidebar.rows.first?.activity == .thinkingOrWorking,
             "A status-only record must not make the character speak")
     await live.release(.failed(.runtimeUnavailable))
@@ -2285,4 +2514,408 @@ func durableWorkspaceTextReplyDoesNotStreamStatusOnlyFailure() async throws {
     #expect(reopened.conversation.messages.last?.author == .system(label: "OpenBots"))
     #expect(reopened.conversation.messages.last?.deliveryNotice == "OpenBots status · no Claude reply received")
     #expect(await live.submissions.count == 1)
+}
+
+// A correction used to read as though the person had pressed Stop ("Stopping
+// and saving available text…"). Now it says
+// the note was picked up and finished work is kept; in a team, that the other
+// bots stop here. A real Stop still reads as a Stop.
+@Test("A correction says it was picked up, not stopped; a team correction says the other bots stop here")
+func aCorrectionSaysItWasPickedUpNotStopped() {
+    #expect(ClaudeTextReplyPhase.correcting(team: false).description == "Got your note. Finished work is kept and the bot starts again with it.")
+    #expect(ClaudeTextReplyPhase.correcting(team: true).description == "Got your note. The other bots stop here and their finished work is kept.")
+    #expect(ClaudeTextReplyPhase.stopping.description == "Stopping and saving available text…")
+    #expect(ClaudeTextReplyPhase.correcting(team: false).isBusy && ClaudeTextReplyPhase.correcting(team: true).isBusy)
+    #expect(NormalBusyFeedbackPolicy.showsCaption(for: .correcting(team: false)))
+    #expect(NormalBusyFeedbackPolicy.showsCaption(for: .correcting(team: true)))
+}
+
+/// A refused wire used to read "Claude's response could not be verified", which
+/// once hid a Claude Code update behind a sentence about the
+/// app. The person reads which version sent what the app refused.
+@Test("A refused wire names the Claude Code version and the code; without a frame the old sentence stands")
+func refusedWireReadsAsClaudeCodeSayingSomethingNew() {
+    let frame = ClaudeTextRefusedFrame(code: .initializationPermissionMismatch, claudeCodeVersion: "2.1.272")
+    #expect(ClaudeTextReplyPhase.failed(.invalidResponse, refusedFrame: frame).description ==
+        "OpenBots stopped this reply: Claude Code 2.1.272 sent something OpenBots does not understand (initializationPermissionMismatch). Nothing was resent; your text is kept.")
+    let unnamed = ClaudeTextRefusedFrame(code: .responseMismatch, claudeCodeVersion: nil)
+    #expect(ClaudeTextReplyPhase.failed(.invalidResponse, refusedFrame: unnamed).description ==
+        "OpenBots stopped this reply: Claude Code sent something OpenBots does not understand (responseMismatch). Nothing was resent; your text is kept.")
+    #expect(ClaudeTextReplyPhase.failed(.invalidResponse).description ==
+        "Claude’s response could not be verified. Saved text is kept; no retry will run automatically.")
+    #expect(ClaudeTextReplyPhase.explanation(.sessionLost) ==
+        "The bot’s saved session could not be continued, so this message was not answered. Send it again and the bot starts fresh.")
+    // A frame on any other problem changes nothing: the code belongs to the wire.
+    #expect(ClaudeTextReplyPhase.failed(.timedOut, refusedFrame: frame).description == ClaudeTextReplyPhase.explanation(.timedOut))
+}
+
+/// A turn the model had declined was once reported
+/// to the person as "Claude's response could not be verified", which sent them
+/// hunting a fault that was never there. Declining is the bot's own call about
+/// one turn, and the two places the person reads say so.
+@Test("A declined turn reads as the bot declining, and a decline over text already said leaves that text alone")
+@MainActor
+func declinedTurnReadsAsTheBotDeclining() async throws {
+    #expect(ClaudeTextReplyPhase.explanation(.declined) ==
+        "The bot decided not to answer this one. Nothing went wrong, your text is kept and nothing will be resent.")
+
+    // It said nothing before deciding: the row carries a status alone, and the
+    // notice over it names the decision instead of a missing reply.
+    let (silent, _) = try durableWorkspaceFixture(suffix: "c1", name: "Declined Silent", seed: 471)
+    let (elsewhere, _) = try durableWorkspaceFixture(suffix: "c3", name: "Somewhere Else", seed: 473)
+    let silentStore = DurableWorkspaceFakeService(chats: [silent, elsewhere],
+        selected: .init(teammate: silent.teammate, conversation: silent.conversation))
+    let silentLive = WorkspaceTextReplyTestService(store: silentStore, statusOnlyReply: true)
+    let silentModel = DurableWorkspaceModel(service: silentStore, textReplyService: silentLive,
+                                            hiringService: try durableHiringFixture().0)
+    try await silentModel.loadInitialWorkspace()
+    silentModel.conversation.composerText = "Something it will not answer"
+    silentModel.conversation.sendCurrentText()
+    try await waitWorkspaceAttachment { await silentLive.waiting }
+    await silentLive.release(.failed(.declined))
+    try await waitWorkspaceAttachment { !silentModel.conversation.hasPendingSubmissions }
+    #expect(silentModel.conversation.messages.last?.author == .system(label: "OpenBots"))
+    #expect(silentModel.conversation.messages.last?.deliveryNotice == "OpenBots status · the bot declined this one")
+    #expect(silentModel.conversation.textReplyPhase == .failed(.declined))
+
+    // Navigating away and back reloads provenance over the same row. The
+    // decision has to survive that pass, not only the first paint.
+    try await select(elsewhere, in: silentModel)
+    try await select(silent, in: silentModel)
+    try await waitWorkspaceAttachment {
+        silentModel.conversation.messages.last?.deliveryNotice == "OpenBots status · the bot declined this one"
+    }
+
+    // Reopened from the saved record, with no live turn and no phase behind it:
+    // the decision has to come off disk, or the person reads a failure again.
+    let reopened = DurableWorkspaceModel(service: silentStore, textReplyService: silentLive,
+                                         hiringService: try durableHiringFixture().0)
+    try await reopened.loadInitialWorkspace()
+    try await waitWorkspaceAttachment {
+        reopened.conversation.messages.last?.deliveryNotice == "OpenBots status · the bot declined this one"
+    }
+    #expect(reopened.conversation.messages.last?.author == .system(label: "OpenBots"))
+    #expect(reopened.conversation.textReplyPhase == nil)
+
+    // It had already said something. That text is the bot's own bubble, and a
+    // decline leaves it exactly where a stop would: no relabel over it.
+    let (spoken, _) = try durableWorkspaceFixture(suffix: "c2", name: "Declined Partial", seed: 472)
+    let spokenStore = DurableWorkspaceFakeService(chats: [spoken],
+        selected: .init(teammate: spoken.teammate, conversation: spoken.conversation))
+    let spokenLive = WorkspaceTextReplyTestService(store: spokenStore)
+    let spokenModel = DurableWorkspaceModel(service: spokenStore, textReplyService: spokenLive,
+                                            hiringService: try durableHiringFixture().0)
+    try await spokenModel.loadInitialWorkspace()
+    spokenModel.conversation.composerText = "It starts and then stops"
+    spokenModel.conversation.sendCurrentText()
+    try await waitWorkspaceAttachment { await spokenLive.waiting }
+    await spokenLive.release(.failed(.declined))
+    try await waitWorkspaceAttachment { !spokenModel.conversation.hasPendingSubmissions }
+    let kept = try #require(spokenModel.conversation.messages.last)
+    #expect(kept.body == "Actual injected provider text")
+    #expect(kept.author != .system(label: "OpenBots"))
+    #expect(kept.deliveryNotice == "The bot declined this one · available reply text saved")
+}
+
+@Test("Bot-to-bot traffic is not a transcript row: a work-channel message is on the record, not in the room")
+@MainActor
+func durableWorkspaceHidesWorkChannelMessages() async throws {
+    let (chat, _) = try durableWorkspaceFixture(suffix: "e2", name: "Record", seed: 432)
+    let store = DurableWorkspaceFakeService(chats: [chat],
+        selected: .init(teammate: chat.teammate, conversation: chat.conversation))
+    let at = Date(timeIntervalSince1970: 30_000)
+    let brief = try Message(id: MessageID(UUID()), conversationID: chat.conversation.id, sequence: 1,
+        author: .teammate(chat.teammate.id), outputClass: .workAudit, deliveryState: .completed,
+        parts: [try MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text("Handoff from Record to Ada."))],
+        createdAt: at, updatedAt: at)
+    let answer = try Message(id: MessageID(UUID()), conversationID: chat.conversation.id, sequence: 2,
+        author: .teammate(chat.teammate.id), deliveryState: .completed,
+        parts: [try MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text("Here is the answer."))],
+        createdAt: at, updatedAt: at)
+    await store.storeActualReplyForTest(brief)
+    await store.storeActualReplyForTest(answer)
+    let model = DurableWorkspaceModel(service: store, hiringService: try durableHiringFixture().0)
+    try await model.loadInitialWorkspace()
+    #expect(model.conversation.messages.map(\.body) == ["Here is the answer."])
+    #expect(model.handoffCards.isEmpty && !model.canShowWorkRecord)
+}
+
+@Test("Send stays live while a card waits, with the draft store in the loop, and the correction goes out")
+@MainActor
+func durableWorkspaceSendStaysLiveWhileACardWaits() async throws {
+    let (chat, _) = try durableWorkspaceFixture(suffix: "e3", name: "Card", seed: 433)
+    let store = DurableWorkspaceFakeService(chats: [chat],
+        selected: .init(teammate: chat.teammate, conversation: chat.conversation))
+    let live = WorkspaceTextReplyTestService(store: store, cardWhileWaiting: true)
+    let model = DurableWorkspaceModel(service: store, textReplyService: live, hiringService: try durableHiringFixture().0,
+        draftService: WorkspaceAttachmentTextDraftStore())
+    try await model.loadInitialWorkspace()
+    defer { Task { await live.releaseForCleanup() } }
+    func wait(_ step: String, _ predicate: @MainActor () async -> Bool) async {
+        do { try await waitWorkspaceAttachment(predicate) } catch { Issue.record("timed out: \(step)") }
+    }
+    model.conversation.composerText = "Move a.txt into the archive"
+    await wait("draft loaded") { model.conversation.canSend }
+    model.conversation.sendCurrentText()
+    await wait("first turn waiting") { await live.waiting }
+    await wait("card shown") { model.conversation.textReplyApproval != nil }
+    #expect(model.conversation.textReplyPhase?.isBusy == true)
+    model.conversation.composerText = "Wait, call it ideas.txt instead"
+    await wait("draft settled") { model.conversation.canSend }
+    #expect(model.conversation.canSend, "a waiting card never locks Send: typing is the correction")
+    model.conversation.sendCurrentText()
+    #expect(model.conversation.textReplyPhase == .correcting(team: false), "a correction reads as a correction, not a Stop")
+    await wait("first turn cancelled") { await live.cancellationObserved }
+    await live.release(.stopped)
+    await wait("correction submitted") { await live.submissions.count == 2 }
+    await wait("correction waiting") { await live.waiting }
+    let submissions = await live.submissions
+    #expect(submissions.count == 2 && submissions.last?.text == "Wait, call it ideas.txt instead" && submissions.last?.correctsRunningTurn == true)
+    await live.release(.completed)
+    await wait("correction completed") { model.conversation.textReplyPhase == .completed && !model.conversation.hasPendingSubmissions }
+}
+
+@Test("A second correction while the corrected turn's card waits goes out after that turn settles, Stop still reaches the last turn, and every finished reply is kept")
+@MainActor
+func durableWorkspaceSecondCorrectionWhileACardWaits() async throws {
+    // A live bug: the second correction was refused as
+    // busy and Stop disappeared while the corrected run lived on.
+    let (chat, _) = try durableWorkspaceFixture(suffix: "e5", name: "Twice", seed: 435)
+    let store = DurableWorkspaceFakeService(chats: [chat],
+        selected: .init(teammate: chat.teammate, conversation: chat.conversation))
+    let live = WorkspaceTextReplyTestService(store: store, cardWhileWaiting: true)
+    let model = DurableWorkspaceModel(service: store, textReplyService: live, hiringService: try durableHiringFixture().0,
+        draftService: WorkspaceAttachmentTextDraftStore())
+    try await model.loadInitialWorkspace()
+    defer { Task { await live.releaseForCleanup() } }
+    func wait(_ step: String, _ predicate: @MainActor () async -> Bool) async {
+        do { try await waitWorkspaceAttachment(predicate) } catch { Issue.record("timed out: \(step)") }
+    }
+    func type(_ text: String) async {
+        model.conversation.composerText = text
+        await wait("draft settled for \(text)") { model.conversation.canSend }
+        model.conversation.sendCurrentText()
+    }
+    await type("Text him hello")
+    await wait("first card shown") {
+        let waiting = await live.waiting
+        return waiting && model.conversation.textReplyApproval != nil
+    }
+    await type("I said good night, not hello")
+    await wait("first turn cancelled") { await live.cancellationObserved }
+    await live.release(.stopped)
+    await wait("corrected turn's card shown") {
+        let count = await live.submissions.count, waiting = await live.waiting
+        return count == 2 && waiting && model.conversation.textReplyApproval != nil
+    }
+
+    await type("And sign it from me")
+    #expect(model.conversation.textReplyPhase == .correcting(team: false), "the second correction is taken, not refused")
+    #expect(model.conversation.lastSubmissionRefusal == nil)
+    try await Task.sleep(for: .milliseconds(50))
+    #expect(await live.submissions.count == 2, "it waits for the corrected turn instead of reaching a bot still running")
+    #expect(model.conversation.textReplyPhase?.isBusy == true, "Stop stays offered while the corrected turn settles")
+
+    await live.release(.stopped)
+    await wait("second correction submitted") {
+        let count = await live.submissions.count, waiting = await live.waiting
+        return count == 3 && waiting
+    }
+    let submissions = await live.submissions
+    #expect(submissions.map(\.correctsRunningTurn) == [false, true, true])
+    #expect(submissions.last?.text == "And sign it from me")
+
+    // What the user reached for when the card expired: Stop, on the latest turn.
+    // The stopped turn's late end used to erase this turn's task, so Stop
+    // cancelled nothing.
+    model.conversation.stopCurrentTextReply()
+    #expect(model.conversation.textReplyPhase == .stopping)
+    await wait("Stop reaches the last turn") { await live.cancellations == 3 }
+    await live.release(.stopped)
+    await wait("the last turn stopped") {
+        model.conversation.textReplyPhase == .stopped && !model.conversation.hasPendingSubmissions
+    }
+    #expect(model.conversation.messages.filter(\.isFromUser).map(\.body)
+            == ["Text him hello", "I said good night, not hello", "And sign it from me"])
+    #expect(model.conversation.messages.filter { !$0.isFromUser }.count == 3, "each turn's finished reply is kept")
+}
+
+@Test("Composed as the app is, with the attachment draft in the loop, Send stays live while a card waits and the correction goes out")
+@MainActor
+func durableWorkspaceSendStaysLiveWhileACardWaitsWithAttachmentDraft() async throws {
+    let (chat, _) = try durableWorkspaceFixture(suffix: "e4", name: "Card Files", seed: 434)
+    let attachments = WorkspaceDurableAttachmentStore(assets: [])
+    let store = DurableWorkspaceFakeService(chats: [chat],
+        selected: .init(teammate: chat.teammate, conversation: chat.conversation), attachmentStore: attachments)
+    let live = WorkspaceTextReplyTestService(store: store, cardWhileWaiting: true)
+    let model = DurableWorkspaceModel(service: store, textReplyService: live, hiringService: try durableHiringFixture().0,
+        draftService: WorkspaceAttachmentTextDraftStore(), attachmentDraftFactory: workspaceDurableAttachmentFactory(attachments))
+    try await model.loadInitialWorkspace()
+    defer { Task { await live.releaseForCleanup() } }
+    func wait(_ step: String, _ predicate: @MainActor () async -> Bool) async {
+        do { try await waitWorkspaceAttachment(predicate) } catch { Issue.record("timed out: \(step)") }
+    }
+    model.conversation.composerText = "Create notes.txt in your Outbox"
+    await wait("drafts loaded") { model.conversation.canSend }
+    model.conversation.sendCurrentText()
+    await wait("first turn waiting") { await live.waiting }
+    await wait("card shown") { model.conversation.textReplyApproval != nil }
+    #expect(model.conversation.textReplyPhase?.isBusy == true)
+    model.conversation.composerText = "Wait, make it a folder called Ideas instead"
+    await wait("draft settled") { model.conversation.canSend }
+    #expect(model.conversation.attachmentSubmissionAllowed,
+            "an empty attachment draft must not hold Send for the whole turn once the message is saved")
+    #expect(model.conversation.canSend, "a waiting card never locks Send: typing is the correction")
+    model.conversation.sendCurrentText()
+    #expect(model.conversation.textReplyPhase == .correcting(team: false), "the correction stops the running turn and says so as a correction")
+    await wait("first turn cancelled") { await live.cancellationObserved }
+    await live.release(.stopped)
+    await wait("correction submitted") { await live.submissions.count == 2 }
+    await wait("correction waiting") { await live.waiting }
+    let submissions = await live.submissions
+    #expect(submissions.count == 2 && submissions.last?.text == "Wait, make it a folder called Ideas instead"
+            && submissions.last?.correctsRunningTurn == true)
+    await live.release(.completed)
+    await wait("correction completed") { model.conversation.textReplyPhase == .completed && !model.conversation.hasPendingSubmissions }
+    #expect(model.conversation.messages.filter(\.isFromUser).map(\.body)
+            == ["Create notes.txt in your Outbox", "Wait, make it a folder called Ideas instead"])
+}
+
+@Test("Typing while the bot works stops the running turn and restarts with the correction; Send never locks")
+@MainActor
+func durableWorkspaceSendWhileBusySteers() async throws {
+    let (chat, _) = try durableWorkspaceFixture(suffix: "d1", name: "Steering", seed: 431)
+    let store = DurableWorkspaceFakeService(chats: [chat],
+        selected: .init(teammate: chat.teammate, conversation: chat.conversation))
+    let live = WorkspaceTextReplyTestService(store: store)
+    let model = DurableWorkspaceModel(service: store, textReplyService: live, hiringService: try durableHiringFixture().0)
+    try await model.loadInitialWorkspace()
+    defer { Task { await live.releaseForCleanup() } }
+    model.conversation.composerText = "Sort the invoices by month"
+    model.conversation.sendCurrentText()
+    try await waitWorkspaceAttachment { await live.waiting }
+    #expect(model.conversation.textReplyPhase?.isBusy == true)
+    #expect(model.conversation.canSend == false, "an empty composer has nothing to send")
+    model.conversation.composerText = "Actually only the unpaid ones"
+    #expect(model.conversation.canSend, "Send stays live while the bot works")
+    model.conversation.sendCurrentText()
+    #expect(model.conversation.textReplyPhase == .correcting(team: false), "a correction reads as a correction, not a Stop")
+    try await waitWorkspaceAttachment { await live.cancellationObserved }
+    await live.release(.stopped)
+    try await waitWorkspaceAttachment { await live.submissions.count == 2 }
+    try await waitWorkspaceAttachment { await live.waiting }
+    let submissions = await live.submissions
+    #expect(submissions[0].correctsRunningTurn == false)
+    #expect(submissions[1].text == "Actually only the unpaid ones" && submissions[1].correctsRunningTurn)
+    #expect(model.conversation.textReplyPhase == .responding)
+    #expect(model.conversation.messages.filter(\.isFromUser).map(\.body) == ["Sort the invoices by month", "Actually only the unpaid ones"])
+    await live.release(.completed)
+    try await waitWorkspaceAttachment { model.conversation.textReplyPhase == .completed && !model.conversation.hasPendingSubmissions }
+    #expect(await live.submissions.count == 2)
+}
+
+// MARK: - New Bot: a bot is born, asks what it is for, and sets itself up
+
+@MainActor
+@Test("New Bot makes exactly one bot at once, under a free placeholder name, selected and opened on its one question")
+func durableWorkspaceNewBotAsksWhatItIsFor() async throws {
+    let (ada, greetingA) = try durableWorkspaceFixture(suffix: "81", name: "New Bot", seed: 81)
+    let service = DurableWorkspaceFakeService(chats: [ada],
+        selected: DurableChatSelectionSnapshot(teammate: ada.teammate, conversation: ada.conversation),
+        messages: [ada.id: [greetingA]])
+    let model = DurableWorkspaceModel(service: service, hiringService: try durableHiringFixture(mode: .localOnly).0)
+    defer { model.finishShutdown() }
+    try await model.loadInitialWorkspace()
+    model.conversation.composerText = "The first bot's unsent draft"
+
+    model.beginTeammateCreation()
+    #expect(model.isCreatingTeammate, "claimed at the press")
+    model.beginTeammateCreation()
+    #expect(model.hiringModel == nil, "no questionnaire")
+    try await waitWorkspaceAttachment { !model.isCreatingTeammate }
+
+    #expect(await service.selfSettingCount == 1, "a second press while the first is being made makes nothing")
+    #expect(await service.selfSettingNames == ["New Bot 2"], "the placeholder no other bot carries")
+    #expect(await service.createdDraft == nil)
+    #expect(model.creationError == nil)
+    let created = try #require(await service.activeDirectChats().first(where: { $0.teammate.profile.displayName == "New Bot 2" }))
+    #expect(model.sidebar.rows.map(\.id) == [created.teammate.id.rawValue, ada.teammate.id.rawValue])
+    #expect(model.sidebar.selection == created.teammate.id.rawValue)
+    #expect(model.conversation.conversationID == created.conversation.id.rawValue)
+    #expect(model.conversation.title == "New Bot 2")
+    #expect(model.conversation.messages.map(\.body) == [BotSelfSetup.firstQuestion])
+    #expect(model.conversation.messages.first?.isFromUser == false)
+    #expect(model.conversation.inputAvailability == .ready)
+
+    // The next New Bot is the next free name.
+    model.beginTeammateCreation()
+    try await waitWorkspaceAttachment { !model.isCreatingTeammate }
+    #expect(await service.selfSettingNames == ["New Bot 2", "New Bot 3"])
+}
+
+/// Hidden bots keep their names: the database refuses a
+/// name a hidden bot holds, so the model must not offer it.
+private struct HiddenNamesNavigation: TeammateNavigating {
+    let hidden: [Teammate]
+    func setPinned(id: TeammateID, pinned: Bool, expectedProfileRevision: UInt64) async throws -> Teammate {
+        throw TeammateNavigationError.notFound
+    }
+    func setHidden(id: TeammateID, hidden: Bool, expectedProfileRevision: UInt64) async throws -> Teammate {
+        throw TeammateNavigationError.notFound
+    }
+    func hiddenTeammates() async throws -> [Teammate] { hidden }
+}
+
+@MainActor
+@Test("New Bot skips a name a hidden bot holds, so a hidden New Bot never makes every press fail")
+func durableWorkspaceNewBotSkipsHiddenNames() async throws {
+    let (ada, greetingA) = try durableWorkspaceFixture(suffix: "83", name: "New Bot", seed: 83)
+    let (shy, _) = try durableWorkspaceFixture(suffix: "84", name: "New Bot 2", seed: 84)
+    var shyBot = shy.teammate
+    shyBot.isHidden = true
+    let service = DurableWorkspaceFakeService(chats: [ada],
+        selected: DurableChatSelectionSnapshot(teammate: ada.teammate, conversation: ada.conversation),
+        messages: [ada.id: [greetingA]])
+    let model = DurableWorkspaceModel(service: service, hiringService: try durableHiringFixture(mode: .localOnly).0,
+                                      navigationService: HiddenNamesNavigation(hidden: [shyBot]))
+    defer { model.finishShutdown() }
+    try await model.loadInitialWorkspace()
+    model.beginTeammateCreation()
+    try await waitWorkspaceAttachment { !model.isCreatingTeammate }
+    #expect(await service.selfSettingNames == ["New Bot 3"])
+    #expect(model.creationError == nil)
+}
+
+@MainActor
+@Test("A placeholder name taken while New Bot waits on a navigation in flight is refused before anything is saved, and said")
+func durableWorkspaceNewBotRefusesNameTakenAfterPress() async throws {
+    let (ada, greetingA) = try durableWorkspaceFixture(suffix: "87", name: "Ada", seed: 87)
+    let (rook, greetingB) = try durableWorkspaceFixture(suffix: "88", name: "Rook", seed: 88)
+    let navigation = WorkspaceAttachmentSendGate()
+    let service = DurableWorkspaceFakeService(chats: [ada, rook],
+        selected: DurableChatSelectionSnapshot(teammate: ada.teammate, conversation: ada.conversation),
+        messages: [ada.id: [greetingA], rook.id: [greetingB]], selectionGate: navigation)
+    let model = DurableWorkspaceModel(service: service, hiringService: try durableHiringFixture(mode: .localOnly).0)
+    defer { model.finishShutdown() }
+    try await model.loadInitialWorkspace()
+
+    // A click on Rook is still being saved when New Bot is pressed.
+    model.sidebar.selection = rook.teammate.id.rawValue
+    try await waitWorkspaceAttachment { await navigation.started }
+    model.beginTeammateCreation()
+    #expect(model.isCreatingTeammate)
+    // Meanwhile Ada is renamed "New Bot" elsewhere and the workspace hears of it.
+    var renamed = ada.teammate
+    renamed.profile = try ada.teammate.profile.revised(displayName: "New Bot")
+    model.profileDidSave(renamed)
+    await navigation.release()
+    try await waitWorkspaceAttachment { !model.isCreatingTeammate }
+
+    #expect(await service.selfSettingCount == 0, "a name taken after the press creates nothing")
+    #expect(model.creationError == "Couldn’t create the bot. Your current chat and drafts are unchanged.")
+    #expect(model.sidebar.rows.map(\.name).sorted() == ["New Bot", "Rook"])
+    // Pressed again, the next free name.
+    model.beginTeammateCreation()
+    try await waitWorkspaceAttachment { !model.isCreatingTeammate }
+    #expect(await service.selfSettingNames == ["New Bot 2"])
 }

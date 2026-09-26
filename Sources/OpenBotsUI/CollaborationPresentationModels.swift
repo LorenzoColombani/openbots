@@ -145,15 +145,19 @@ public enum ChatHandoffStateSnapshot: String, CaseIterable, Equatable, Sendable 
     case working
     case succeeded
     case returnedToOrigin
+    /// The user answered "Not now". The record is in recovery, but nothing
+    /// went wrong, so this state is drawn like any other outcome, not in red.
+    case declined
     case needsRecovery
 
     public var visibleLabel: String {
         switch self {
         case .staged: "Staged"
         case .accepted: "Accepted"
-        case .working: "Working fixture"
+        case .working: "Working"
         case .succeeded: "Result prepared"
         case .returnedToOrigin: "Returned to sender"
+        case .declined: "Not sent"
         case .needsRecovery: "Needs attention"
         }
     }
@@ -165,6 +169,7 @@ public enum ChatHandoffStateSnapshot: String, CaseIterable, Equatable, Sendable 
         case .working: "hammer"
         case .succeeded: "checkmark.seal"
         case .returnedToOrigin: "arrow.uturn.backward.circle"
+        case .declined: "xmark.circle"
         case .needsRecovery: "exclamationmark.triangle"
         }
     }
@@ -218,15 +223,22 @@ public struct ChatHandoffTrailSnapshot: Identifiable, Equatable, Sendable {
     public let resultSummary: String?
     public let fixtureDisclosure: String
 
+    /// A real handoff carries no disclosure text; only the local review
+    /// fixture does. The trail's wording never claims fixture status for a
+    /// live handoff, and never omits the disclosure for a fixture one.
+    public var isFixture: Bool { !fixtureDisclosure.isEmpty }
+
     public var accessibilityDescription: String {
         let events = timeline.map {
             "\($0.actor.name), \($0.state.visibleLabel): \($0.summary)"
         }.joined(separator: ". ")
         let recovery = recoveryMessage.map { " Recovery: \($0)." } ?? ""
         let result = resultSummary.map { " Result returned: \($0)." } ?? ""
-        return "Local handoff fixture from \(sender.name) to \(receiver.name). "
+        let prefix = isFixture ? "Local handoff fixture from" : "Handoff from"
+        let disclosure = isFixture ? " \(fixtureDisclosure)" : ""
+        return "\(prefix) \(sender.name) to \(receiver.name). "
             + "State: \(state.visibleLabel). Goal: \(goal). \(events)."
-            + recovery + result + " \(fixtureDisclosure)"
+            + recovery + result + disclosure
     }
 
     public init(
@@ -253,6 +265,142 @@ public struct ChatHandoffTrailSnapshot: Identifiable, Equatable, Sendable {
         self.recoveryMessage = recoveryMessage
         self.resultSummary = resultSummary
         self.fixtureDisclosure = fixtureDisclosure
+    }
+}
+
+/// The one control a handoff card can carry. A brief the workspace is sending
+/// itself carries none: it is a record of what happened, not a gate.
+public enum ChatHandoffCardControl: Equatable, Sendable {
+    /// Staged, and not being sent by this workspace: a previous session, a
+    /// crash, a team the user has only just opened, or a brief whose own
+    /// dispatch was turned away before its accept. Automatic dispatch belongs
+    /// to the chain the user just started, so nothing but a person will move
+    /// this one.
+    case send
+    /// Accepted, and turned away between the accept and its durable turn. The
+    /// automatic dispatch takes only a staged record, so this one waits too.
+    case sendAgain
+}
+
+/// A real handoff shown in a team conversation. A lead delegating to a member
+/// of its own team is ordinary teaming, so the leg dispatches itself and this
+/// is the record of what happened, not the gate that had to be clicked first.
+///
+/// Exactly two records carry a control, and they are the two the reply service
+/// still admits and the automatic dispatch will not take: a brief left staged
+/// for a person to send, and one stalled at `accepted`. Either carries it only
+/// while the conversation is free, since a press during a turn or leg could
+/// only be refused. A record in recovery cannot be re-sent at all, so it
+/// promises nothing and says why in its own recovery wording.
+public struct ChatHandoffCardSnapshot: Identifiable, Equatable, Sendable {
+    /// Roughly one line of goal in the transcript. A brief is a record to
+    /// open, not a wall to scroll past.
+    public static let summaryGoalLimit = 80
+
+    static func control(for state: HandoffState, dispatchesItself: Bool,
+                        conversationIsBusy: Bool) -> ChatHandoffCardControl? {
+        guard !conversationIsBusy else { return nil }
+        return switch state {
+        case .staged: dispatchesItself ? nil : .send
+        case .accepted: .sendAgain
+        case .working, .succeeded, .returnedToOrigin, .needsRecovery: nil
+        }
+    }
+
+    public let id: UUID
+    public let trail: ChatHandoffTrailSnapshot
+    public let receiverName: String
+    public let control: ChatHandoffCardControl?
+
+    /// The button's words, and nil for a card that is a pure record.
+    public var controlLabel: String? {
+        switch control {
+        case .send: "Send to \(receiverName)"
+        case .sendAgain: "Send again"
+        case nil: nil
+        }
+    }
+
+    /// The single line the transcript shows until the reader opens the brief:
+    /// who asked whom, and what for. Nothing else from the brief appears here,
+    /// so the requested output, the boundary and the trail stay hidden until
+    /// the disclosure is opened.
+    public var summaryLine: String {
+        "\(trail.sender.name) asked \(trail.receiver.name) — \(Self.oneLine(trail.goal))"
+    }
+
+    /// What VoiceOver reads for the collapsed line: who asked whom for what,
+    /// and where the handoff has got to.
+    public var collapsedAccessibilityLabel: String {
+        "\(trail.sender.name) asked \(trail.receiver.name) for: \(Self.oneLine(trail.goal)). "
+            + "\(trail.state.visibleLabel)."
+    }
+
+    /// Any run of whitespace becomes one space, so a multi-line goal cannot
+    /// make the collapsed line tall, and the cut lands on the limit rather
+    /// than mid-word whitespace.
+    static func oneLine(_ text: String) -> String {
+        let flattened = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard flattened.count > summaryGoalLimit else { return flattened }
+        return flattened.prefix(summaryGoalLimit).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    public init(id: UUID, trail: ChatHandoffTrailSnapshot, receiverName: String, control: ChatHandoffCardControl?) {
+        self.id = id
+        self.trail = trail
+        self.receiverName = receiverName
+        self.control = control
+    }
+
+    /// `dispatchesItself` is the workspace's own answer for this record: it
+    /// watched a completed turn stage this brief and is sending it. It is
+    /// computed once per record and used both here and to choose what to
+    /// dispatch, so a card and the dispatch can never disagree.
+    /// `conversationIsBusy` is true while a turn or leg holds the conversation,
+    /// when a press could only be refused, so the card then carries no control.
+    public init(record: HandoffRecord, sender: TeammateIdentitySnapshot, receiver: TeammateIdentitySnapshot,
+                dispatchesItself: Bool, conversationIsBusy: Bool = false) {
+        let handoff = record.handoff
+        var timeline = [
+            ChatHandoffTimelineEntrySnapshot(
+                id: 0, actor: sender, state: .staged,
+                timestamp: handoff.provenance.createdAt, summary: "Brief staged by the lead"
+            )
+        ]
+        // No control declines a handoff any more, but the installed build's
+        // "Not now" records still exist: they read as an outcome, with no
+        // warning colour and nothing to recover, and only the timeline says so.
+        let wasDeclined = record.state == .needsRecovery && handoff.recovery?.code == "declined"
+        let state = wasDeclined ? .declined : ChatHandoffStateSnapshot(record.state)
+        switch record.state {
+        case .staged:
+            break
+        case .needsRecovery:
+            let summary = wasDeclined ? "Not sent" : (handoff.recovery?.userMessage ?? state.visibleLabel)
+            timeline.append(.init(id: 1, actor: sender, state: state, timestamp: handoff.lastTransitionAt, summary: summary))
+        case .accepted, .working, .succeeded, .returnedToOrigin:
+            timeline.append(.init(
+                id: 1, actor: receiver, state: record.state == .returnedToOrigin ? .succeeded : state,
+                timestamp: handoff.completedAt ?? handoff.lastTransitionAt,
+                summary: record.state == .returnedToOrigin ? ChatHandoffStateSnapshot.returnedToOrigin.visibleLabel : state.visibleLabel
+            ))
+            if record.state == .returnedToOrigin, let returnedAt = handoff.returnedAt {
+                timeline.append(.init(id: 2, actor: sender, state: .returnedToOrigin, timestamp: returnedAt, summary: "Result returned to the lead"))
+            }
+        }
+        self.init(
+            id: record.id.rawValue,
+            trail: ChatHandoffTrailSnapshot(
+                id: record.id.rawValue, sender: sender, receiver: receiver, goal: handoff.brief.goal,
+                requestedOutput: handoff.brief.requestedOutput, stopOrApprovalBoundary: handoff.brief.stopOrApprovalBoundary,
+                state: state, timeline: timeline,
+                recoveryMessage: wasDeclined ? nil : handoff.recovery?.userMessage,
+                resultSummary: handoff.resultSummary, fixtureDisclosure: ""
+            ),
+            receiverName: receiver.name,
+            control: Self.control(for: record.state, dispatchesItself: dispatchesItself,
+                                  conversationIsBusy: conversationIsBusy)
+        )
     }
 }
 

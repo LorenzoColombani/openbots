@@ -429,6 +429,286 @@ func memoryEvidenceConversationalAliasesPreserveAuthority() async throws {
     }
 }
 
+@Test("Ordinary preference corrections recognize one bounded statement with case and outer whitespace normalization")
+func memoryEvidenceOrdinaryPreferenceRecognitionIsBounded() {
+    for text in ["Actually, I prefer coffee.", "actually, i prefer coffee", " \tACTUALLY, I PREFER quiet places.\n "] {
+        #expect(MemoryEvidenceVerifier.recognizesUserCommand(text))
+    }
+    for text in [
+        "\"Actually, I prefer coffee.\"", "“Actually, I prefer coffee.”", "> Actually, I prefer coffee.",
+        "If I said Actually, I prefer coffee.", "Hypothetically, actually, I prefer coffee.",
+        "Actually, I prefer coffee if available.", "Actually, I prefer coffee when travelling.",
+        "Actually, I prefer coffee only in winter.", "Actually, I prefer coffee hypothetically.",
+        "Actually, I prefer coffee and tea.", "Actually, I prefer coffee or tea.",
+        "Actually, I prefer coffee. I live in Paris.", "Actually, I prefer coffee; remember it.",
+        "Actually, I prefer coffee.\nRemember it.", "Actually, \nI prefer coffee.",
+        "Actually, I prefer \"coffee\".", "Actually, I prefer ‘coffee’.",
+        "Actually, I prefer coffee?", "Actually, I prefer.", "Actually, I prefer ",
+        "Actually, I might prefer coffee.", "Actually, they prefer coffee.", "Actually, I live in Paris."
+    ] {
+        #expect(!MemoryEvidenceVerifier.recognizesUserCommand(text), "Unexpected command: \(text)")
+        #expect(MemoryEvidenceVerifier.userTarget(text: text, claims: []) == .unsupported)
+    }
+    // Existing explicit grammar retains its original exact, case-sensitive behavior.
+    #expect(!MemoryEvidenceVerifier.recognizesUserCommand(" correct from first-hand knowledge to: I prefer coffee."))
+    #expect(MemoryEvidenceVerifier.recognizesUserCommand("Correct from first-hand knowledge to: I live in Lyon."))
+}
+
+@Test("Ordinary correction selects one current first-person preference and never the sole unrelated claim")
+func memoryEvidenceOrdinaryPreferenceTargetIsRestricted() {
+    func claim(_ body: String, validity: MemoryClaimValidity = .active) -> MemoryClaim {
+        MemoryClaim(id: MemoryClaimID(UUID()), body: body,
+            assessment: .init(level: .unassessed, basis: "", assessor: .init(kind: .unassessed)),
+            provenance: [], validity: validity)
+    }
+    let preference = claim("  i PREFER tea.  ")
+    let residence = claim("I live in Paris.")
+    let text = "Actually, I prefer coffee."
+    #expect(MemoryEvidenceVerifier.userTarget(text: text, claims: [preference, residence])
+        == .existingClaim(action: .correctFirstHand, body: "I prefer coffee.", claimID: preference.id))
+    for candidates in [[], [residence], [claim("They prefer tea.")], [claim("I prefer tea if available.")],
+                       [claim("I prefer tea. I live in Paris.")], [claim("I prefer tea.", validity: .withdrawn)],
+                       [preference, claim("I prefer quiet places.")], [preference, claim("I prefer tea if available.")],
+                       [preference, preference]] {
+        #expect(MemoryEvidenceVerifier.userTarget(text: text, claims: candidates) == .ambiguous)
+    }
+    #expect(MemoryEvidenceVerifier.userTarget(text: text,
+        claims: [preference, claim("I prefer coffee.", validity: .withdrawn)])
+        == .existingClaim(action: .correctFirstHand, body: "I prefer coffee.", claimID: preference.id))
+    #expect(MemoryEvidenceVerifier.userTarget(text: "Correct from first-hand knowledge to: I live in Lyon.", claims: [residence])
+        == .existingClaim(action: .correctFirstHand, body: "I live in Lyon.", claimID: residence.id))
+}
+
+@Test("Ordinary preference correction binds original message bytes and retains the exact withdrawn preference")
+func memoryEvidenceOrdinaryPreferencePreservesSourceAndHistory() async throws {
+    let fixture = try MemoryEvidenceFixture()
+    let initial = try fixture.message("Remember that   i PREFER tea.  ")
+    await fixture.store.put(initial)
+    let previous = try await fixture.verifier.userProposal(messageID: initial.id, claimID: MemoryClaimID(UUID()),
+        scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    let predecessor = fixture.artifact([previous])
+    let reference = try MemoryClaimCodec().reference(for: previous, in: predecessor,
+        contentDigest: MemoryClaimDigests.bytes(MemoryClaimCodec().encode(predecessor)))
+    let originalText = " \tACTUALLY, i PREFER coffee.\n "
+    let correction = try fixture.message(originalText, sequence: 2)
+    await fixture.store.put(correction)
+    let pair = try await fixture.verifier.userCorrectionProposal(messageID: correction.id, previous: previous,
+        previousReference: reference, scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    #expect(pair.withdrawnPredecessor.body.utf8.elementsEqual(previous.body.utf8))
+    #expect(pair.withdrawnPredecessor.id == previous.id && pair.withdrawnPredecessor.validity == .withdrawn)
+    #expect(pair.successor.body == "i PREFER coffee.")
+    #expect(pair.successor.id != previous.id && pair.successor.validity == .active)
+    #expect(pair.successor.assessment.level == .uncertain)
+    #expect(pair.successor.assessment.basis.contains("not been independently verified"))
+    #expect(!pair.successor.assessment.basis.contains("first-hand"))
+    #expect(pair.successor.changes[0].kind == .supersession && pair.successor.changes[0].previous == reference)
+    #expect(pair.successor.assessment.evidence[0].source.contentDigest == MemoryClaimDigests.bytes(Data(originalText.utf8)))
+    #expect(try await fixture.verifier.userCorrectionProposal(messageID: correction.id, previous: previous,
+        previousReference: reference, scope: fixture.scope, authority: fixture.context, at: fixture.now) == pair)
+    let evidence = try await fixture.verifier.verify(
+        artifact: fixture.artifact([pair.withdrawnPredecessor, pair.successor], revision: 2), predecessor: predecessor,
+        actor: .user(messageID: correction.id), authority: fixture.context, at: fixture.now)
+    #expect(evidence.verified.count == 2)
+    #expect(evidence.userMessages.contains { $0.messageID == correction.id && $0.contentDigest == MemoryClaimDigests.bytes(Data(originalText.utf8)) })
+    let later = try fixture.message("What do you remember about me?", sequence: 3)
+    await fixture.store.put(later)
+    let retainedOld = try await fixture.verifier.verifyRetained(claim: pair.withdrawnPredecessor,
+        scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    let retainedNew = try await fixture.verifier.verifyRetained(claim: pair.successor,
+        scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    #expect(retainedOld[0].reference.relation == .invalidates)
+    #expect(retainedNew[0].reference.relation == .supports)
+    let model = try fixture.message("Actually, I prefer cocoa.", sequence: 4, author: .teammate(fixture.teammate.id))
+    await fixture.store.put(model)
+    await #expect(throws: MemoryEvidenceVerifierError.invalidSource) {
+        _ = try await fixture.verifier.userCorrectionProposal(messageID: model.id, previous: previous,
+            previousReference: reference, scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    }
+}
+
+@Test("Ordinary preference corrections cannot authorize an unrelated withdrawal even with recomputed source receipts")
+func memoryEvidenceOrdinaryPreferenceRejectsUnrelatedEvidence() async throws {
+    let fixture = try MemoryEvidenceFixture()
+    let initial = try fixture.message("Remember that I live in Paris.")
+    await fixture.store.put(initial)
+    let previous = try await fixture.verifier.userProposal(messageID: initial.id, claimID: MemoryClaimID(UUID()),
+        scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    let predecessor = fixture.artifact([previous])
+    let reference = try MemoryClaimCodec().reference(for: previous, in: predecessor,
+        contentDigest: MemoryClaimDigests.bytes(MemoryClaimCodec().encode(predecessor)))
+    let explicit = try fixture.message("Correct from first-hand knowledge to: I prefer coffee.", sequence: 2)
+    await fixture.store.put(explicit)
+    let explicitPair = try await fixture.verifier.userCorrectionProposal(messageID: explicit.id, previous: previous,
+        previousReference: reference, scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    let ordinaryText = "Actually, I prefer coffee."
+    let ordinary = try Message(id: explicit.id, conversationID: explicit.conversationID, sequence: explicit.sequence,
+        author: .user, deliveryState: .pending,
+        parts: [MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text(ordinaryText))],
+        createdAt: explicit.createdAt, updatedAt: explicit.updatedAt)
+    await fixture.store.put(ordinary)
+    await #expect(throws: MemoryEvidenceVerifierError.ambiguousIntent) {
+        _ = try await fixture.verifier.userCorrectionProposal(messageID: ordinary.id, previous: previous,
+            previousReference: reference, scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    }
+    await #expect(throws: MemoryEvidenceVerifierError.ambiguousIntent) {
+        _ = try await fixture.verifier.userProposal(messageID: ordinary.id, claimID: previous.id,
+            scope: fixture.scope, previous: previous, previousReference: reference, authority: fixture.context, at: fixture.now)
+    }
+    let forged = try rebindPreferenceTestEvidence(explicitPair.withdrawnPredecessor,
+        sourceText: ordinaryText, scope: fixture.scope)
+    #expect(forged.assessment.evidence[0].source.contentDigest == MemoryClaimDigests.bytes(Data(ordinaryText.utf8)))
+    // All public receipt hashes match the actual ordinary message. Its narrow
+    // meaning still cannot invalidate this residence claim during retained reads.
+    await #expect(throws: MemoryEvidenceVerifierError.unsupportedIntent) {
+        _ = try await fixture.verifier.verifyRetained(claim: forged, scope: fixture.scope,
+            authority: fixture.context, at: fixture.now)
+    }
+    await #expect(throws: MemoryEvidenceVerifierError.ambiguousIntent) {
+        _ = try await fixture.verifier.verify(
+            artifact: fixture.artifact([forged, explicitPair.successor], revision: 2), predecessor: predecessor,
+            actor: .user(messageID: ordinary.id), authority: fixture.context, at: fixture.now)
+    }
+}
+
+@Test("An ordinary same-preference correction preserves identity without inventing confirmation")
+func memoryEvidenceOrdinarySamePreferenceKeepsIdentity() async throws {
+    let fixture = try MemoryEvidenceFixture()
+    let initial = try fixture.message("Remember that I prefer coffee.")
+    await fixture.store.put(initial)
+    let previous = try await fixture.verifier.userProposal(messageID: initial.id, claimID: MemoryClaimID(UUID()),
+        scope: fixture.scope, authority: fixture.context, at: fixture.now)
+    let predecessor = fixture.artifact([previous])
+    let reference = try MemoryClaimCodec().reference(for: previous, in: predecessor,
+        contentDigest: MemoryClaimDigests.bytes(MemoryClaimCodec().encode(predecessor)))
+    let correction = try fixture.message("Actually, I prefer coffee.", sequence: 2)
+    await fixture.store.put(correction)
+    let proposal = try await fixture.verifier.userProposal(messageID: correction.id, claimID: previous.id,
+        scope: fixture.scope, previous: previous, previousReference: reference, authority: fixture.context, at: fixture.now)
+    #expect(proposal.id == previous.id && proposal.body == previous.body)
+    #expect(proposal.assessment.level == .uncertain)
+    let evidence = try await fixture.verifier.verify(artifact: fixture.artifact([proposal], revision: 2),
+        predecessor: predecessor, actor: .user(messageID: correction.id), authority: fixture.context, at: fixture.now)
+    #expect(evidence.verified.count == 1)
+}
+
+@Test("Direct verification cannot select one of multiple preferences or trust caller-narrowed references")
+func memoryEvidenceOrdinaryPreferenceVerificationRejectsAmbiguity() async throws {
+    let fixture = try MemoryEvidenceFixture()
+    var claims: [MemoryClaim] = []
+    for (index, body) in ["I prefer tea.", "I prefer quiet rooms."].enumerated() {
+        let message = try fixture.message("Remember that " + body, sequence: Int64(index + 1))
+        await fixture.store.put(message)
+        claims.append(try await fixture.verifier.userProposal(messageID: message.id, claimID: MemoryClaimID(UUID()),
+            scope: fixture.scope, authority: fixture.context, at: fixture.now))
+    }
+    let predecessor = fixture.artifact(claims)
+    let reference = try MemoryClaimCodec().reference(for: claims[0], in: predecessor,
+        contentDigest: MemoryClaimDigests.bytes(MemoryClaimCodec().encode(predecessor)))
+    let narrowed = try fixture.qualifiedAuthority(for: predecessor, references: [reference])
+    for (offset, text) in ["Actually, I prefer coffee.", "Actually, I prefer tea."].enumerated() {
+        #expect(MemoryEvidenceVerifier.userTarget(text: text, claims: claims) == .ambiguous)
+        let message = try fixture.message(text, sequence: Int64(offset + 3))
+        await fixture.store.put(message)
+        let revised: [MemoryClaim]
+        if offset == 0 {
+            let pair = try await fixture.verifier.userCorrectionProposal(messageID: message.id, previous: claims[0],
+                previousReference: reference, scope: fixture.scope, authority: narrowed, at: fixture.now)
+            revised = [pair.withdrawnPredecessor, claims[1], pair.successor]
+        } else {
+            let reassessed = try await fixture.verifier.userProposal(messageID: message.id, claimID: claims[0].id,
+                scope: fixture.scope, previous: claims[0], previousReference: reference, authority: narrowed, at: fixture.now)
+            revised = [reassessed, claims[1]]
+        }
+        for authority in [fixture.context, narrowed] {
+            await #expect(throws: MemoryEvidenceVerifierError.ambiguousIntent) {
+                _ = try await fixture.verifier.verify(artifact: fixture.artifact(revised, revision: 2), predecessor: predecessor,
+                    actor: .user(messageID: message.id), authority: authority, at: fixture.now)
+            }
+        }
+    }
+}
+
+@Test("Preference verification accepts an independently verified displayed target but rejects multiple displayed preferences")
+func memoryEvidenceOrdinaryPreferenceVerificationChecksDisplayedPublication() async throws {
+    let fixture = try MemoryEvidenceFixture()
+    var claims: [MemoryClaim] = []
+    for (index, body) in ["I prefer tea.", "I prefer quiet rooms."].enumerated() {
+        let message = try fixture.message("Remember that " + body, sequence: Int64(index + 1))
+        await fixture.store.put(message)
+        claims.append(try await fixture.verifier.userProposal(messageID: message.id, claimID: MemoryClaimID(UUID()),
+            scope: fixture.scope, authority: fixture.context, at: fixture.now))
+    }
+    let predecessor = fixture.artifact(claims)
+    let digest = MemoryClaimDigests.bytes(try MemoryClaimCodec().encode(predecessor))
+    let references = try claims.map { try MemoryClaimCodec().reference(for: $0, in: predecessor, contentDigest: digest) }
+    let authority = try fixture.qualifiedAuthority(for: predecessor, references: [references[0]])
+    let displayedAuthority = try fixture.qualifiedAuthority(for: predecessor, references: references)
+    let query = try fixture.message("What do you remember about me?", sequence: 3)
+    let replyID = MessageID(UUID())
+    let correction = try fixture.message("Actually, I prefer coffee.", sequence: 5)
+    await fixture.store.put(correction)
+    let pair = try await fixture.verifier.userCorrectionProposal(messageID: correction.id, previous: claims[0],
+        previousReference: references[0], scope: fixture.scope, authority: authority, at: fixture.now)
+    let artifact = fixture.artifact([pair.withdrawnPredecessor, claims[1], pair.successor], revision: 2)
+    for count in [1, 2] {
+        let shown = Array(references.prefix(count))
+        let rendered = claims.prefix(count).map { "Not established; " + $0.body }.joined(separator: "\n\n")
+        let reply = try Message(id: replyID, conversationID: fixture.context.conversationID, sequence: 4,
+            author: .system, deliveryState: .completed,
+            parts: [MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text(rendered))],
+            createdAt: query.createdAt, updatedAt: query.updatedAt)
+        let receipt = MemoryPublicationReceipt(id: UUID(), policyVersion: MemoryConversationPublicationService.rendererPolicyVersion,
+            runID: RunID(UUID()), messageID: reply.id, teammateID: fixture.teammate.id, selectedProjectID: nil,
+            intent: .overview, renderedTextDigest: MemoryClaimDigests.bytes(Data(rendered.utf8)),
+            units: [.init(kind: .overview, references: shown)],
+            dependencies: shown.map { .init(reference: $0, scope: fixture.scope, sourceStamps: [], evidenceStamps: [],
+                decision: .init(disposition: .qualified, reasons: [.lowAssessment], requiredFraming: .unconfirmedPossibility, dependency: $0)) },
+            lineage: .independent, createdAt: query.createdAt)
+        let record = MemoryConversationPublicationRecord(
+            publication: .init(completeUnits: [rendered], receipt: receipt, omittedUnitCount: 0),
+            userMessage: query, replyMessage: reply, authority: displayedAuthority, userSourceStamps: [], storedAt: query.createdAt)
+        await fixture.store.put(record)
+        if count == 1 {
+            let verified = try await fixture.verifier.verify(artifact: artifact, predecessor: predecessor,
+                actor: .user(messageID: correction.id), authority: authority, at: fixture.now)
+            #expect(verified.verified.count == 3)
+        } else {
+            // Caller narrowing cannot hide a second preference actually shown.
+            await #expect(throws: MemoryEvidenceVerifierError.ambiguousIntent) {
+                _ = try await fixture.verifier.verify(artifact: artifact, predecessor: predecessor,
+                    actor: .user(messageID: correction.id), authority: authority, at: fixture.now)
+            }
+        }
+    }
+}
+
+private func rebindPreferenceTestEvidence(_ claim: MemoryClaim, sourceText: String,
+                                          scope: MemoryScope) throws -> MemoryClaim {
+    let original = claim.assessment.evidence[0]
+    let source = MemoryClaimSourceReference(id: original.source.id, kind: original.source.kind,
+        sourceID: original.source.sourceID, sourceRevision: original.source.sourceRevision,
+        contentDigest: MemoryClaimDigests.bytes(Data(sourceText.utf8)), observedAt: original.source.observedAt, scope: scope)
+    struct Binding: Encodable {
+        let registry: String; let version: UInt16; let claimID: MemoryClaimID; let source: MemoryClaimSourceReference
+        let subject: String; let relation: MemoryClaimEvidenceRelation; let level: MemoryClaimAssessmentLevel
+        let validity: MemoryClaimValidity; let assessedAt: Date?
+    }
+    let digest = MemoryClaimDigests.bytes(try MemoryClaimDigests.canonicalData(Binding(
+        registry: MemoryEvidenceVerifier.userRegistryID, version: MemoryEvidenceVerifier.registryVersion,
+        claimID: claim.id, source: source, subject: original.subjectDigest, relation: original.relation,
+        level: claim.assessment.level, validity: claim.validity, assessedAt: claim.assessment.assessedAt)))
+    let chars = Array(MemoryClaimDigests.bytes(Data(digest.utf8)).prefix(32))
+    let uuid = String(chars[0..<8]) + "-" + String(chars[8..<12]) + "-" + String(chars[12..<16])
+        + "-" + String(chars[16..<20]) + "-" + String(chars[20..<32])
+    let evidence = MemoryClaimEvidenceReference(receiptID: try #require(UUID(uuidString: uuid)), receiptDigest: digest,
+        source: source, relation: original.relation, subjectDigest: original.subjectDigest)
+    return MemoryClaim(id: claim.id, body: claim.body,
+        assessment: .init(level: claim.assessment.level, basis: claim.assessment.basis, assessor: claim.assessment.assessor,
+            assessedAt: claim.assessment.assessedAt, policyVersion: claim.assessment.policyVersion, evidence: [evidence]),
+        provenance: [source], observedAt: claim.observedAt, validFrom: claim.validFrom, validUntil: claim.validUntil,
+        conditions: claim.conditions, validity: claim.validity, changes: claim.changes)
+}
+
 private struct MemoryEvidenceFixture {
     let now = Date(timeIntervalSince1970: 1_780_000_000)
     let teammate: Teammate
@@ -447,7 +727,7 @@ private struct MemoryEvidenceFixture {
             contextRevision: 1, selectedProjectID: nil, selectedTeamID: nil, participantJoinedAt: time,
             projectMembershipJoinedAt: nil, teamMembershipJoinedAt: nil, messages: [], memoryDocuments: [])
         store = MemoryEvidenceTestStore(teammate: teammate, context: context)
-        verifier = MemoryEvidenceVerifier(messages: store, teammates: store, contexts: store)
+        verifier = MemoryEvidenceVerifier(messages: store, teammates: store, contexts: store, publications: store)
     }
     func message(_ text: String, sequence: Int64 = 1, author: MessageAuthor = .user) throws -> Message {
         try Message(id: MessageID(UUID()), conversationID: context.conversationID, sequence: sequence,
@@ -458,15 +738,30 @@ private struct MemoryEvidenceFixture {
     func artifact(_ claims: [MemoryClaim], revision: UInt64 = 1) -> MemoryClaimArtifact {
         MemoryClaimArtifact(documentID: MemoryDocumentID(UUID()), revision: revision, scope: scope, claims: claims)
     }
+    func qualifiedAuthority(for artifact: MemoryClaimArtifact, references: [MemoryClaimReference]) throws -> ReadContextReceipt {
+        let digest = MemoryClaimDigests.bytes(try MemoryClaimCodec().encode(artifact))
+        return try ReadContextReceipt(conversationID: context.conversationID, teammateID: context.teammateID,
+            profileRevision: context.profileRevision, contextRevision: context.contextRevision,
+            selectedProjectID: nil, selectedTeamID: nil, participantJoinedAt: context.participantJoinedAt,
+            projectMembershipJoinedAt: nil, teamMembershipJoinedAt: nil, messages: [],
+            memoryDocuments: [.init(documentID: artifact.documentID, scope: scope, revision: artifact.revision,
+                contentDigest: digest, metadataDigest: String(repeating: "b", count: 64))]).qualifying(with: references)
+    }
 }
 
-private actor MemoryEvidenceTestStore: MessageRepository, TeammateRepository, ReadContextRepository {
+private actor MemoryEvidenceTestStore: MessageRepository, TeammateRepository, ReadContextRepository, MemoryConversationPublicationRepository {
     private var teammateValue: Teammate
     private let context: ReadContextReceipt
     private var messageValues: [MessageID: Message] = [:]
+    private var publicationValues: [MessageID: MemoryConversationPublicationRecord] = [:]
     init(teammate: Teammate, context: ReadContextReceipt) { teammateValue = teammate; self.context = context }
     func put(_ message: Message) { messageValues[message.id] = message }
     func put(_ teammate: Teammate) { teammateValue = teammate }
+    func put(_ record: MemoryConversationPublicationRecord) {
+        publicationValues[record.replyMessage.id] = record
+        messageValues[record.userMessage.id] = record.userMessage
+        messageValues[record.replyMessage.id] = record.replyMessage
+    }
     func replaceMessages(_ messages: [Message]) { messageValues = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) }) }
     func message(id: MessageID) async throws -> Message? { messageValues[id] }
     func page(conversationID: ConversationID, request: PageRequest) async throws -> Page<Message> {
@@ -486,4 +781,14 @@ private actor MemoryEvidenceTestStore: MessageRepository, TeammateRepository, Re
     func insert(_ teammate: Teammate) async throws { throw ReadContextError.unavailable }
     func update(_ teammate: Teammate, expectedProfileRevision: UInt64) async throws { throw ReadContextError.unavailable }
     func loadReadContextCandidates(_ request: ReadContextRequest) async throws -> ReadContextSnapshot { throw ReadContextError.unavailable }
+    func memoryConversationPublication(id: UUID) async throws -> MemoryConversationPublicationRecord? {
+        publicationValues.values.first { $0.publication.receipt.id == id }
+    }
+    func memoryConversationPublication(messageID: MessageID, conversationID: ConversationID) async throws -> MemoryConversationPublicationRecord? {
+        guard let record = publicationValues[messageID], record.authority.conversationID == conversationID else { return nil }
+        return record
+    }
+    func appendMemoryConversationPublication(_ request: MemoryConversationPublicationAppend, now: Date) async throws -> MemoryConversationPublicationRecord {
+        throw ReadContextError.unavailable
+    }
 }

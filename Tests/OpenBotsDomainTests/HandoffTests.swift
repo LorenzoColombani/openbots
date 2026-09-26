@@ -104,6 +104,28 @@ func handoffRecoveryHasNoResultOrRetry() throws {
     }
 }
 
+@Test("A succeeded handoff whose return fails needs recovery, and then cannot be returned")
+func handoffSucceededCanNeedRecovery() throws {
+    var handoff = Handoff(provenance: try makeProvenance(), brief: try makeBrief())
+    try handoff.apply(.accept(at: handoffBaseDate.addingTimeInterval(1)))
+    try handoff.apply(.beginWork(at: handoffBaseDate.addingTimeInterval(2)))
+    try handoff.apply(.succeed(summary: "Two claims verified.", at: handoffBaseDate.addingTimeInterval(3)))
+    let recovery = try HandoffRecovery(
+        code: "report-failed",
+        userMessage: "The lead could not compile the member's answer.",
+        isRecoverable: false,
+        occurredAt: handoffBaseDate.addingTimeInterval(4)
+    )
+    try handoff.apply(.requireRecovery(recovery))
+    #expect(handoff.state == .needsRecovery)
+    #expect(handoff.recovery == recovery)
+    #expect(handoff.resultSummary == nil)
+    #expect(handoff.resultForOrigin == nil)
+    #expect(throws: LifecycleTransitionError.self) {
+        try handoff.apply(.returnToOrigin(at: handoffBaseDate.addingTimeInterval(5)))
+    }
+}
+
 @Test("Handoff transitions cannot move backwards in time")
 func handoffTransitionTimestampsAreMonotonic() throws {
     var handoff = Handoff(

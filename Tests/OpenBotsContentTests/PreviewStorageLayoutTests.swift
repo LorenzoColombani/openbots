@@ -31,7 +31,7 @@ final class PreviewStorageLayoutTests: XCTestCase {
         let fixture = try ContentTemporaryFixture()
         let layout = fixture.layout
 
-        XCTAssertEqual(OpenBotsPreviewIdentity.applicationName, "OpenBots Next Preview")
+        XCTAssertEqual(OpenBotsPreviewIdentity.applicationName, "OpenBots Next")
         XCTAssertEqual(OpenBotsPreviewIdentity.bundleIdentifier, "com.lorenzocolombani.openbotsnext.preview")
         XCTAssertEqual(OpenBotsPreviewIdentity.previewBuildRelativePath, ".build.noindex/preview")
         XCTAssertFalse(OpenBotsPreviewIdentity.previewBuildRelativePath.hasPrefix("/"))

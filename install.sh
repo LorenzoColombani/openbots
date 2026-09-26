@@ -4,35 +4,44 @@
 #   curl -fsSL https://raw.githubusercontent.com/LorenzoColombani/openbots/main/install.sh | sh
 #
 # Does only what cannot happen before the app exists, and asks nothing:
-#   1. full Xcode present? (this build needs Xcode's Swift 6 toolchain; Command
+#   1. full Xcode present? (this build needs Xcode 16.3+ and its Swift 6.1 toolchain; Command
 #      Line Tools alone are NOT enough — the installer says so and stops)
 #   2. fetch the latest release's source
-#   3. build it locally via Scripts/build-preview.sh (unsigned local build:
-#      not quarantined, no Gatekeeper warning, code signing disabled)
+#   3. build it locally via Scripts/build-preview.sh (a local build is not
+#      quarantined, so no Gatekeeper warning; it is signed with your Apple
+#      Development identity if you have one, otherwise ad hoc)
 #   4. copy the app to /Applications
 #   5. open it — first-run setup continues in the app (Claude Code CLI, login)
 #
 # Knobs (all optional): OPENBOTS_REPO=owner/name ·
 # OPENBOTS_SOURCE_TARBALL=/path/src.tar.gz (skip the download) ·
 # OPENBOTS_APPLICATIONS_DIR=/some/dir (used by the offline installer test;
-# the test must never write the real /Applications) · OPENBOTS_NO_OPEN=1
+# the test must never write the real /Applications) · OPENBOTS_NO_OPEN=1 ·
+# OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=<id>.apps.googleusercontent.com (your own
+# Google Desktop OAuth client; without it the Google connectors stay off —
+# see docs/guides/google-setup.md)
 set -eu
 
 REPO="${OPENBOTS_REPO:-LorenzoColombani/openbots}"
 APPS_DIR="${OPENBOTS_APPLICATIONS_DIR:-/Applications}"
 SOURCE_TARBALL="${OPENBOTS_SOURCE_TARBALL:-}"
-APP_NAME="OpenBots Next Preview"
+GOOGLE_CLIENT_ID="${OPENBOTS_GOOGLE_OAUTH_CLIENT_ID:-}"
+APP_NAME="OpenBots Next"
 
 step() { printf '\n==> %s\n' "$1"; }
 fail() { printf '\n!! %s\n' "$1" >&2; exit 1; }
 
 [ "$(uname -s)" = Darwin ] || fail "This installer is for macOS."
 [ "$(uname -m)" = arm64 ] || fail "This build targets Apple Silicon (arm64)."
+if [ -n "$GOOGLE_CLIENT_ID" ]; then
+  printf '%s\n' "$GOOGLE_CLIENT_ID" | grep -Eq '^[A-Za-z0-9-]+\.apps\.googleusercontent\.com$' \
+    || fail "OPENBOTS_GOOGLE_OAUTH_CLIENT_ID must look like 1234-abc.apps.googleusercontent.com (the Client ID, not the secret)."
+fi
 
 # 1. Full Xcode ---------------------------------------------------------------
 XCODE_DEV="/Applications/Xcode.app/Contents/Developer"
 if [ ! -d "$XCODE_DEV" ]; then
-  fail "This build needs full Xcode (Swift 6 toolchain) at /Applications/Xcode.app.
+  fail "This build needs full Xcode 16.3+ (Swift 6.1 toolchain) at /Applications/Xcode.app.
    Command Line Tools alone cannot build it. Install Xcode from the App Store,
    open it once to finish setup, then run this installer again."
 fi
@@ -59,6 +68,13 @@ tar -xzf "$WORK/src.tar.gz" -C "$WORK/src" --strip-components=1
 [ -f "$WORK/src/Scripts/build-preview.sh" ] || fail "That does not look like the app's source (Scripts/build-preview.sh missing)."
 
 # 3. Build --------------------------------------------------------------------
+if [ -n "$GOOGLE_CLIENT_ID" ]; then
+  # Read by Scripts/build-preview.sh and built into the app. Only the client ID:
+  # the secret is chosen inside the app and kept in your Keychain.
+  mkdir -p "$WORK/src/.build.noindex"
+  printf '%s\n' "$GOOGLE_CLIENT_ID" > "$WORK/src/.build.noindex/google-oauth-client-id"
+  step "Building with your Google OAuth client ID"
+fi
 step "Building $APP_NAME (a few minutes on first build)"
 ( cd "$WORK/src" && /bin/zsh Scripts/build-preview.sh ) || fail "The build failed. Nothing was installed."
 BUILT_APP="$WORK/src/.build.noindex/preview/DerivedData/Build/Products/Debug/$APP_NAME.app"

@@ -58,7 +58,9 @@ struct SQLiteBotSidebarOrderTests {
         let store = try f.open()
         let empty = try await store.loadBotSidebarOrder()
         #expect(try await store.saveBotSidebarOrder([], expectedRevision: empty.revision) == empty)
-        let a = try await f.seed(store, number: 1, pinned: true, content: true)
+        // Unpinned: a pinned bot always reads first,
+        // and this test is about permutations, not pins.
+        let a = try await f.seed(store, number: 1, content: true)
         let single = try await store.loadBotSidebarOrder()
         #expect(try await store.saveBotSidebarOrder([a.id], expectedRevision: single.revision) == single)
         let b = try await f.seed(store, number: 2, content: true)
@@ -76,7 +78,70 @@ struct SQLiteBotSidebarOrderTests {
         #expect(try await store.selectedConversationID() == f.conversationID(3))
     }
 
-    @Test("Messages, pin changes and profile edits do not override manual order")
+    /// Pin Bot once saved the flag and nothing moved, because the saved order
+    /// always won. Pinned bots sit above the unpinned ones; the order the user
+    /// drags keeps its say inside each group.
+    @Test("A pin lifts a bot above every unpinned one; unpinning returns it to its place")
+    func pinLiftsABotAboveTheUnpinned() async throws {
+        let f = try SidebarOrderFixture(); defer { f.remove() }
+        let store = try f.open()
+        let a = try await f.seed(store, number: 1)
+        let b = try await f.seed(store, number: 2)
+        let c = try await f.seed(store, number: 3)
+        let navigation = TeammateNavigationService(repository: store)
+        #expect(try await store.loadBotSidebarOrder().teammateIDs == [c.id, b.id, a.id])
+        let pinned = try await navigation.setPinned(id: a.id, pinned: true, expectedProfileRevision: 1)
+        #expect(try await store.loadBotSidebarOrder().teammateIDs == [a.id, c.id, b.id])
+        #expect(try await f.chatService(store).activeDirectChats().map(\.teammate.id) == [a.id, c.id, b.id])
+        _ = try await navigation.setPinned(id: a.id, pinned: false, expectedProfileRevision: pinned.profile.revision)
+        #expect(try await store.loadBotSidebarOrder().teammateIDs == [c.id, b.id, a.id])
+    }
+
+    @Test("A saved order is stored pins first, the dragged order kept inside each group")
+    func savedOrderKeepsPinsFirst() async throws {
+        let f = try SidebarOrderFixture(); defer { f.remove() }
+        let store = try f.open()
+        let a = try await f.seed(store, number: 1, pinned: true)
+        let b = try await f.seed(store, number: 2)
+        let c = try await f.seed(store, number: 3)
+        let initial = try await store.loadBotSidebarOrder()
+        #expect(initial.teammateIDs == [a.id, c.id, b.id])
+        // Dropped above the pinned bot: stored below it, in the dropped order.
+        let dropped = try await store.saveBotSidebarOrder([c.id, a.id, b.id], expectedRevision: initial.revision)
+        #expect(dropped.teammateIDs == [a.id, c.id, b.id])
+        let swapped = try await store.saveBotSidebarOrder([b.id, a.id, c.id], expectedRevision: dropped.revision)
+        #expect(swapped.teammateIDs == [a.id, b.id, c.id])
+        #expect(try await store.loadBotSidebarOrder() == swapped)
+        #expect(try await store.query(sql: "SELECT teammate_id FROM bot_sidebar_order ORDER BY position;")
+            .map { try $0.text("teammate_id") } == swapped.teammateIDs.map(\.persistedValue))
+        #expect(try await f.chatService(store).activeDirectChats().map(\.teammate.id) == [a.id, b.id, c.id])
+    }
+
+    /// The saved order held hidden bots the list does not show, so a drag never
+    /// matched it. A hidden bot keeps its slot.
+    @Test("A hidden bot is left out of the order read and kept in its slot by a save")
+    func hiddenBotKeepsItsSlot() async throws {
+        let f = try SidebarOrderFixture(); defer { f.remove() }
+        let store = try f.open()
+        let a = try await f.seed(store, number: 1)
+        let b = try await f.seed(store, number: 2)
+        let c = try await f.seed(store, number: 3)
+        let navigation = TeammateNavigationService(repository: store)
+        let hidden = try await navigation.setHidden(id: b.id, hidden: true, expectedProfileRevision: 1)
+        let read = try await store.loadBotSidebarOrder()
+        #expect(read.teammateIDs == [c.id, a.id])
+        let saved = try await store.saveBotSidebarOrder([a.id, c.id], expectedRevision: read.revision)
+        #expect(saved.teammateIDs == [a.id, c.id])
+        #expect(try await store.query(sql: "SELECT teammate_id FROM bot_sidebar_order ORDER BY position;")
+            .map { try $0.text("teammate_id") } == [a.id, b.id, c.id].map(\.persistedValue))
+        _ = try await navigation.setHidden(id: b.id, hidden: false, expectedProfileRevision: hidden.profile.revision)
+        #expect(try await store.loadBotSidebarOrder().teammateIDs == [a.id, b.id, c.id])
+        await #expect(throws: BotSidebarOrderError.invalidMembership) {
+            try await store.saveBotSidebarOrder([a.id, c.id], expectedRevision: saved.revision)
+        }
+    }
+
+    @Test("Messages, profile edits and a pin among pinned bots do not override manual order")
     func recencyAndProfileDoNotResort() async throws {
         let f = try SidebarOrderFixture(); defer { f.remove() }
         let store = try f.open()
@@ -93,7 +158,7 @@ struct SQLiteBotSidebarOrderTests {
         #expect(try await f.chatService(store).activeDirectChats().map(\.teammate.id) == [b.id, a.id])
     }
 
-    @Test("Creation prepends durably without changing existing active or Archived order")
+    @Test("Creation puts the new bot first below the pinned ones, durably, without changing existing active or Archived order")
     func newBotPrecedesSavedOrderAfterReopen() async throws {
         let f = try SidebarOrderFixture(); defer { f.remove() }
         var expected: [TeammateID] = []
@@ -112,7 +177,9 @@ struct SQLiteBotSidebarOrderTests {
             archivedBefore = try await store.archivedTeammates()
 
             let created = try await f.seed(store, number: 5)
-            expected = [created.id, a.id, b.id]
+            // b is pinned, so it reads first and the new bot
+            // leads the unpinned ones.
+            expected = [b.id, created.id, a.id]
             #expect(try await store.loadBotSidebarOrder().teammateIDs == expected)
             #expect(try await store.archivedTeammates() == archivedBefore)
             #expect(try await store.teammate(id: a.id) == a)
@@ -202,7 +269,7 @@ struct SQLiteBotSidebarOrderTests {
         #expect(try await first.loadBotSidebarOrder() == (outcomes.0 ?? outcomes.1))
     }
 
-    @Test("New bots prepend and restored bots append; archive preserves survivors and fences an old drag")
+    @Test("New bots prepend and restored bots append within their group; archive preserves survivors and fences an old drag")
     func membershipChangesFenceStaleDrag() async throws {
         let f = try SidebarOrderFixture(); defer { f.remove() }
         let first = try f.open()
@@ -228,7 +295,9 @@ struct SQLiteBotSidebarOrderTests {
         }
         let restored = try await second.restoreTeammate(id: b.id, expectedProfileRevision: archived.profile.revision, now: f.at(101))
         let withRestored = try await first.loadBotSidebarOrder()
-        #expect(withRestored.teammateIDs == [c.id, a.id, b.id])
+        // b is pinned: appended at the bottom by the trigger, it reads back among
+        // the pinned bots.
+        #expect(withRestored.teammateIDs == [c.id, b.id, a.id])
         #expect(withRestored.revision > withoutArchived.revision)
         #expect(restored.id == b.id)
         #expect(restored.appearance == b.appearance)

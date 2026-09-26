@@ -1,0 +1,11 @@
+{
+ "shape": "text",
+ "claude_code_version": "2.1.272",
+ "captured": "2026-09-15",
+ "model": "claude-haiku-4-5-20251001",
+ "session_id": "7705746d-341b-4c34-a103-be68fe5b6785",
+ "message_id": "f0b867e6-c2bb-4a3c-ba2f-1871d8bbc3b5",
+ "control_id": "ac3bdae1-9e09-4554-8c61-3caa4b2bd193",
+ "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+ "prompt": "Say hello in one short sentence."
+}

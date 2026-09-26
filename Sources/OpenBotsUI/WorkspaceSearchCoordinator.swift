@@ -129,7 +129,7 @@ struct WorkspaceSearchPresentation<Content: View>: View {
                         Label("Search", systemImage: "magnifyingglass")
                     }
                     .keyboardShortcut("f", modifiers: .command)
-                    .help("Search teammates and saved messages")
+                    .help("Search bots and saved messages")
                 }
             }
     }

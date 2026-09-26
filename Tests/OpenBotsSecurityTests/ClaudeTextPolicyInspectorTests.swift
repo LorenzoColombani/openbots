@@ -27,6 +27,18 @@ func claudeTextPolicyRejectsPresence() {
     #expect(preferences.inspect(profileURL: policyTestProfile) == .rejected(.managedPreferencesPresent))
 }
 
+@Test("Managed helpers cannot override the app-owned helper definition or its execution budget")
+func claudeTextPolicyRejectsManagedAgents() {
+    let path = "/Library/Application Support/ClaudeCode/.claude/agents"
+    #expect(NativeClaudeTextPolicyInspector.managedPaths.contains(path))
+    for state in [ClaudeTextPolicySourceState.present, .unknown] {
+        let inspector = NativeClaudeTextPolicyInspector(metadata: { $0.path == path ? state : .absent },
+                                                        preferences: { .absent })
+        #expect(inspector.inspect(profileURL: policyTestProfile) == .rejected(
+            state == .present ? .managedFilePresent : .inspectionUnavailable))
+    }
+}
+
 @Test("Unknown path or preferences inspection never admits a launch")
 func claudeTextPolicyRejectsUnknown() {
     let metadata = NativeClaudeTextPolicyInspector(metadata: { _ in .unknown }, preferences: { .absent })

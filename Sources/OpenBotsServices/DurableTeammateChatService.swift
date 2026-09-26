@@ -12,17 +12,30 @@ public struct DurableTeammateDraft: Equatable, Sendable {
     public let teammateID: TeammateID
     public let displayName: String
     public let role: String
+    /// A hired bot's standing instructions and seat, written by its hirer.
+    /// Nil for a bot made in the New Bot sheet.
+    public let detailedInstructions: String?
+    public let seat: TeammateSeat?
+    /// The hirer's name when a hire wrote this profile; nil for a
+    /// bot the person makes.
+    public let profileWrittenByHirer: String?
     public let appearance: AgentAppearance
 
     public init(
         teammateID: TeammateID,
         displayName: String? = nil,
         role: String,
+        detailedInstructions: String? = nil,
+        seat: TeammateSeat? = nil,
+        profileWrittenByHirer: String? = nil,
         appearance: AgentAppearance
     ) {
         self.teammateID = teammateID
         self.displayName = displayName ?? Self.defaultName(for: appearance)
         self.role = role
+        self.detailedInstructions = detailedInstructions
+        self.seat = seat
+        self.profileWrittenByHirer = profileWrittenByHirer
         self.appearance = appearance
     }
 
@@ -129,6 +142,16 @@ public protocol DurableTeammateChatServing: Sendable {
     func createTeammateAndDirectChat(
         _ draft: DurableTeammateDraft
     ) async throws -> DurableTeammateChatCreationSnapshot
+    /// New Bot: a bot that asks what it is for and sets itself up.
+    func createSelfSettingTeammateAndDirectChat(
+        teammateID: TeammateID, placeholderName: String, appearance: AgentAppearance
+    ) async throws -> DurableTeammateChatCreationSnapshot
+    /// One app-authored status line at the end of a conversation (the
+    /// person's edit of a bot's words is said in its chat).
+    func saveStatusLine(_ line: String, conversationID: ConversationID) async throws -> Message
+    /// One transcript page, newest last: only the rows the transcript shows
+    /// (no `workAudit` rows), so `hasMore` and the `beforeSequence` cursor
+    /// speak about visible messages and a run of hidden rows is skipped.
     func loadMessages(
         conversationID: ConversationID,
         beforeSequence: Int64?,
@@ -152,6 +175,16 @@ public protocol DurableTeammateChatServing: Sendable {
 }
 
 public extension DurableTeammateChatServing {
+    func saveStatusLine(_ line: String, conversationID: ConversationID) async throws -> Message {
+        throw RepositoryError.unavailable(reason: "This adapter keeps no status lines.")
+    }
+
+    func createSelfSettingTeammateAndDirectChat(
+        teammateID: TeammateID, placeholderName: String, appearance: AgentAppearance
+    ) async throws -> DurableTeammateChatCreationSnapshot {
+        throw RepositoryError.unavailable(reason: "This adapter cannot make a bot that sets itself up.")
+    }
+
     func saveMessageLocally(
         conversationID: ConversationID, teammateID: TeammateID,
         userMessageID: MessageID, text: String, attachmentIDs: [AttachmentID]
@@ -171,7 +204,7 @@ public extension DurableTeammateChatServing {
     }
 }
 
-/// Coordinates the smallest durable teammate/chat vertical slice.
+/// Coordinates durable teammate chat.
 ///
 /// This actor owns ordering only. Repositories own durability and transactions;
 /// no executor, credential provider, network client, or filesystem root is
@@ -224,7 +257,7 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
         let teammates = try await teammateRepository.listTeammates(includingArchived: false)
         var snapshots: [DurableDirectChatSnapshot] = []
 
-        for teammate in teammates where teammate.lifecycle == .active {
+        for teammate in teammates where teammate.lifecycle == .active && !teammate.isHidden {
             let conversations = try await conversationRepository.conversations(
                 for: teammate.id,
                 includingArchived: false
@@ -260,14 +293,14 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
     }
 
     public func selectedDirectChat() async throws -> DurableChatSelectionSnapshot? {
-        guard let conversationID = try await selectionRepository.selectedConversationID() else {
+        guard let conversationID = try await selectionRepository.selectedConversationID(),
+              let conversation = try await conversationRepository.conversation(id: conversationID),
+              conversation.lifecycle == .active, case .direct = conversation.kind else {
+            // A team conversation may be selected; the team chat service owns that.
             return nil
         }
         let directChat = try await activeDirectChat(conversationID: conversationID)
-        return DurableChatSelectionSnapshot(
-            teammate: directChat.teammate,
-            conversation: directChat.conversation
-        )
+        return DurableChatSelectionSnapshot(teammate: directChat.teammate, conversation: directChat.conversation)
     }
 
     public func select(
@@ -302,17 +335,36 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
     public func createTeammateAndDirectChat(
         _ draft: DurableTeammateDraft
     ) async throws -> DurableTeammateChatCreationSnapshot {
+        try await createTeammateAndDirectChat(draft, selectConversation: true)
+    }
+
+    /// The one creation aggregate: identity, empty chat, sidebar place, and the
+    /// selection when asked. A hire passes false, so the conversation the hire
+    /// came from stays selected.
+    public func createTeammateAndDirectChat(
+        _ draft: DurableTeammateDraft,
+        selectConversation: Bool
+    ) async throws -> DurableTeammateChatCreationSnapshot {
         let profile = try TeammateProfile(
             displayName: draft.displayName,
-            role: draft.role
+            role: draft.role,
+            detailedInstructions: draft.detailedInstructions,
+            seat: draft.seat
         )
+        // Two bots never share a name, whoever asks: the sheet checks the
+        // roster it can see, this checks the one that is saved.
+        let roster = try await teammateRepository.listTeammates(includingArchived: false)
+        if let holder = roster.activeBot(named: profile.displayName) {
+            throw TeammateNameTakenError(existingName: holder.profile.displayName)
+        }
         let timestamp = clock.now()
         let teammate = try Teammate(
             id: draft.teammateID,
             profile: profile,
             appearance: draft.appearance,
             createdAt: timestamp,
-            updatedAt: timestamp
+            updatedAt: timestamp,
+            profileWrittenByHirer: draft.profileWrittenByHirer
         )
         let conversation = try Conversation(
             id: ConversationID(uuidGenerator.next()),
@@ -344,7 +396,7 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
             teammate: teammate,
             conversation: conversation,
             fixtureGreeting: fixtureGreeting,
-            selectConversation: true
+            selectConversation: selectConversation
         )
 
         let selection = DurableChatSelectionSnapshot(
@@ -359,6 +411,59 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
         )
     }
 
+    public func saveStatusLine(_ line: String, conversationID: ConversationID) async throws -> Message {
+        // Another writer may land between the read and the append; one retry.
+        var failure: any Error = CancellationError()
+        for _ in 0..<2 {
+            do {
+                let latest = try await messageRepository.page(conversationID: conversationID, request: PageRequest(limit: 1))
+                let previous = latest.elements.last?.sequence ?? 0
+                let now = clock.now()
+                let note = try Message(id: MessageID(uuidGenerator.next()), conversationID: conversationID,
+                    sequence: previous + 1, author: .system, outputClass: .conversation, deliveryState: .completed,
+                    parts: [try MessagePart(id: MessagePartID(uuidGenerator.next()), ordinal: 0, content: .status(line))],
+                    createdAt: now, updatedAt: now)
+                try await messageRepository.append(note, expectedPreviousSequence: previous)
+                return note
+            } catch { failure = error }
+        }
+        throw failure
+    }
+
+    /// New Bot: a bot under a free placeholder name and the
+    /// placeholder role, its chat opened on its one question, marked as waiting
+    /// to set itself up. Nothing else is written until the person answers. The question
+    /// comes back as the snapshot's first message.
+    public func createSelfSettingTeammateAndDirectChat(
+        teammateID: TeammateID, placeholderName: String, appearance: AgentAppearance
+    ) async throws -> DurableTeammateChatCreationSnapshot {
+        let profile = try TeammateProfile(displayName: placeholderName, role: BotSelfSetup.placeholderRole)
+        let roster = try await teammateRepository.listTeammates(includingArchived: false)
+        if let holder = roster.activeBot(named: profile.displayName) {
+            throw TeammateNameTakenError(existingName: holder.profile.displayName)
+        }
+        let timestamp = clock.now()
+        let teammate = try Teammate(id: teammateID, profile: profile, appearance: appearance,
+                                    createdAt: timestamp, updatedAt: timestamp)
+        let conversation = try Conversation(id: ConversationID(uuidGenerator.next()),
+            kind: .direct(teammateID: teammate.id), title: profile.displayName,
+            createdAt: timestamp, updatedAt: timestamp)
+        let question = try Message(id: MessageID(uuidGenerator.next()), conversationID: conversation.id, sequence: 1,
+            author: .teammate(teammate.id), deliveryState: .completed,
+            parts: [try MessagePart(id: MessagePartID(uuidGenerator.next()), ordinal: 0,
+                                    content: .text(BotSelfSetup.firstQuestion))],
+            createdAt: timestamp, updatedAt: timestamp)
+        try await provisioningRepository.provisionSelfSettingChat(teammate: teammate, conversation: conversation,
+                                                                  question: question, selectConversation: true)
+        return DurableTeammateChatCreationSnapshot(teammate: teammate, conversation: conversation,
+            fixtureGreeting: question,
+            selection: DurableChatSelectionSnapshot(teammate: teammate, conversation: conversation))
+    }
+
+    /// The output classes `loadMessages` never returns: the transcript hides
+    /// them and the "what happened" record reads them through its own loader.
+    public static let transcriptHiddenOutputClasses: Set<OutputClass> = [.workAudit]
+
     public func loadMessages(
         conversationID: ConversationID,
         beforeSequence: Int64? = nil,
@@ -368,13 +473,19 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
         else {
             throw DurableTeammateChatError.conversationUnavailable(conversationID)
         }
-        guard case .direct = conversation.kind else {
-            throw DurableTeammateChatError.conversationUnavailable(conversationID)
+        switch conversation.kind {
+        case .direct, .team: break
+        case .project: throw DurableTeammateChatError.conversationUnavailable(conversationID)
         }
 
+        // The transcript's page. Work-audit rows (briefs, reports and member
+        // replies between bots) belong to the record and are left
+        // out here rather than after the fetch, so a page is a page of what
+        // the transcript shows and its cursor walks the visible rows.
         let page = try await messageRepository.page(
             conversationID: conversationID,
-            request: PageRequest(limit: limit, beforeSequence: beforeSequence)
+            request: PageRequest(limit: limit, beforeSequence: beforeSequence,
+                                 excludedOutputClasses: Self.transcriptHiddenOutputClasses)
         )
         return DurableMessagePageSnapshot(
             conversationID: conversationID,
@@ -489,13 +600,7 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachmentIDs.isEmpty else {
             throw DomainValidationError.empty(field: "message text")
         }
-        let directChat = try await activeDirectChat(conversationID: conversationID)
-        guard directChat.teammate.id == teammateID else {
-            throw DurableTeammateChatError.conversationIsNotActiveDirectChat(
-                conversationID: conversationID,
-                teammateID: teammateID
-            )
-        }
+        _ = try await activeConversationTeammate(conversationID: conversationID, teammateID: teammateID)
 
         let latestPage = try await messageRepository.page(
             conversationID: conversationID,
@@ -548,6 +653,32 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
             throw DurableTeammateChatError.teammateUnavailable(teammateID)
         }
         return DurableDirectChatSnapshot(teammate: teammate, conversation: conversation)
+    }
+
+    /// The teammate that answers in this conversation: a direct chat's own
+    /// teammate, or an active participant of an active team conversation.
+    private func activeConversationTeammate(conversationID: ConversationID, teammateID: TeammateID) async throws -> Teammate {
+        guard let conversation = try await conversationRepository.conversation(id: conversationID),
+              conversation.lifecycle == .active else {
+            throw DurableTeammateChatError.conversationUnavailable(conversationID)
+        }
+        switch conversation.kind {
+        case let .direct(subjectID):
+            guard subjectID == teammateID else {
+                throw DurableTeammateChatError.conversationIsNotActiveDirectChat(conversationID: conversationID, teammateID: teammateID)
+            }
+        case .team:
+            let participating = try await conversationRepository.conversations(for: teammateID, includingArchived: false)
+            guard participating.contains(where: { $0.id == conversationID }) else {
+                throw DurableTeammateChatError.conversationIsNotActiveDirectChat(conversationID: conversationID, teammateID: teammateID)
+            }
+        case .project:
+            throw DurableTeammateChatError.conversationUnavailable(conversationID)
+        }
+        guard let teammate = try await teammateRepository.teammate(id: teammateID), teammate.lifecycle == .active else {
+            throw DurableTeammateChatError.teammateUnavailable(teammateID)
+        }
+        return teammate
     }
 
     private func acquireSendTurn() async {

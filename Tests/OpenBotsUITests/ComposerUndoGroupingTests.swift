@@ -402,8 +402,8 @@ private final class UndoGroupingFixture {
             submit: { messageID, conversationID, text in
                 await relay.persist(messageID: messageID, conversationID: conversationID, body: text)
             },
-            beforeSubmission: { messageID, conversationID, rawText in
-                relay.begin(messageID: messageID, conversationID: conversationID, rawText: rawText)
+            beforeSubmission: { messageID, conversationID, rawText, _ in
+                relay.begin(messageID: messageID, conversationID: conversationID, rawText: rawText) ? nil : "refused by the test relay"
             }
         )
         coordinator = WorkspaceDraftCoordinator(conversation: conversation, service: service)

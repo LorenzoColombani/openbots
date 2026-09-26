@@ -87,12 +87,54 @@ struct MemoryConversationPublicationTests {
         let resolver = PublicationFixtureResolver([fixture.snapshot])
         let service = MemoryConversationPublicationService(resolver: resolver)
         let result = try await service.publish(fixture.candidate, context: fixture.context())
-        #expect(result.completeUnits == ["I may have this wrong: \"I do not want a crowded venue\". Does that apply here? This applies only when \"only on work nights\"."])
+        #expect(result.completeUnits == ["I may have this wrong: \"I do not want a crowded venue\". This applies only when \"only on work nights\"."])
+        #expect(result.receipt.policyVersion == MemoryPublicationReceipt.currentPolicyVersion)
+        #expect(!result.text.contains("Does that apply here?"))
         #expect(result.receipt.dependencies[0].reference == fixture.reference)
         #expect(result.receipt.dependencies[0].decision.requiredFraming == .unconfirmedPossibility)
         #expect(result.receipt.renderedTextDigest == MemoryClaimDigests.bytes(Data(result.text.utf8)))
         #expect(!result.text.contains("Confidence:"))
         #expect(try await service.revalidate(result, context: fixture.context(runID: result.receipt.runID, messageID: result.receipt.messageID)))
+    }
+
+    @Test("An explicit clarification still asks whether the qualified claim applies; reconsideration stays a question")
+    func explicitQuestionsRemain() async throws {
+        let fixture = try publicationFixture(body: "I do not want a crowded venue", conditions: "only on work nights")
+        let service = MemoryConversationPublicationService(resolver: PublicationFixtureResolver([fixture.snapshot]))
+        let context = fixture.context()
+        let result = try await service.publish(.init(units: [.init(kind: .clarification, references: [fixture.reference])]), context: context)
+        #expect(result.completeUnits == ["I may have this wrong: \"I do not want a crowded venue\". Does that apply here? This applies only when \"only on work nights\"."])
+        #expect(result.receipt.units[0].kind == .clarification)
+        #expect(try await service.revalidate(result, context: context))
+        let disputed = try publicationFixture(body: "I prefer quieter places", validity: .disputed)
+        let reconsidered = try await MemoryConversationPublicationService(resolver: PublicationFixtureResolver([disputed.snapshot]))
+            .publish(.init(units: [.init(kind: .reconsideration, references: [disputed.reference])]), context: disputed.context())
+        #expect(reconsidered.text == "I need to reconsider \"I prefer quieter places\". Is that still applicable?")
+    }
+
+    @Test("Policy 1 replies reconstruct exactly while current replies use policy 2 and version or wording substitutions fail")
+    func historicalRendererPolicyIsBound() async throws {
+        #expect(MemoryPublicationReceipt.currentPolicyVersion == 2)
+        #expect(MemoryConversationPublicationService.rendererPolicyVersion == MemoryPublicationReceipt.currentPolicyVersion)
+        #expect(MemoryPublicationReceipt.supportsPolicyVersion(1))
+        #expect(MemoryPublicationReceipt.supportsPolicyVersion(2))
+        let fixture = try publicationFixture(body: "I do not want a crowded venue", conditions: "only on work nights")
+        let service = MemoryConversationPublicationService(resolver: PublicationFixtureResolver([fixture.snapshot]))
+        let context = fixture.context()
+        let current = try await service.publish(fixture.candidate, context: context)
+        let oldText = "I may have this wrong: \"I do not want a crowded venue\". Does that apply here? This applies only when \"only on work nights\"."
+        let historical = publicationWithPolicy(current, version: 1, completeUnits: [oldText])
+        let before = try MemoryClaimDigests.canonicalData(historical.receipt)
+        #expect(try await service.revalidate(historical, context: context))
+        #expect(historical.completeUnits == [oldText])
+        #expect(try MemoryClaimDigests.canonicalData(historical.receipt) == before)
+        // Matching hashes do not authorize applying the other version's wording.
+        #expect(try await !service.revalidate(publicationWithPolicy(current, version: 1), context: context))
+        #expect(try await !service.revalidate(publicationWithPolicy(historical, version: 2), context: context))
+        for version in [UInt16(0), UInt16(3), UInt16.max] {
+            #expect(!MemoryPublicationReceipt.supportsPolicyVersion(version))
+            #expect(try await !service.revalidate(publicationWithPolicy(current, version: version), context: context))
+        }
     }
 
     @Test("Irrelevant uncertain records do not load, appear, or trigger clarification")
@@ -182,12 +224,13 @@ struct MemoryConversationPublicationTests {
         #expect(result.receipt.intent == .historyOverview)
     }
 
-    @Test("Grounded why uses linked receipt basis; missing linkage never invents reasoning")
-    func why() async throws {
+    @Test("Grounded why uses linked policy 1 or 2 receipt basis; missing linkage never invents reasoning",
+          arguments: [UInt16(1), UInt16(2)])
+    func why(_ version: UInt16) async throws {
         let fixture = try publicationFixture(level: .supportedInference)
         let resolver = PublicationFixtureResolver([fixture.snapshot])
         let service = MemoryConversationPublicationService(resolver: resolver)
-        let original = try await service.publish(fixture.candidate, context: fixture.context())
+        let original = publicationWithPolicy(try await service.publish(fixture.candidate, context: fixture.context()), version: version)
         await resolver.store(original.receipt)
         let whyCandidate = MemoryPublicationCandidate(units: [.init(kind: .explanation, references: [fixture.reference])])
         let explanation = try await service.publish(whyCandidate,
@@ -301,7 +344,9 @@ struct MemoryConversationPublicationTests {
         #expect(rendered.completeUnits.count == 1)
         #expect(!rendered.text.contains("\n"))
         #expect(rendered.text.contains("\\n\\n\\\"Definitely\\\"\\u{202e}"))
-        #expect(rendered.text.hasSuffix("Does that apply here?"))
+        #expect(rendered.text.hasPrefix("I may have this wrong: "))
+        #expect(rendered.text.hasSuffix("\"."))
+        #expect(!rendered.text.contains("Does that apply here?"))
         let fixtures = try (0..<3).map { _ in try publicationFixture(body: String(repeating: "x", count: 8_192)) }
         let refs = fixtures.map(\.reference)
         let candidate = MemoryPublicationCandidate(units: refs.map { .init(kind: .claim, references: [$0]) })
@@ -393,6 +438,17 @@ private actor PublicationFixtureResolver: MemoryConversationPublicationResolving
 private func publicationWire(_ units: [MemoryPublicationUnit]) throws -> Data {
     struct Wire: Encodable { let version: Int; let units: [MemoryPublicationUnit] }
     return try MemoryClaimDigests.canonicalData(Wire(version: 1, units: units))
+}
+
+private func publicationWithPolicy(_ original: MemoryConversationPublication, version: UInt16,
+                                   completeUnits: [String]? = nil) -> MemoryConversationPublication {
+    let r = original.receipt, units = completeUnits ?? original.completeUnits
+    let receipt = MemoryPublicationReceipt(id: r.id, policyVersion: version, runID: r.runID, messageID: r.messageID,
+        teammateID: r.teammateID, selectedProjectID: r.selectedProjectID, intent: r.intent,
+        renderedTextDigest: MemoryClaimDigests.bytes(Data(units.joined(separator: "\n\n").utf8)),
+        units: r.units, dependencies: r.dependencies, omittedUnitCount: r.omittedUnitCount,
+        lineage: r.lineage, createdAt: r.createdAt)
+    return .init(completeUnits: units, receipt: receipt, omittedUnitCount: original.omittedUnitCount)
 }
 
 private func publicationReceipt(id: UUID, lineage: MemoryPublicationLineage) -> MemoryPublicationReceipt {

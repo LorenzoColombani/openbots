@@ -56,7 +56,7 @@ final class KnowledgeWorkspaceViewTests: XCTestCase {
         )
         let destination = KnowledgeSnapshotDestination(
             id: viewUUID(6),
-            exactDisplayPath: "/Users/lorenzo/Obsidian/OpenBots/Atlas snapshot.md"
+            exactDisplayPath: "/Users/alex/Obsidian/OpenBots/Atlas snapshot.md"
         )
         let model = KnowledgeWorkspaceModel(
             loader: { _ in snapshot },

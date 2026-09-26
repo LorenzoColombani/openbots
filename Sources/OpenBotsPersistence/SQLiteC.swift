@@ -123,6 +123,22 @@ func sqlite3_backup_finish(_ backup: SQLiteBackup?) -> Int32
 @_silgen_name("sqlite3_backup_pagecount")
 func sqlite3_backup_pagecount(_ backup: SQLiteBackup?) -> Int32
 
+/// SQLite's statement trace: `(event mask, context, sqlite3_stmt*, unexpanded SQL)`.
+typealias SQLiteTraceCallback = @convention(c) (
+    UInt32,
+    UnsafeMutableRawPointer?,
+    UnsafeMutableRawPointer?,
+    UnsafeMutableRawPointer?
+) -> Int32
+
+@_silgen_name("sqlite3_trace_v2")
+func sqlite3_trace_v2(
+    _ database: SQLiteConnection?,
+    _ mask: UInt32,
+    _ callback: SQLiteTraceCallback?,
+    _ context: UnsafeMutableRawPointer?
+) -> Int32
+
 let sqliteOK: Int32 = 0
 let sqliteConstraint: Int32 = 19
 let sqliteRow: Int32 = 100
@@ -135,6 +151,8 @@ let sqliteOpenReadWrite: Int32 = 0x0000_0002
 let sqliteOpenCreate: Int32 = 0x0000_0004
 let sqliteOpenFullMutex: Int32 = 0x0001_0000
 let sqliteOpenNoFollow: Int32 = 0x0100_0000
+/// SQLITE_TRACE_STMT: the callback fires as each statement begins running.
+let sqliteTraceStatement: UInt32 = 0x01
 
 func sqliteTransientDestructor() -> SQLiteDestructor? {
     unsafeBitCast(-1, to: SQLiteDestructor?.self)

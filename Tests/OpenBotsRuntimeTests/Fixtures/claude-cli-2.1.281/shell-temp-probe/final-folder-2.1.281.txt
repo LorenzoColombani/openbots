@@ -1,0 +1,7 @@
+claude_code_version: 2.1.281
+$ echo TMPDIR=$TMPDIR; echo PATH=$PATH; touch "$TMPDIR/p" && echo TOUCH_OK; printf 'print(1+1)\n' > h.swift && swift h.swift 2>&1; echo EXIT=$?
+TMPDIR=/tmp/obn-a6e2a588.noindex/claude-501
+PATH=/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin
+TOUCH_OK
+2
+EXIT=0

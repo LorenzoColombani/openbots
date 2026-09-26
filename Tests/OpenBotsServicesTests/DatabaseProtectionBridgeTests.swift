@@ -4,7 +4,7 @@ import OpenBotsSecurity
 import Testing
 @testable import OpenBotsServices
 
-@Test("Decision 0008 selects ordinary SQLite through one immutable preview receipt")
+@Test("Preview selects ordinary SQLite through one immutable preview receipt")
 func previewDatabaseProtectionDecisionIsExplicit() {
     #expect(PreviewDatabaseProtectionDecision.selection == .ordinarySQLite)
     #expect(

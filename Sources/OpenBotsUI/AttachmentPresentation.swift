@@ -12,11 +12,18 @@ public struct AttachmentPresentation: Sendable {
     public let resolve: Resolver
     public let reveal: Revealer
     public let preview: Previewer?
+    /// Opens the saved copy with its default app.
+    public let open: Revealer?
+    /// Copies the saved copy to a place the user picks; the create-new delivery.
+    public let save: Revealer?
 
-    public init(resolve: @escaping Resolver, reveal: @escaping Revealer, preview: Previewer? = nil) {
+    public init(resolve: @escaping Resolver, reveal: @escaping Revealer, preview: Previewer? = nil,
+                open: Revealer? = nil, save: Revealer? = nil) {
         self.resolve = resolve
         self.reveal = reveal
         self.preview = preview
+        self.open = open
+        self.save = save
     }
 }
 
@@ -28,6 +35,35 @@ public extension EnvironmentValues {
     var attachmentPresentation: AttachmentPresentation? {
         get { self[AttachmentPresentationKey.self] }
         set { self[AttachmentPresentationKey.self] = newValue }
+    }
+}
+
+/// A picture shown inside the bubble: the same bounded,
+/// decoded-off-main preview the Preview sheet uses, fetched once per chip and
+/// only for an attachment whose type is an image.
+@MainActor
+final class InlineAttachmentImageModel: ObservableObject {
+    @Published private(set) var image: AttachmentPreviewImage?
+    private var loadedRoute: AttachmentPresentationRoute?
+    private var generation: UInt64 = 0
+    private let decoder = AttachmentPreviewDecoder()
+
+    func load(route: AttachmentPresentationRoute, previewer: AttachmentPresentation.Previewer?) async {
+        guard let previewer, loadedRoute != route else { return }
+        generation &+= 1
+        let request = generation
+        loadedRoute = route
+        image = nil
+        do {
+            let receipt = try await previewer(route.messageID, route.partID, route.attachmentID, 1)
+            try Task.checkCancellation()
+            let prepared = try await decoder.prepare(receipt, requestedPage: 1)
+            guard generation == request else { return }
+            if case .image(let decoded) = prepared { image = decoded }
+        } catch {
+            guard generation == request else { return }
+            if error is CancellationError || Task.isCancelled { loadedRoute = nil }
+        }
     }
 }
 
@@ -84,21 +120,36 @@ final class AttachmentPartPresentationModel: ObservableObject {
     }
 
     func reveal() async {
-        guard canReveal, let route, let presentation else { return }
+        guard let presentation else { return }
+        await perform(presentation.reveal, failure: "OpenBots couldn’t reveal this saved attachment. Your files were not changed.")
+    }
+
+    func open() async {
+        guard let action = presentation?.open else { return }
+        await perform(action, failure: "OpenBots couldn’t open this saved attachment. Your files were not changed.")
+    }
+
+    func save() async {
+        guard let action = presentation?.save else { return }
+        await perform(action, failure: "OpenBots couldn’t save a copy of this attachment.")
+    }
+
+    private func perform(_ action: AttachmentPresentation.Revealer, failure: String) async {
+        guard canReveal, let route else { return }
         let request = generation
         isRevealing = true
         errorMessage = nil
         do {
             // Metadata is not authority: this callback must validate the exact
-            // route and owned bytes again, immediately before Finder reveal.
-            try await presentation.reveal(route.messageID, route.partID, route.attachmentID)
+            // route and owned bytes again, immediately before it acts.
+            try await action(route.messageID, route.partID, route.attachmentID)
             guard generation == request else { return }
             isRevealing = false
         } catch {
             guard generation == request else { return }
             isRevealing = false
             if Task.isCancelled || error is CancellationError { return }
-            errorMessage = "OpenBots couldn’t reveal this saved attachment. Your files were not changed."
+            errorMessage = failure
         }
     }
 }

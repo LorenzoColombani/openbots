@@ -239,6 +239,9 @@ private actor RecoveryRepositoryProbe: TextTurnRepository {
         if let returnedRows { return returnedRows }
         return try await store.pendingTextTurns(appOwnerID: appOwnerID, limit: limit)
     }
+    func latestTextTurn(conversationID: ConversationID, teammateID: TeammateID) async throws -> TextTurnSnapshot? {
+        calls.append("forbidden latest"); throw RecoveryFixtureError.forbiddenCall
+    }
     func interruptTextTurn(id: RunID, expectedRevision: Int64, appOwnerID: UUID,
         processAbsence: TextTurnProcessAbsence, now: Date) async throws -> TextTurnSnapshot {
         calls.append("interrupt")
@@ -263,7 +266,7 @@ private actor RecoveryRepositoryProbe: TextTurnRepository {
     }
 }
 
-private struct TextRecoveryFixture: Sendable {
+struct TextRecoveryFixture: Sendable {
     let root: URL
     let protection: ProtectionDecisionReceipt
     let appOwner = UUID(), processOwner = UUID(), token = UUID(), session = UUID()

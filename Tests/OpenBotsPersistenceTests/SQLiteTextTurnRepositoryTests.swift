@@ -46,6 +46,39 @@ struct SQLiteTextTurnRepositoryTests {
             hasUnconfirmedInput: false, hasUnknownInput: false))
     }
 
+    @Test("Every checkpoint carries the lease forward, so a long reply outlives the lease it began with")
+    func checkpointsRenewTheLease() async throws {
+        let f = try TextTurnFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let turn = try f.turn()
+        // Begun with a sixty-second lease.
+        var current = try await f.begin(store, turn)
+        #expect(current.run.lease?.expiresAt == f.at(60))
+        // A checkpoint inside it moves the expiry to its own time plus the
+        // text-turn span, keeping the lease's identity.
+        current = try await store.checkpointTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+            token: f.token, text: "", inputEvidence: .submitted, now: f.at(50))
+        #expect(current.run.lease?.expiresAt == f.at(230))
+        #expect(current.run.lease?.generation == 1 && current.run.lease?.token == f.token && current.run.lease?.ownerID == f.owner)
+        // A checkpoint after the original lease would have lapsed still lands,
+        // and renews again.
+        current = try await store.checkpointTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+            token: f.token, text: "Still writing", inputEvidence: .acknowledged, now: f.at(200))
+        #expect(current.run.lease?.expiresAt == f.at(380))
+        // A write that arrives after the renewed lease has run out is refused,
+        // as it always was: the lease is proof of a live process, not a favour.
+        await #expect(throws: RunJournalError.leaseExpired) {
+            _ = try await store.checkpointTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+                token: f.token, text: "Still writing more", inputEvidence: .none, now: f.at(381))
+        }
+        // The finish inside the renewed lease succeeds.
+        let done = try await store.finishTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+            token: f.token, text: "Still writing, done.", outcome: .succeeded, now: f.at(379))
+        #expect(done.run.state == .succeeded && done.run.lease == nil && done.replyText == "Still writing, done.")
+    }
+
     @Test("Claim failure rolls back user, assistant, receipt and run as one aggregate")
     func atomicBegin() async throws {
         let f = try TextTurnFixture()
@@ -156,19 +189,21 @@ struct SQLiteTextTurnRepositoryTests {
         current = try await store.checkpointTextTurn(id: current.run.id, expectedRevision: current.run.revision,
             token: f.token, text: "Preserved", inputEvidence: .submitted, now: f.at(1))
         #expect(try await store.pendingTextTurns(appOwnerID: UUID(), limit: 10).isEmpty)
-        #expect(try await store.recoverExpiredLocalFixtures(conversationID: f.conversationID, now: f.at(61), limit: 10).isEmpty)
+        #expect(try await store.recoverExpiredLocalFixtures(conversationID: f.conversationID, now: f.at(182), limit: 10).isEmpty)
+        // The checkpoint at second one carried the lease to second 181, so the
+        // process's own writes are refused only once that has lapsed.
         await #expect(throws: RunJournalError.leaseExpired) {
             try await store.finishTextTurn(id: current.run.id, expectedRevision: current.run.revision,
-                token: f.token, text: "Preserved", outcome: .interrupted, now: f.at(61))
+                token: f.token, text: "Preserved", outcome: .interrupted, now: f.at(182))
         }
         for (appOwner, processOwner) in [(UUID(), f.owner), (f.appOwner, UUID())] {
             await #expect(throws: TextTurnRepositoryError.processAbsenceMismatch) {
                 try await store.interruptTextTurn(id: current.run.id, expectedRevision: current.run.revision,
-                    appOwnerID: appOwner, processAbsence: TextTurnProcessAbsence(runID: current.run.id, leaseOwnerID: processOwner), now: f.at(61))
+                    appOwnerID: appOwner, processAbsence: TextTurnProcessAbsence(runID: current.run.id, leaseOwnerID: processOwner), now: f.at(182))
             }
         }
         let recovered = try await store.interruptTextTurn(id: current.run.id, expectedRevision: current.run.revision,
-            appOwnerID: f.appOwner, processAbsence: TextTurnProcessAbsence(runID: current.run.id, leaseOwnerID: f.owner), now: f.at(61))
+            appOwnerID: f.appOwner, processAbsence: TextTurnProcessAbsence(runID: current.run.id, leaseOwnerID: f.owner), now: f.at(182))
         #expect(recovered.run.state == .interrupted && recovered.replyText == "Preserved" && recovered.inputState == .outcomeUnknown)
         let ordinary = try WorkRequest(runID: RunID(UUID()), teammateID: f.teammateID, conversationID: f.conversationID,
             initiatingMessageID: turn.message.id, profileRevision: 1, initialInput: turn.request.initialInput, submittedAt: f.at(62))
@@ -180,6 +215,37 @@ struct SQLiteTextTurnRepositoryTests {
             try await store.interruptTextTurn(id: queued.id, expectedRevision: 2, appOwnerID: f.appOwner,
                 processAbsence: TextTurnProcessAbsence(runID: queued.id, leaseOwnerID: f.owner), now: f.at(100))
         }
+    }
+
+    /// A quit leaves an open card's row `pending`, and the record then showed
+    /// it as "Waiting" for good. The turn's
+    /// end closes it; an answered card keeps its answer.
+    @Test("A card the turn left unanswered is closed as expired when the turn ends, even after a quit")
+    func unansweredCardClosesWithTheTurn() async throws {
+        let f = try TextTurnFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let current = try await f.begin(store, try f.turn())
+        func card() throws -> ApprovalRequest {
+            try ApprovalRequest(id: ApprovalID(UUID()), teammateID: f.teammateID, conversationID: f.conversationID,
+                action: .send, exactTargetSummary: "Synthetic target", consequenceSummary: "No external action",
+                fingerprint: ApprovalFingerprint("fixture"), requestedAt: f.at(1))
+        }
+        let open = try card(), answered = try card()
+        try await store.insert(open)
+        try await store.insert(answered)
+        var approved = answered
+        try approved.apply(.resolve(.approve), at: f.at(2))
+        try await store.update(approved, expectedState: .pending)
+
+        _ = try await store.interruptTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+            appOwnerID: f.appOwner, processAbsence: TextTurnProcessAbsence(runID: current.run.id, leaseOwnerID: f.owner), now: f.at(182))
+
+        let rows = try await store.approvals(conversationID: f.conversationID, limit: 10)
+        #expect(rows.first { $0.id == open.id }?.state == .expired)
+        #expect(rows.first { $0.id == open.id }?.resolvedAt == f.at(182))
+        #expect(rows.first { $0.id == answered.id } == approved)
     }
 
     @Test("Provenance accepts either message side once while preserving local-only and conversation scope")
@@ -393,6 +459,245 @@ struct SQLiteTextTurnRepositoryTests {
         let reply = try #require(savedReply)
         #expect(ended.run.state == .failed && reply.parts.count == 1)
         #expect(reply.parts.first?.content == .status("Claude could not complete this reply."))
+    }
+
+    /// A turn the bot declined must still read as declined after the app is
+    /// closed and reopened. The run state beneath it is the ordinary `failed`,
+    /// so the saved reply status is the whole durable record of the decision:
+    /// if the writer and the reader ever stop agreeing on that one sentence,
+    /// the person reads a failure again.
+    @Test("A declined turn saves the bot's own wording and still reads as declined after a reopen")
+    func declinedTurnSurvivesAReopen() async throws {
+        let f = try TextTurnFixture()
+        defer { f.remove() }
+        let turn = try f.turn()
+        let identity = try #require(turn.request.textTurnIdentity)
+        do {
+            let store = try f.open()
+            try await f.seed(store)
+            let current = try await f.begin(store, turn)
+            let ended = try await store.finishTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+                token: f.token, text: "", outcome: .declined, now: f.at(1))
+            #expect(ended.run.state == .failed)
+            #expect(ended.outcome == .declined)
+        }
+        let reopened = try f.open()
+        let reply = try #require(try await reopened.message(id: identity.replyMessageID))
+        // One part: a decline records no diagnostic, because nothing broke.
+        #expect(reply.parts.count == 1)
+        #expect(reply.parts.first?.content == .status(TextTurnOutcome.declinedReplyStatus))
+        #expect(reply.parts.first?.content != .status("Claude could not complete this reply."))
+        let provenance = try await reopened.textTurnProvenance(conversationID: f.conversationID,
+            messageIDs: [turn.message.id, identity.replyMessageID])
+        #expect(provenance.count == 1)
+        #expect(provenance.first?.state == .failed)
+        #expect(provenance.first?.outcome == .declined)
+
+        // A turn that actually broke is still read as broken, not as a decline.
+        let other = try f.turn(sequence: 3)
+        let otherIdentity = try #require(other.request.textTurnIdentity)
+        let running = try await f.begin(reopened, other)
+        _ = try await reopened.finishTextTurn(id: running.run.id, expectedRevision: running.run.revision,
+            token: f.token, text: "", outcome: .failed, now: f.at(2))
+        let brokenProvenance = try await reopened.textTurnProvenance(conversationID: f.conversationID,
+            messageIDs: [otherIdentity.replyMessageID])
+        #expect(brokenProvenance.first?.outcome == .failed)
+    }
+
+    @Test("A bot's latest turn in a conversation follows the conversation's order, not the clock, and says how it ended")
+    func latestTextTurnFollowsTheConversation() async throws {
+        let f = try TextTurnFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        #expect(try await store.latestTextTurn(conversationID: f.conversationID, teammateID: f.teammateID) == nil)
+        // The first turn is stopped mid-reply, as a correction stops it: the
+        // request was acknowledged and a partial reply is on record.
+        let stopped = try f.turn(sequence: 1, text: "Write me a poem about cobalt")
+        var current = try await f.begin(store, stopped)
+        current = try await store.checkpointTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+            token: f.token, text: "", inputEvidence: .submitted, now: f.at(1))
+        current = try await store.checkpointTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+            token: f.token, text: "Cobalt is", inputEvidence: .acknowledged, now: f.at(2))
+        // Settled last on the clock, after the turn below has already finished.
+        _ = try await store.finishTextTurn(id: current.run.id, expectedRevision: current.run.revision,
+            token: f.token, text: "Cobalt is", outcome: .interrupted, now: f.at(9))
+        let latest = try #require(try await store.latestTextTurn(conversationID: f.conversationID, teammateID: f.teammateID))
+        #expect(latest.run.id == stopped.request.runID)
+        #expect(latest.outcome == .interrupted)
+        #expect(latest.run.request.initialInput.text == "Write me a poem about cobalt")
+        #expect(latest.replyText == "Cobalt is")
+        // A later turn in the conversation is the latest even when its row was
+        // written earlier on the clock.
+        let next = try f.turn(sequence: 3, text: "And one about copper")
+        var running = try await f.begin(store, next)
+        running = try await store.checkpointTextTurn(id: running.run.id, expectedRevision: running.run.revision,
+            token: f.token, text: "", inputEvidence: .submitted, now: f.at(3))
+        running = try await store.checkpointTextTurn(id: running.run.id, expectedRevision: running.run.revision,
+            token: f.token, text: "", inputEvidence: .acknowledged, now: f.at(4))
+        _ = try await store.finishTextTurn(id: running.run.id, expectedRevision: running.run.revision,
+            token: f.token, text: "Copper glows.", outcome: .succeeded, now: f.at(5))
+        let after = try #require(try await store.latestTextTurn(conversationID: f.conversationID, teammateID: f.teammateID))
+        #expect(after.run.id == next.request.runID)
+        #expect(after.outcome == .succeeded)
+        // Another bot, or another conversation, has no turn here.
+        #expect(try await store.latestTextTurn(conversationID: f.conversationID, teammateID: TeammateID(UUID())) == nil)
+        #expect(try await store.latestTextTurn(conversationID: ConversationID(UUID()), teammateID: f.teammateID) == nil)
+    }
+
+    @Test("A bot's latest turn is the one it ran for the user, never a team leg or the report it compiles from a member's words")
+    func latestTextTurnSkipsTeamLegs() async throws {
+        let f = try TeamChatStoreFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seedBots(store)
+        let team = try f.team(store: store, members: [f.ada, f.mira], lead: f.mira)
+        let conversation = try f.teamConversation(team)
+        try await store.provisionTeam(team, conversation: conversation, selectConversation: false)
+        let room = conversation.id
+        var clock = f.date.addingTimeInterval(60)
+        func tick() -> Date { clock = clock.addingTimeInterval(10); return clock }
+        // The user asks the lead, and the lead answers by sending Ada a brief.
+        let asked = try await teamTurn(store, conversation: room, teammate: f.mira, author: .user,
+            text: "Audit Alpha Beta's presence.", reply: "Noted. Asking Ada.", at: tick())
+        // Ada's leg: the brief the lead wrote is its initiating message, and
+        // Ada's reply ends the leg, exactly as the reply service writes them.
+        let brief = try HandoffBrief(goal: "audit her presence", constraints: ["Answer briefly"], inputReferences: ["The name above"],
+            requestedOutput: "A short list", exclusions: ["No speculation"], stopOrApprovalBoundary: "Report only")
+        var record = HandoffRecord(handoff: try Handoff(provenance: HandoffProvenance(handoffID: HandoffID(UUID()),
+            legID: HandoffLegID(UUID()), originConversationID: room, senderID: f.mira, receiverID: f.ada, createdAt: tick()),
+            brief: brief), sourceMessageID: nil)
+        try await store.insert(record)
+        try record.apply(.accept(at: tick()))
+        try await store.update(record, expectedState: .staged)
+        let leg = try await teamTurn(store, conversation: room, teammate: f.ada, author: .teammate(f.mira), outputClass: .workAudit,
+            text: "Handoff from Mira to Ada. Goal: audit her presence", reply: "Ada's result: no search finds her.",
+            at: tick(), handoffLegID: record.legID)
+        try record.apply(.beginWork(at: tick()))
+        try record.apply(.succeed(summary: "Ada's result: no search finds her.", at: tick()))
+        record.replyMessageID = leg.replyID
+        record.runID = leg.runID
+        try await store.update(record, expectedState: .accepted)
+        // The lead compiles Ada's result: Ada's words are the initiating
+        // message, and the compile is stopped mid-way, as a correction typed
+        // at that moment stops it.
+        let report = try await teamTurn(store, conversation: room, teammate: f.mira, author: .teammate(f.ada), outputClass: .workAudit,
+            text: "Ada's result: no search finds her.", reply: "Compiling: Ada found", outcome: .interrupted,
+            at: tick(), handoffReportLegID: record.legID)
+        // The correction quotes the turn the lead ran for the user, not the
+        // report whose "request" is a member's returned text.
+        let latest = try #require(try await store.latestTextTurn(conversationID: room, teammateID: f.mira))
+        #expect(latest.run.id == asked.runID)
+        #expect(latest.run.id != report.runID)
+        #expect(latest.run.request.initialInput.text == "Audit Alpha Beta's presence.")
+        #expect(latest.outcome == .succeeded)
+        // Ada's only turn here is a leg: there is nothing of hers for a
+        // correction to quote.
+        #expect(try await store.latestTextTurn(conversationID: room, teammateID: f.ada) == nil)
+    }
+
+    /// A hidden bot keeps its seat and shows in its teams. Hide tidies the sidebar, so it
+    /// shuts the bot's own chat and nothing else.
+    @Test("A hidden bot is still read and answers in its team; its own chat stays shut")
+    func hiddenBotKeepsItsTeamSeat() async throws {
+        let f = try TeamChatStoreFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seedBots(store)
+        let team = try f.team(store: store, members: [f.ada, f.mira], lead: f.mira)
+        let conversation = try f.teamConversation(team)
+        try await store.provisionTeam(team, conversation: conversation, selectConversation: false)
+        // Raw SQL: `setHidden` would move the profile revision the turns below name.
+        _ = try await store.execute(sql: "UPDATE teammates SET is_hidden=1 WHERE id=?;", bindings: [.text(f.ada.persistedValue)])
+        func context(_ room: ConversationID) async throws {
+            _ = try await store.loadReadContextCandidates(ReadContextRequest(
+                conversationID: room, teammateID: f.ada, profileRevision: 1,
+                selection: ConversationContextSelection(conversationID: room, teammateID: f.ada), beforeSequence: 1))
+        }
+
+        try await context(conversation.id)
+        let turn = try await teamTurn(store, conversation: conversation.id, teammate: f.ada, author: .user,
+            text: "@Ada check the sources", reply: "Checked.", at: f.date.addingTimeInterval(60))
+        #expect(try await store.message(id: turn.replyID)?.author == .teammate(f.ada))
+
+        await #expect(throws: ReadContextError.unavailable) { try await context(f.adaChat) }
+        await #expect(throws: RunJournalError.invalidRequest) {
+            _ = try await self.teamTurn(store, conversation: f.adaChat, teammate: f.ada, author: .user,
+                text: "Hello", reply: "Hi.", at: f.date.addingTimeInterval(120))
+        }
+    }
+
+    @Test("A worker's result wakes its bot as an app-written work note; the bot's answer is a conversation message, and the note survives a reopen")
+    func workerResultTurn() async throws {
+        let f = try TextTurnFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let workerID = UUID()
+        func turn(author: MessageAuthor, outputClass: OutputClass, legID: HandoffLegID? = nil) throws -> (request: WorkRequest, message: Message) {
+            let text = "```worker\n[Background worker finished]\nThe three summaries.\n```"
+            let message = try Message(id: MessageID(UUID()), conversationID: f.conversationID, sequence: 1, author: author,
+                outputClass: outputClass, deliveryState: .pending,
+                parts: [MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text(text))], createdAt: f.date, updatedAt: f.date)
+            let request = try WorkRequest(runID: RunID(UUID()), teammateID: f.teammateID, conversationID: f.conversationID,
+                initiatingMessageID: message.id, profileRevision: 1,
+                initialInput: WorkInput(messageID: message.id, sequence: 1, text: text), submittedAt: f.date,
+                textTurnIdentity: TextTurnIdentity(appOwnerID: f.appOwner, replyMessageID: MessageID(UUID()),
+                    replyPartID: MessagePartID(UUID()), handoffLegID: legID, workerResultID: workerID))
+            return (request, message)
+        }
+        // Only the app writes a worker's result: never the user, never as a transcript message, never beside a leg.
+        for (author, outputClass, legID) in [(MessageAuthor.user, OutputClass.conversation, nil as HandoffLegID?),
+                                             (.system, .conversation, nil), (.system, .workAudit, HandoffLegID(UUID()))] {
+            await #expect(throws: (any Error).self) { _ = try await f.begin(store, try turn(author: author, outputClass: outputClass, legID: legID)) }
+        }
+        let woken = try turn(author: .system, outputClass: .workAudit)
+        let begun = try await f.begin(store, woken)
+        let submitted = try await store.checkpointTextTurn(id: begun.run.id, expectedRevision: begun.run.revision,
+            token: f.token, text: "", inputEvidence: .submitted, now: f.at(1))
+        let saved = try await store.checkpointTextTurn(id: submitted.run.id, expectedRevision: submitted.run.revision,
+            token: f.token, text: "", inputEvidence: .acknowledged, now: f.at(1))
+        // A reopen reads the note back as the app's own.
+        let reopened = try f.open()
+        #expect(try await reopened.pendingTextTurns(appOwnerID: f.appOwner, limit: 10) == [saved])
+        let done = try await reopened.finishTextTurn(id: saved.run.id, expectedRevision: saved.run.revision,
+            token: f.token, text: "Here are the three summaries.", outcome: .succeeded, now: f.at(2))
+        #expect(done.run.state == .succeeded)
+        let note = try #require(try await reopened.message(id: woken.message.id))
+        #expect(note.author == .system && note.outputClass == .workAudit)
+        let replyID = try #require(woken.request.textTurnIdentity).replyMessageID
+        let reply = try #require(try await reopened.message(id: replyID))
+        #expect(reply.author == .teammate(f.teammateID) && reply.outputClass == .conversation && reply.deliveryState == .completed)
+    }
+
+    /// One finished text turn in a team room, as the reply service writes it:
+    /// the initiating message with the given author and class, answered by
+    /// `teammate`, ending as `outcome` with `reply` on record.
+    private func teamTurn(_ store: SQLiteStore, conversation: ConversationID, teammate: TeammateID,
+                          author: MessageAuthor, outputClass: OutputClass = .conversation, text: String, reply: String,
+                          outcome: TextTurnOutcome = .succeeded, at date: Date,
+                          handoffLegID: HandoffLegID? = nil, handoffReportLegID: HandoffLegID? = nil) async throws -> (runID: RunID, replyID: MessageID) {
+        let last = try await store.page(conversationID: conversation, request: PageRequest(limit: 1)).elements.last?.sequence ?? 0
+        let message = try Message(id: MessageID(UUID()), conversationID: conversation, sequence: last + 1, author: author,
+            outputClass: outputClass, deliveryState: .pending,
+            parts: [MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text(text))],
+            createdAt: date, updatedAt: date)
+        let replyID = MessageID(UUID())
+        let request = try WorkRequest(runID: RunID(UUID()), teammateID: teammate, conversationID: conversation,
+            initiatingMessageID: message.id, selectedProjectID: nil, profileRevision: 1,
+            initialInput: WorkInput(messageID: message.id, sequence: 1, text: text), submittedAt: date,
+            textTurnIdentity: TextTurnIdentity(appOwnerID: UUID(), replyMessageID: replyID, replyPartID: MessagePartID(UUID()),
+                handoffLegID: handoffLegID, handoffReportLegID: handoffReportLegID))
+        let token = UUID()
+        let begun = try await store.beginTextTurn(request: request, userMessage: message, expectedPreviousSequence: last,
+            ownerID: UUID(), token: token, now: date, leaseDuration: 60)
+        var saved = try await store.checkpointTextTurn(id: request.runID, expectedRevision: begun.run.revision,
+            token: token, text: "", inputEvidence: .submitted, now: date.addingTimeInterval(1))
+        saved = try await store.checkpointTextTurn(id: request.runID, expectedRevision: saved.run.revision,
+            token: token, text: outcome == .succeeded ? "" : reply, inputEvidence: .acknowledged, now: date.addingTimeInterval(2))
+        _ = try await store.finishTextTurn(id: request.runID, expectedRevision: saved.run.revision,
+            token: token, text: reply, outcome: outcome, now: date.addingTimeInterval(3))
+        return (request.runID, replyID)
     }
 }
 

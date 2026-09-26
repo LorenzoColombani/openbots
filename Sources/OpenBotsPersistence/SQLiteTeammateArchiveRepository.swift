@@ -2,8 +2,10 @@ import Foundation
 import OpenBotsDomain
 
 extension SQLiteStore: TeammateArchiveRepository {
+    /// A bot Delete kept only for its team chat history is not an archived
+    /// bot: it is not listed here, and it cannot be restored.
     public func archivedTeammates() async throws -> [Teammate] {
-        try teammateRows(whereClause: "t.lifecycle='archived'", bindings: [])
+        try teammateRows(whereClause: "t.lifecycle='archived' AND \(Self.notDeletedTeammate)", bindings: [])
     }
 
     public func archiveTeammate(
@@ -27,7 +29,8 @@ extension SQLiteStore: TeammateArchiveRepository {
         guard now.timeIntervalSince1970.isFinite else { throw TeammateArchiveError.invalidDate }
         return try transaction {
             try Task.checkCancellation()
-            guard var teammate = try teammateRows(whereClause: "t.id=?", bindings: [.text(id.persistedValue)]).first else {
+            guard var teammate = try teammateRows(whereClause: "t.id=? AND \(Self.notDeletedTeammate)",
+                                                  bindings: [.text(id.persistedValue)]).first else {
                 throw TeammateArchiveError.notFound
             }
             guard teammate.profile.revision == expectedProfileRevision else { throw TeammateArchiveError.staleRevision }
@@ -36,15 +39,27 @@ extension SQLiteStore: TeammateArchiveRepository {
             if next == .archived {
                 // BEGIN IMMEDIATE prevents a new run/proposal from racing this
                 // check. Their insertion paths require an active teammate too.
+                // A card's approvals row is not read: a card lives only inside
+                // its turn, which the run line covers, and the row outlives the
+                // turn (nothing moves it past `approved`; a quit leaves `pending`).
                 let unresolved = try query(sql: """
                     SELECT 1 AS unresolved FROM work_runs
                     WHERE teammate_id=? AND state NOT IN ('succeeded','failed','interrupted')
                     UNION ALL SELECT 1 FROM action_proposals
-                    WHERE teammate_id=? AND state IN ('pending','approved')
-                    UNION ALL SELECT 1 FROM approvals
-                    WHERE teammate_id=? AND state IN ('pending','approved','executing') LIMIT 1;
-                    """, bindings: Array(repeating: .text(id.persistedValue), count: 3))
+                    WHERE teammate_id=? AND state IN ('pending','approved') LIMIT 1;
+                    """, bindings: Array(repeating: .text(id.persistedValue), count: 2))
                 guard unresolved.isEmpty else { throw TeammateArchiveError.unresolvedWork }
+            }
+            if next == .active {
+                // The name may have been taken while the bot was archived.
+                // Two bots never share one, so the restore is refused and
+                // names the bot that has it; inside the same transaction, so
+                // no create can slip in between the look and the change.
+                let holders = try teammateRows(whereClause: "t.lifecycle<>'archived' AND t.id<>?",
+                                               bindings: [.text(id.persistedValue)])
+                if let holder = holders.activeBot(named: teammate.profile.displayName) {
+                    throw TeammateNameTakenError(existingName: holder.profile.displayName)
+                }
             }
             teammate.profile = try teammate.profile.revised()
             teammate.lifecycle = next

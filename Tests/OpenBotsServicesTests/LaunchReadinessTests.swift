@@ -25,7 +25,8 @@ private let fixedLaunchReadinessStates: [LaunchReadinessState] = [
     .recovery(.ownedRootVerificationFailed),
     .recovery(.databaseProtectionUnavailable),
     .recovery(.databaseOpenFailed),
-    .recovery(.databaseValidationFailed)
+    .recovery(.databaseValidationFailed),
+    .recovery(.workspaceNewerThanApplication)
 ]
 
 @Test("Constructing launch readiness retains its inspector without inspecting")

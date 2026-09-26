@@ -290,10 +290,10 @@ final class ConversationComposerDraftTests: XCTestCase {
     func testBeforeSubmissionSeamCapturesRawTextBeforeClearAndCanRejectWithoutMutation() {
         let id = draftConversation(1).rawValue
         var captured: String?
-        let model = ConversationModel(conversationID: id, composerText: "  Text\n", submit: { _, _, _ in }, beforeSubmission: { _, target, raw in
+        let model = ConversationModel(conversationID: id, composerText: "  Text\n", submit: { _, _, _ in }, beforeSubmission: { _, target, raw, _ in
             XCTAssertEqual(target, id)
             captured = raw
-            return false
+            return "refused by the test seam"
         })
         model.sendCurrentText()
         XCTAssertEqual(captured, "  Text\n")

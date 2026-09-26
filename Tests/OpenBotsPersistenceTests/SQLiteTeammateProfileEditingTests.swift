@@ -9,7 +9,8 @@ final class SQLiteTeammateProfileEditingTests: XCTestCase {
         let fixture = try ProfileEditingSQLiteFixture()
         defer { fixture.remove() }
         let creature = try fixture.teammate()
-        let photo = try Teammate(id: TeammateID(UUID()), profile: creature.profile,
+        // Two bots never share a name, and the store now refuses a second one.
+        let photo = try Teammate(id: TeammateID(UUID()), profile: TeammateProfile(displayName: "Ada Photo", role: creature.profile.role),
             appearance: AgentAppearance(mode: .photo, grammarVersion: 1, deterministicSeed: 98,
                 silhouette: "round", paletteToken: "mint", eyeDialect: "calm",
                 nonColorIdentityCue: "leaf ears", accessibleIdentityDescription: "Saved photo fallback",
@@ -27,7 +28,8 @@ final class SQLiteTeammateProfileEditingTests: XCTestCase {
                 let store = try fixture.open()
                 let service = TeammateProfileService(repository: store, clock: ProfileEditingSQLiteClock(),
                     uuidGenerator: AvatarAllocationUUID(value: id))
-                created = try await service.createQuickTeammate(.init(displayName: "New Bot", role: "Local test"))
+                // Two bots never share a name, so each sample bot gets its own.
+                created = try await service.createQuickTeammate(.init(displayName: "New Bot \(index)", role: "Local test"))
                 observed.insert(created.appearance.builtInAvatarID ?? "legacy")
             }
             let reopened = try fixture.open()

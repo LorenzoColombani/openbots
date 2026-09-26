@@ -1,5 +1,6 @@
 import Foundation
 import OpenBotsDomain
+import OpenBotsServices
 import Testing
 @testable import OpenBotsUI
 
@@ -638,4 +639,106 @@ func cardAccessibilitySummariesAreBounded() {
     #expect(question.accessibilityDescription.contains("answer choices"))
     #expect(connector.accessibilityDescription.contains("Account authentication"))
     #expect(secret.accessibilityDescription.contains("value is never shown"))
+}
+
+@MainActor
+private final class ApprovalClickRecorder {
+    var allowedForTurn: [ClaudeTextApproval] = []
+    var decided: [(ClaudeTextApproval, Bool)] = []
+}
+
+private func approvalCard(turnScopeFolder: String?) -> ClaudeTextApproval {
+    ClaudeTextApproval(id: UUID(), runID: RunID(UUID()), requestID: "req-1", toolName: "Edit",
+        title: "Change a file", detail: "Invoices/2026.md", target: "Invoices/2026.md",
+        expiresAt: Date(timeIntervalSince1970: 9_000), turnScopeFolder: turnScopeFolder)
+}
+
+@Test("Allow for this turn reaches the service only from a card that carries a folder")
+@MainActor
+func allowForThisTurnOnlyFromAScopedCard() {
+    let clicks = ApprovalClickRecorder()
+    let model = ConversationModel(
+        textReplyApprovalDecision: { approval, allow in clicks.decided.append((approval, allow)) },
+        textReplyApprovalTurnAllowance: { approval in clicks.allowedForTurn.append(approval) })
+    let scoped = approvalCard(turnScopeFolder: "Invoices")
+    model.setTextReplyApproval(scoped)
+    model.allowTextReplyApprovalForTurn(scoped)
+    #expect(clicks.allowedForTurn.map(\.id) == [scoped.id])
+    #expect(clicks.decided.isEmpty, "the turn allowance is not an ordinary approval")
+    // A command's card offers no such button, and the model refuses it even if asked.
+    let command = approvalCard(turnScopeFolder: nil)
+    model.setTextReplyApproval(command)
+    model.allowTextReplyApprovalForTurn(command)
+    #expect(clicks.allowedForTurn.count == 1)
+    // Approve and Deny are untouched.
+    model.decideTextReplyApproval(command, allow: false)
+    #expect(clicks.decided.count == 1 && clicks.decided.first?.1 == false)
+}
+
+// A long turn used to show a small face and no words: the activity beat the
+// service writes was read by Details alone.
+// It now sits beside the working creature, as one plain line.
+@Test("The activity line beside the working creature drops code ticks, keeps one line, and says nothing when there is nothing")
+func activityCaptionIsOnePlainLine() {
+    #expect(NormalBusyFeedbackPolicy.activityCaption("Ran `ls -la` in Yogurt") == "Ran ls -la in Yogurt")
+    #expect(NormalBusyFeedbackPolicy.activityCaption("Searched the web for school.example\nsecond line") == "Searched the web for school.example")
+    #expect(NormalBusyFeedbackPolicy.activityCaption("   ") == nil)
+    #expect(NormalBusyFeedbackPolicy.activityCaption(nil) == nil)
+}
+
+// Attaching a file used to grey out Send with only a caption to explain. The caption now carries the door.
+@Test("A file in the draft keeps Send off but offers to send just the text, and the file stays in the draft")
+@MainActor
+func textOnlySendKeepsTheFileInTheDraft() async throws {
+    let recorder = SubmissionRecorder()
+    var keptFlags: [Bool] = []
+    let conversationID = UUID()
+    let model = ConversationModel(conversationID: conversationID, textRepliesEnabled: true, submit: { id, target, text in
+        await recorder.append(id: id, conversationID: target, text: text)
+    }, beforeSubmission: { _, _, _, keeps in keptFlags.append(keeps); return nil })
+    model.setAttachmentSubmission(allowed: true, hasContent: true)
+    #expect(!model.canSendTextOnly, "nothing typed yet")
+    model.composerText = "Read this and tell me the total"
+    #expect(!model.canSend, "a file in the draft still keeps the plain Send off: Claude reads text only")
+    #expect(model.canSendTextOnly)
+    model.submitTextKeepingAttachments(messageID: UUID())
+    #expect(keptFlags == [true])
+    #expect(model.hasAttachmentContent, "the file stays in the draft")
+    #expect(model.composerText.isEmpty)
+    #expect(model.messages.last?.body == "Read this and tell me the total")
+    // Without a file the plain Send is unchanged and the door is closed.
+    model.setAttachmentSubmission(allowed: true, hasContent: false)
+    model.composerText = "Plain"
+    #expect(model.canSend && !model.canSendTextOnly)
+}
+
+// A refused send used to look like a send that did nothing: Send lit, pressed, silence. It says why now, keeps the
+// text, and the reason goes away on the next edit.
+@Test("A refused send publishes its reason, keeps the text, and clears on the next edit")
+@MainActor
+func aRefusedSendPublishesItsReasonAndKeepsTheText() async throws {
+    let recorder = SubmissionRecorder()
+    var refusal: String? = "Your last note is still being picked up. Send this one right after."
+    let model = ConversationModel(conversationID: UUID(), textRepliesEnabled: true, submit: { id, target, text in
+        await recorder.append(id: id, conversationID: target, text: text)
+    }, beforeSubmission: { _, _, _, _ in refusal })
+    model.composerText = "And another thing"
+    model.sendCurrentText(messageID: UUID())
+    #expect(model.lastSubmissionRefusal == "Your last note is still being picked up. Send this one right after.")
+    #expect(model.composerText == "And another thing", "the text is kept")
+    #expect(model.messages.isEmpty, "no pending row for a message that did not go")
+    model.composerText = "And another thing, revised"
+    #expect(model.lastSubmissionRefusal == nil, "an edit clears the reason")
+    refusal = nil
+    model.sendCurrentText(messageID: UUID())
+    #expect(model.lastSubmissionRefusal == nil && model.messages.count == 1)
+    // The attachment-busy refusal is the model's own.
+    let busy = ConversationModel(conversationID: UUID(), textRepliesEnabled: true, submit: { _, _, _ in })
+    busy.setAttachmentSubmission(allowed: false, hasContent: false)
+    busy.composerText = "Now"
+    busy.sendCurrentText(messageID: UUID())
+    #expect(busy.lastSubmissionRefusal == ConversationModel.attachmentBusyRefusal)
+    #expect(ConversationModel.attachmentBusyRefusal == "The file is still being added. Try again in a moment.")
+    #expect(DurableWorkspaceModel.archiveBusyRefusal == "This bot is being archived, so nothing can be sent right now.")
+    #expect(DurableWorkspaceModel.draftNotSavedRefusal == "This message could not be saved, so it was not sent. Your text is kept.")
 }

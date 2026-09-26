@@ -59,6 +59,50 @@ struct SQLiteClaudeExecutionEvidenceRepositoryTests {
             token: f.token, text: "Actual reply", outcome: .succeeded, diagnosticCode: nil, evidence: result, now: f.at(90)) == done)
     }
 
+    @Test("The newest recorded turn answers for its conversation after reopen; other conversations answer nothing")
+    func latestEvidencePerConversation() async throws {
+        let f = try ControlledTextFixture(); defer { f.remove() }
+        let store = try f.open(); let p = try await f.prepare(store, controlled: false)
+        #expect(try await store.latestTextTurnExecutionEvidence(conversationID: f.chat) == nil)
+        var first = try await store.beginTextTurn(request: p.request, userMessage: p.user,
+            expectedPreviousSequence: 1, ownerID: f.owner, token: f.token, now: f.at(1), leaseDuration: 60)
+        first = try await store.recordTextTurnExecutionEvidence(id: first.run.id, expectedRevision: first.run.revision,
+            token: f.token, evidence: f.initialized, now: f.at(2))
+        #expect(try await store.latestTextTurnExecutionEvidence(conversationID: f.chat)?.modelStatus == .startupObserved)
+        first = try await store.checkpointTextTurn(id: first.run.id, expectedRevision: first.run.revision,
+            token: f.token, text: "", inputEvidence: .submitted, now: f.at(3))
+        first = try await store.checkpointTextTurn(id: first.run.id, expectedRevision: first.run.revision,
+            token: f.token, text: "First reply", inputEvidence: .acknowledged, now: f.at(4))
+        _ = try await store.finishTextTurnWithExecutionEvidence(id: first.run.id, expectedRevision: first.run.revision,
+            token: f.token, text: "First reply", outcome: .succeeded, diagnosticCode: nil, evidence: f.result, now: f.at(5))
+        #expect(try await store.latestTextTurnExecutionEvidence(conversationID: f.chat) == f.result)
+
+        // A second turn in the same conversation whose result differed from its request.
+        let secondRun = RunID(UUID()), secondReply = MessageID(UUID())
+        let secondUser = try Message(id: MessageID(UUID()), conversationID: f.chat, sequence: 4, author: .user, deliveryState: .pending,
+            parts: [MessagePart(id: MessagePartID(UUID()), ordinal: 0, content: .text("And then?"))], createdAt: f.at(10), updatedAt: f.at(10))
+        let secondRequest = try WorkRequest(runID: secondRun, teammateID: f.bot, conversationID: f.chat, initiatingMessageID: secondUser.id,
+            profileRevision: 1, initialInput: .init(messageID: secondUser.id, sequence: 1, text: "And then?"), submittedAt: f.at(10),
+            textTurnIdentity: .init(appOwnerID: f.appOwner, replyMessageID: secondReply, replyPartID: MessagePartID(UUID()),
+                executionRequest: f.execution, controlledMemoryPolicyVersion: nil), readContextReceipt: p.request.readContextReceipt)
+        var second = try await store.beginTextTurn(request: secondRequest, userMessage: secondUser,
+            expectedPreviousSequence: 3, ownerID: f.owner, token: f.token, now: f.at(11), leaseDuration: 60)
+        second = try await store.recordTextTurnExecutionEvidence(id: second.run.id, expectedRevision: second.run.revision,
+            token: f.token, evidence: f.initialized, now: f.at(12))
+        second = try await store.checkpointTextTurn(id: second.run.id, expectedRevision: second.run.revision,
+            token: f.token, text: "", inputEvidence: .submitted, now: f.at(13))
+        second = try await store.checkpointTextTurn(id: second.run.id, expectedRevision: second.run.revision,
+            token: f.token, text: "Second reply", inputEvidence: .acknowledged, now: f.at(14))
+        let differing = ClaudeExecutionEvidence(request: f.execution, initializedModel: "claude-sonnet-5", resultModel: "claude-opus-5")
+        _ = try await store.finishTextTurnWithExecutionEvidence(id: second.run.id, expectedRevision: second.run.revision,
+            token: f.token, text: "Second reply", outcome: .succeeded, diagnosticCode: nil, evidence: differing, now: f.at(15))
+
+        let reopened = try f.open()
+        let latest = try #require(try await reopened.latestTextTurnExecutionEvidence(conversationID: f.chat))
+        #expect(latest == differing && latest.modelStatus == .resultDiffers)
+        #expect(try await reopened.latestTextTurnExecutionEvidence(conversationID: ConversationID(UUID())) == nil)
+    }
+
     @Test("A result cannot be checkpointed, introduce unseen initialization, or survive a failed terminal transaction")
     func evidenceCannotPromoteEarly() async throws {
         let f = try ControlledTextFixture(); defer { f.remove() }

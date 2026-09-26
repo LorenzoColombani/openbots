@@ -29,9 +29,22 @@ public protocol AttachmentRepository: Sendable {
         userMessage: Message, fixtureReply: Message,
         expectedPreviousSequence: Int64, attachmentIDs: [AttachmentID]
     ) async throws
+    /// Links what a bot made to its saved reply as attachment parts, after its
+    /// text (what a bot makes becomes a chip). The user's draft is
+    /// never involved: a new asset is recorded here, and an asset the chat
+    /// already holds (a member's file the lead carries into its answer) is
+    /// linked again as it is. Only a teammate reply in the same active
+    /// direct or team chat qualifies, and a reply links an asset once.
+    func attachProducedAssets(_ assets: [AttachmentAsset], toReply messageID: MessageID,
+                              conversationID: ConversationID) async throws
 }
 
 public extension AttachmentRepository {
+    func attachProducedAssets(_ assets: [AttachmentAsset], toReply messageID: MessageID,
+                              conversationID: ConversationID) async throws {
+        throw AttachmentRepositoryError.invalidExchange
+    }
+
     func commitLocalMessage(
         userMessage: Message, expectedPreviousSequence: Int64, attachmentIDs: [AttachmentID]
     ) async throws {

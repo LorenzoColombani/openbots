@@ -1,5 +1,7 @@
+import AppKit
 import Combine
 import Foundation
+import ImageIO
 import OpenBotsDomain
 import OpenBotsServices
 
@@ -113,44 +115,26 @@ public struct CharacterAppearanceSnapshot: Equatable, Sendable {
     /// Stable preview data that exercises the same complete appearance contract
     /// as persisted teammates without opening storage.
     public static func fixture(seed deterministicSeed: UInt64) -> Self {
-        let silhouettes = ["soft-arch", "round-ears", "tall-tuft"]
-        let palettes = ["violet-coral", "teal-gold", "blue-lilac", "plum-mint"]
-        let eyes = ["round-alert", "soft-focused", "wide-curious"]
-        let cues = ["single brow notch", "paired cheek marks", "forehead spark"]
-
-        func value(_ values: [String]) -> String {
-            values[Int(deterministicSeed % UInt64(values.count))]
-        }
-
-        let silhouette = value(silhouettes)
-        let palette = value(palettes)
-        let eyeDialect = value(eyes)
-        let cue = value(cues)
-        return Self(
-            mode: .creature,
-            grammarVersion: 1,
-            deterministicSeed: deterministicSeed,
-            silhouette: silhouette,
-            paletteToken: palette,
-            eyeDialect: eyeDialect,
-            nonColorIdentityCue: cue,
-            accessibleIdentityDescription: "Creature with \(silhouette), \(eyeDialect) eyes, and \(cue)",
-            revision: 1
-        )
+        Self(CreatureAllocation.generated(seed: deterministicSeed))
     }
 
     /// Only unsaved creation drafts allocate a model; saved appearances never
     /// call this path. The original generated identity remains the fallback.
+    /// The grammar is the domain's, so a bot another bot hired is spawned by
+    /// the same function as one made in the New Bot sheet.
     public static func newlyAllocated(seed: UInt64) -> Self {
-        let original = fixture(seed: seed)
-        return Self(
-            mode: original.mode, grammarVersion: original.grammarVersion,
-            deterministicSeed: original.deterministicSeed, silhouette: original.silhouette,
-            paletteToken: original.paletteToken, eyeDialect: original.eyeDialect,
-            nonColorIdentityCue: original.nonColorIdentityCue,
-            accessibleIdentityDescription: original.accessibleIdentityDescription,
-            builtInAvatarID: BuiltInAvatar.allocatedForNewIdentity(seed: seed)?.rawValue,
-            revision: original.revision
+        Self(CreatureAllocation.newIdentity(seed: seed))
+    }
+
+    init(_ creature: CreatureAllocation) {
+        self.init(
+            mode: .creature, grammarVersion: CreatureAllocation.grammarVersion,
+            deterministicSeed: creature.seed, silhouette: creature.silhouette,
+            paletteToken: creature.paletteToken, eyeDialect: creature.eyeDialect,
+            nonColorIdentityCue: creature.nonColorIdentityCue,
+            accessibleIdentityDescription: creature.accessibleIdentityDescription,
+            builtInAvatarID: creature.builtInAvatarID,
+            revision: 1
         )
     }
 }
@@ -161,18 +145,25 @@ public struct TeammateIdentitySnapshot: Identifiable, Equatable, Sendable {
     public let id: UUID
     public let name: String
     public let role: String
+    public let title: String?
     public let appearance: CharacterAppearanceSnapshot
 
     public init(
         id: UUID,
         name: String,
         role: String,
-        appearance: CharacterAppearanceSnapshot
+        appearance: CharacterAppearanceSnapshot,
+        title: String?
     ) {
         self.id = id
         self.name = name
         self.role = role
+        self.title = title
         self.appearance = appearance
+    }
+
+    public init(id: UUID, name: String, role: String, appearance: CharacterAppearanceSnapshot) {
+        self.init(id: id, name: name, role: role, appearance: appearance, title: nil)
     }
 
     public init(_ teammate: Teammate) {
@@ -180,7 +171,8 @@ public struct TeammateIdentitySnapshot: Identifiable, Equatable, Sendable {
             id: teammate.id.rawValue,
             name: teammate.profile.displayName,
             role: teammate.profile.role,
-            appearance: CharacterAppearanceSnapshot(teammate.appearance)
+            appearance: CharacterAppearanceSnapshot(teammate.appearance),
+            title: teammate.profile.title
         )
     }
 }
@@ -190,6 +182,7 @@ public struct TeammateRowSnapshot: Identifiable, Equatable, Sendable {
     public let activity: TeammateActivityState
     public let unreadCount: Int
     public let lastActivityAt: Date?
+    public let isPinned: Bool
 
     public var id: UUID { identity.id }
     public var name: String { identity.name }
@@ -197,7 +190,7 @@ public struct TeammateRowSnapshot: Identifiable, Equatable, Sendable {
     public var identitySeed: UInt64 { identity.appearance.deterministicSeed }
 
     func accessibilitySummary(locale: Locale, timeZone: TimeZone) -> String {
-        let identityAndActivity = "\(name), \(role), \(activity.visibleLabel)"
+        let identityAndActivity = "\(name), \(isPinned ? "Pinned, " : "")\(role), \(activity.visibleLabel)"
         guard let lastActivityAt else { return identityAndActivity }
         return "\(identityAndActivity). Last activity \(WorkspaceAccessibilityMetadata.timestamp(lastActivityAt, locale: locale, timeZone: timeZone))"
     }
@@ -206,12 +199,14 @@ public struct TeammateRowSnapshot: Identifiable, Equatable, Sendable {
         identity: TeammateIdentitySnapshot,
         activity: TeammateActivityState,
         unreadCount: Int = 0,
-        lastActivityAt: Date? = nil
+        lastActivityAt: Date? = nil,
+        isPinned: Bool = false
     ) {
         self.identity = identity
         self.activity = activity
         self.unreadCount = unreadCount
         self.lastActivityAt = lastActivityAt
+        self.isPinned = isPinned
     }
 
     /// Compatibility seam for existing callers while they adopt the complete
@@ -254,6 +249,43 @@ public final class TeammateRowModel: ObservableObject, Identifiable {
     public func update(_ snapshot: TeammateRowSnapshot) {
         precondition(snapshot.id == id, "A row model cannot change teammate identity")
         self.snapshot = snapshot
+    }
+}
+
+public struct TeamRowSnapshot: Identifiable, Equatable, Sendable {
+    /// One member as the sidebar knows it. Display names are not unique — the
+    /// teammates table has no constraint on them — so anything that has to tell
+    /// two members apart matches on the id, never on what they are called.
+    public struct Member: Identifiable, Equatable, Sendable {
+        public let id: UUID
+        public let name: String
+        public init(id: UUID, name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    public let id: UUID
+    /// The team's chat id — avatar busy-state for this row is keyed here.
+    public let conversationID: UUID
+    public let name: String
+    public let leadName: String
+    public let members: [Member]
+    public let lastActivityAt: Date?
+
+    public var memberNames: [String] { members.map(\.name) }
+
+    public var memberSummary: String {
+        "Lead: \(leadName) · \(members.count) member\(members.count == 1 ? "" : "s")"
+    }
+
+    public init(id: UUID, conversationID: UUID, name: String, leadName: String, members: [Member], lastActivityAt: Date?) {
+        self.id = id
+        self.conversationID = conversationID
+        self.name = name
+        self.leadName = leadName
+        self.members = members
+        self.lastActivityAt = lastActivityAt
     }
 }
 
@@ -642,6 +674,7 @@ public enum ChatMessagePartContentSnapshot: Equatable, Sendable {
     case connectorSetup(ChatConnectorSetupCardSnapshot)
     case secret(ChatSecretCardSnapshot)
     case handoff(ChatHandoffTrailSnapshot)
+    case handoffCard(ChatHandoffCardSnapshot)
 
     public var accessibilityDescription: String {
         switch self {
@@ -663,6 +696,8 @@ public enum ChatMessagePartContentSnapshot: Equatable, Sendable {
             secret.accessibilityDescription
         case .handoff(let handoff):
             handoff.accessibilityDescription
+        case .handoffCard(let card):
+            card.trail.accessibilityDescription
         }
     }
 }
@@ -740,20 +775,15 @@ public struct ChatMessageSnapshot: Identifiable, Equatable, Sendable {
     /// knew only the message body. Part IDs are row-local streaming identities;
     /// the ordered ordinal/content payload is the user-visible value.
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.id == rhs.id
-            && lhs.author == rhs.author
-            && lhs.body == rhs.body
-            && lhs.delivery == rhs.delivery
-            && lhs.streamState == rhs.streamState
-            && lhs.timestamp == rhs.timestamp
-            && lhs.deliveryNotice == rhs.deliveryNotice
-            && lhs.parts.map { ($0.ordinal, $0.content) }
-                .elementsEqual(
-                    rhs.parts.map { ($0.ordinal, $0.content) },
-                    by: { left, right in
-                        left.0 == right.0 && left.1 == right.1
-                    }
-                )
+        // Compared in steps: one chained expression is slow to type-check.
+        guard lhs.id == rhs.id, lhs.author == rhs.author, lhs.body == rhs.body,
+              lhs.delivery == rhs.delivery, lhs.streamState == rhs.streamState,
+              lhs.timestamp == rhs.timestamp, lhs.deliveryNotice == rhs.deliveryNotice else {
+            return false
+        }
+        return lhs.parts.elementsEqual(rhs.parts) { left, right in
+            left.ordinal == right.ordinal && left.content == right.content
+        }
     }
 
     public init(
@@ -867,7 +897,7 @@ public struct ChatMessageSnapshot: Identifiable, Equatable, Sendable {
         parts.compactMap { part -> String? in
             switch part.content {
             case .text(let text), .status(let text): text
-            case .attachment, .artifact, .question, .connectorSetup, .secret, .handoff: nil
+            case .attachment, .artifact, .question, .connectorSetup, .secret, .handoff, .handoffCard: nil
             }
         }.joined(separator: "\n\n")
     }
@@ -892,7 +922,7 @@ public final class ChatMessageModel: ObservableObject, Identifiable {
 
     /// Replaces exactly one stable part in this row while preserving both the
     /// message model and the part's stream identity/ordinal. This is the only
-    /// mutation S2B cards need when an immutable service snapshot changes.
+    /// mutation cards need when an immutable service snapshot changes.
     @discardableResult
     public func replacePart(
         id partID: UUID,
@@ -1012,9 +1042,29 @@ public struct ConversationMessagePageSnapshot: Equatable, Sendable {
     }
 }
 
+/// Which bot is working inside a conversation right now.
+public struct ConversationWorkingAvatar: Equatable, Sendable {
+    public let teammateID: UUID
+    public let activity: TeammateActivityState
+    public init(teammateID: UUID, activity: TeammateActivityState) {
+        self.teammateID = teammateID
+        self.activity = activity
+    }
+}
+
 @MainActor
 public final class SidebarModel: ObservableObject {
     @Published public private(set) var rowModels: [TeammateRowModel]
+    @Published public private(set) var teamRows: [TeamRowSnapshot] = []
+    /// Hidden bots that sit in a team. Hide takes a bot's own row out of the
+    /// list above and nothing out of its teams: a hidden bot keeps its seat and
+    /// shows in its teams. Kept apart from `rowModels`, so the list, its order, its drag and
+    /// its selection never see them.
+    @Published public private(set) var hiddenMemberRowModels: [TeammateRowModel] = []
+    /// Per-conversation working face. Sidebar DM rows still use `TeammateRowSnapshot.activity`
+    /// (DM only); team and in-thread surfaces read this map so a private turn
+    /// never animates every team that bot belongs to.
+    @Published public private(set) var workingAvatarByConversation: [UUID: ConversationWorkingAvatar] = [:]
     @Published public var selection: UUID? {
         didSet {
             if selection != oldValue { cancelCreationReveal() }
@@ -1032,6 +1082,15 @@ public final class SidebarModel: ObservableObject {
 
     public var rows: [TeammateRowSnapshot] {
         rowModels.map(\.snapshot)
+    }
+
+    /// Every bot a team surface may draw: the listed bots, then the hidden ones
+    /// that sit in a team. A bot listed again (Unhide) is read from the list
+    /// alone, before its team snapshot has caught up, so no id is ever here twice.
+    public var teamMemberRowModels: [TeammateRowModel] {
+        guard !hiddenMemberRowModels.isEmpty else { return rowModels }
+        let listed = Set(rowModels.map(\.id))
+        return rowModels + hiddenMemberRowModels.filter { !listed.contains($0.id) }
     }
 
     public init(rows: [TeammateRowSnapshot] = [], selection: UUID? = nil) {
@@ -1052,12 +1111,31 @@ public final class SidebarModel: ObservableObject {
             cancelSidebarDrag()
             rowModels = replacement
         }
-        if let selection, !rows.contains(where: { $0.id == selection }) {
+        if let selection, !rows.contains(where: { $0.id == selection }),
+           !teamRows.contains(where: { $0.id == selection }) {
             self.selection = nil
         }
     }
 
+    /// Keeps each hidden member's live model across refreshes, as `replace`
+    /// does for the list, so a face already on screen is not rebuilt.
+    public func replaceHiddenMembers(_ rows: [TeammateRowSnapshot]) {
+        let existing = Dictionary(uniqueKeysWithValues: hiddenMemberRowModels.map { ($0.id, $0) })
+        let replacement = rows.map { snapshot in
+            guard let row = existing[snapshot.id] else { return TeammateRowModel(snapshot: snapshot) }
+            row.update(snapshot)
+            return row
+        }
+        if replacement.map(\.id) != hiddenMemberRowModels.map(\.id) { hiddenMemberRowModels = replacement }
+    }
+
     public func update(_ row: TeammateRowSnapshot) {
+        // A hidden member is updated in place: appending it below would list it.
+        if !rowModels.contains(where: { $0.id == row.id }),
+           let hidden = hiddenMemberRowModels.first(where: { $0.id == row.id }) {
+            hidden.update(row)
+            return
+        }
         guard let model = rowModels.first(where: { $0.id == row.id }) else {
             cancelSidebarDrag()
             rowModels.append(TeammateRowModel(snapshot: row))
@@ -1066,10 +1144,39 @@ public final class SidebarModel: ObservableObject {
         model.update(row)
     }
 
+    /// True only while the sidebar holds nothing at all. The invitation to
+    /// start a first bot is drawn over the whole list, so a team the user can
+    /// still click must never sit underneath it.
+    public var isEmpty: Bool { rowModels.isEmpty && teamRows.isEmpty }
+
+    public func replaceTeams(_ rows: [TeamRowSnapshot]) {
+        teamRows = rows
+        if let selection, !rows.contains(where: { $0.id == selection }),
+           !rowModels.contains(where: { $0.id == selection }) {
+            self.selection = nil
+        }
+    }
+
+    public func updateTeam(_ row: TeamRowSnapshot) {
+        guard let index = teamRows.firstIndex(where: { $0.id == row.id }) else { return }
+        teamRows[index] = row
+    }
+
+    public func setWorkingAvatarByConversation(_ map: [UUID: ConversationWorkingAvatar]) {
+        if workingAvatarByConversation != map { workingAvatarByConversation = map }
+    }
+
+    public func workingActivity(teammateID: UUID, conversationID: UUID) -> TeammateActivityState {
+        guard let entry = workingAvatarByConversation[conversationID],
+              entry.teammateID == teammateID else { return .idle }
+        return entry.activity
+    }
+
     /// Only explicit creation/hiring asks the List to reveal a new selected row.
     /// Roster refreshes, recency, restores and reorders never request scrolling.
     func requestCreationReveal(_ id: UUID) {
-        guard selection == id, rowModels.first?.id == id else { return }
+        // A new bot leads the unpinned bots, below any pinned ones.
+        guard selection == id, rowModels.first(where: { !$0.snapshot.isPinned })?.id == id else { return }
         creationRevealID = id
     }
 
@@ -1136,12 +1243,34 @@ public final class SidebarModel: ObservableObject {
     }
 }
 
+/// The composer field's text, alone in its own observable object.
+///
+/// `ConversationModel` publishes on every transcript row, availability change
+/// and job update, and the root view observes it, so anything published there
+/// re-evaluates the entire window. Keeping the composer's text out of that
+/// object is what lets typing cost only the composer.
+@MainActor
+public final class ComposerTextModel: ObservableObject {
+    @Published public var text: String
+
+    public init(text: String = "") {
+        self.text = text
+    }
+}
+
 @MainActor
 public final class ConversationModel: ObservableObject {
     public private(set) var isShuttingDown = false
     private var didFinishShutdown = false
     private var acceptedSubmissions: [UUID: Task<Void, Never>] = [:]
+    /// The chat each accepted message is saving into, by message id.
+    private var submissionConversations: [UUID: UUID] = [:]
     public var hasPendingSubmissions: Bool { !acceptedSubmissions.isEmpty }
+    /// Whether a message is still saving into this one chat, wherever the
+    /// window is now.
+    public func hasPendingSubmissions(in conversationID: UUID) -> Bool {
+        submissionConversations.values.contains(conversationID)
+    }
 
     public func beginShutdown() {
         guard !isShuttingDown else { return }
@@ -1163,10 +1292,17 @@ public final class ConversationModel: ObservableObject {
         didFinishShutdown = true
         for task in acceptedSubmissions.values { task.cancel() }
         acceptedSubmissions.removeAll()
+        submissionConversations.removeAll()
         historyRequestGeneration += 1
     }
     public typealias Submission = @Sendable (UUID, UUID, String) async -> Void
-    public typealias BeforeSubmission = @MainActor (_ messageID: UUID, _ conversationID: UUID, _ rawText: String) -> Bool
+    /// What the workspace does before a message leaves the composer. It
+    /// returns nil when the message may go, or the sentence the person reads
+    /// when it may not (a refused send used to return with no word).
+    /// `keepsAttachments` is the text-only send: the draft's files stay where they are and nothing is frozen into the
+    /// message.
+    public typealias BeforeSubmission = @MainActor (_ messageID: UUID, _ conversationID: UUID, _ rawText: String,
+                                                   _ keepsAttachments: Bool) -> String?
     public typealias LatestPageLoader = @MainActor () async -> Void
     public typealias EarlierPageLoader = @Sendable (
         _ conversationID: UUID,
@@ -1179,15 +1315,65 @@ public final class ConversationModel: ObservableObject {
     @Published public private(set) var conversationID: UUID?
     @Published public private(set) var title: String
     @Published public private(set) var messageRows: [ChatMessageModel]
-    @Published public var composerText: String
+    /// The composer's text, held in its own observable object.
+    ///
+    /// Typing publishes `composer` and nothing else, so a keystroke invalidates
+    /// only the composer subtree instead of the whole window — the sidebar, the
+    /// header and every visible transcript row used to re-measure their native
+    /// labels once per character. `composerText` stays a plain passthrough:
+    /// every existing reader and writer (draft persistence, submission, the
+    /// archive and quit guards) behaves exactly as before.
+    public let composer: ComposerTextModel
+    public var composerText: String {
+        get { composer.text }
+        set {
+            // Any edit clears the reason the last send was refused.
+            if newValue != composer.text, lastSubmissionRefusal != nil { lastSubmissionRefusal = nil }
+            composer.text = newValue
+        }
+    }
     @Published public private(set) var inputAvailability: ConversationInputAvailability
     @Published public private(set) var draftSubmissionAllowed = true
     @Published public private(set) var attachmentSubmissionAllowed = true
+    /// Whether this conversation can take a local attachment at all. Kept
+    /// separate from `attachmentSubmissionAllowed`, which gates Send while a
+    /// draft's authority is unresolved: a conversation that cannot attach must
+    /// still be able to send text, so this never reaches `canSend`.
+    @Published public private(set) var attachmentsAvailable = true
     @Published public private(set) var hasAttachmentContent = false
     @Published public private(set) var textReplyPhase: ClaudeTextReplyPhase?
+    /// A work turn's card waiting for the user, shown above the composer.
+    @Published public private(set) var textReplyApproval: ClaudeTextApproval?
+    /// The bot's question waiting for the user, shown above the composer.
+    @Published public private(set) var textReplyQuestion: ClaudeTextQuestion?
+    /// What the bot is doing on the Mac right now, one short line.
+    @Published public private(set) var textReplyActivity: String?
+    /// Live watch list for the open turn: every activity line, oldest first.
+    @Published public private(set) var textReplyActivityLines: [String] = []
+    /// This chat's background workers, running or waiting for their bot to
+    /// answer. They outlive the turn that started them.
+    @Published public private(set) var backgroundWorkerLines: [String] = []
+    /// A worker runs in this chat, or its result waits: Stop beside the lines
+    /// ends them.
+    @Published public private(set) var canStopBackgroundWorkers = false
+    /// What Control this Mac last saw in the open turn, decoded once (the
+    /// screen preview). Memory only; nil when nothing was seen or it did not decode.
+    @Published public private(set) var textReplyScreenPicture: NSImage?
+    private var textReplyScreenPictureData: Data?
+    /// Why the last Send did nothing, in one sentence; cleared by the next
+    /// attempt and by any edit. Nil when the last send went.
+    @Published public private(set) var lastSubmissionRefusal: String?
+    @Published public private(set) var agenticJobEnabled = false
+    @Published public private(set) var agenticJobPresentation: AgenticJobPresentation?
     @Published public private(set) var textReplyContextDisclosure: ClaudeContextDisclosure?
     public let textRepliesEnabled: Bool
     private let stopTextReply: (@MainActor () -> Void)?
+    private let stopWorkers: (@MainActor () -> Void)?
+    private let agenticJobDecision: (@MainActor (AgenticJobApproval, Bool) -> Void)?
+    private let textReplyApprovalDecision: (@MainActor (ClaudeTextApproval, Bool) -> Void)?
+    private let textReplyApprovalTurnAllowance: (@MainActor (ClaudeTextApproval) -> Void)?
+    private let textReplyMissingFileReplacement: (@MainActor (ClaudeTextApproval, URL) -> Void)?
+    private let textReplyQuestionAnswer: (@MainActor (ClaudeTextQuestion, ClaudeTextQuestionAnswer?) -> Void)?
     private let saveLocally: Submission?
     @Published public private(set) var hasEarlierMessages: Bool
     @Published public private(set) var historyLoadState: ConversationHistoryLoadState
@@ -1217,10 +1403,23 @@ public final class ConversationModel: ObservableObject {
         messageRows.map(\.snapshot)
     }
 
+    /// Claude reads text only, so a file in the draft keeps Send off; this is
+    /// the door the caption offers instead: send the text, keep the file here.
+    public var canSendTextOnly: Bool {
+        guard !isShuttingDown, inputAvailability == .ready, submit != nil, draftSubmissionAllowed,
+              textRepliesEnabled, hasAttachmentContent, agenticJobPresentation?.phase.isActive != true else { return false }
+        return !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     public var canSend: Bool {
         guard !isShuttingDown, inputAvailability == .ready, submit != nil, draftSubmissionAllowed,
               attachmentSubmissionAllowed else { return false }
-        if textRepliesEnabled && (hasAttachmentContent || textReplyPhase?.isBusy == true) { return false }
+        // Send stays live while a bot works: text typed during work
+        // stops the running turn and takes over as the correction.
+        if textRepliesEnabled && hasAttachmentContent { return false }
+        if agenticJobEnabled && hasAttachmentContent { return false }
+        if let job = agenticJobPresentation, job.phase.isActive,
+           job.isSubmitting || !job.phase.acceptsCorrections || hasAttachmentContent { return false }
         return hasAttachmentContent || !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -1228,14 +1427,91 @@ public final class ConversationModel: ObservableObject {
         !isShuttingDown && inputAvailability == .ready && saveLocally != nil
             && draftSubmissionAllowed && attachmentSubmissionAllowed
             && textReplyPhase?.isBusy != true
+            && agenticJobPresentation?.phase.isActive != true
             && (hasAttachmentContent || !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     public func setTextReplyPhase(_ phase: ClaudeTextReplyPhase?) { textReplyPhase = phase }
+    public func setTextReplyApproval(_ approval: ClaudeTextApproval?) {
+        if textReplyApproval != approval { textReplyApproval = approval }
+    }
+    public func setTextReplyActivity(_ activity: String?) {
+        if textReplyActivity != activity { textReplyActivity = activity }
+    }
+    public func setTextReplyActivityLines(_ lines: [String]) {
+        if textReplyActivityLines != lines { textReplyActivityLines = lines }
+    }
+    public func setBackgroundWorkerLines(_ lines: [String], canStop: Bool = false) {
+        if backgroundWorkerLines != lines { backgroundWorkerLines = lines }
+        let stoppable = canStop && stopWorkers != nil
+        if canStopBackgroundWorkers != stoppable { canStopBackgroundWorkers = stoppable }
+    }
+    /// Decoded away from the main thread: a full-resolution screenshot decoded
+    /// here at every new look could stall the window. A decode
+    /// that finishes after a newer picture, or after the turn ended, is dropped.
+    public func setTextReplyScreenPicture(_ data: Data?) {
+        guard textReplyScreenPictureData != data else { return }
+        textReplyScreenPictureData = data
+        guard let data else { textReplyScreenPicture = nil; return }
+        Task { [weak self] in
+            let decoded = await Task.detached(priority: .userInitiated) { Self.decodedScreenPicture(data) }.value
+            guard let self, self.textReplyScreenPictureData == data else { return }
+            self.textReplyScreenPicture = decoded.map { NSImage(cgImage: $0, size: NSSize(width: $0.width, height: $0.height)) }
+        }
+    }
+
+    nonisolated static func decodedScreenPicture(_ data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
+    }
+    public func decideTextReplyApproval(_ approval: ClaudeTextApproval, allow: Bool) {
+        guard !isShuttingDown, textReplyApproval == approval else { return }
+        textReplyApprovalDecision?(approval, allow)
+    }
+    /// Approve this card and let the same tool work in the same folder for the
+    /// rest of this turn. Gone when the turn ends; never a setting.
+    public func allowTextReplyApprovalForTurn(_ approval: ClaudeTextApproval) {
+        guard !isShuttingDown, textReplyApproval == approval, approval.turnScopeFolder != nil else { return }
+        textReplyApprovalTurnAllowance?(approval)
+    }
+    /// Choose the File… on a missing-file card: the
+    /// open panel, then the file the user picked goes in the missing one's place.
+    /// Cancelling the panel leaves the card up.
+    public func chooseMissingFileForTextReplyApproval(_ approval: ClaudeTextApproval) {
+        guard !isShuttingDown, textReplyApproval == approval, approval.asksForMissingFile else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use This File"
+        panel.message = "Choose the file to send in place of the missing one."
+        guard panel.runModal() == .OK, let url = panel.url,
+              !isShuttingDown, textReplyApproval == approval else { return }
+        textReplyMissingFileReplacement?(approval, url)
+    }
+    public func setTextReplyQuestion(_ question: ClaudeTextQuestion?) {
+        if textReplyQuestion != question { textReplyQuestion = question }
+    }
+    /// The user's answer to the bot's question; nil dismisses it.
+    public func answerTextReplyQuestion(_ question: ClaudeTextQuestion, answer: ClaudeTextQuestionAnswer?) {
+        guard !isShuttingDown, textReplyQuestion == question else { return }
+        textReplyQuestionAnswer?(question, answer)
+    }
+    public func setAgenticJob(enabled: Bool, presentation: AgenticJobPresentation?) {
+        LayoutStormCounters.hit("conversation.setAgenticJob")
+        agenticJobEnabled = enabled; agenticJobPresentation = presentation
+    }
+    public func decideAgenticJob(_ approval: AgenticJobApproval, allow: Bool) {
+        guard !isShuttingDown, let job = agenticJobPresentation,
+              job.phase == .waitingForApproval, job.approval == approval,
+              !job.isDeciding, !job.isSubmitting else { return }
+        agenticJobDecision?(approval, allow)
+    }
     public func setTextReplyContextDisclosure(_ disclosure: ClaudeContextDisclosure?) {
         textReplyContextDisclosure = disclosure
     }
     public func stopCurrentTextReply() { stopTextReply?() }
+    public func stopBackgroundWorkers() { stopWorkers?() }
     public func saveCurrentTextLocally() { submitCurrentText(locally: true) }
 
     public init(
@@ -1248,6 +1524,12 @@ public final class ConversationModel: ObservableObject {
         isLocalOnly: Bool = false,
         textRepliesEnabled: Bool = false,
         stopTextReply: (@MainActor () -> Void)? = nil,
+        stopWorkers: (@MainActor () -> Void)? = nil,
+        agenticJobDecision: (@MainActor (AgenticJobApproval, Bool) -> Void)? = nil,
+        textReplyApprovalDecision: (@MainActor (ClaudeTextApproval, Bool) -> Void)? = nil,
+        textReplyApprovalTurnAllowance: (@MainActor (ClaudeTextApproval) -> Void)? = nil,
+        textReplyMissingFileReplacement: (@MainActor (ClaudeTextApproval, URL) -> Void)? = nil,
+        textReplyQuestionAnswer: (@MainActor (ClaudeTextQuestion, ClaudeTextQuestionAnswer?) -> Void)? = nil,
         saveLocally: Submission? = nil,
         inputAvailability: ConversationInputAvailability? = nil,
         submit: Submission? = nil,
@@ -1260,11 +1542,17 @@ public final class ConversationModel: ObservableObject {
         self.conversationID = conversationID
         self.title = title
         self.messageRows = messages.map(ChatMessageModel.init(snapshot:))
-        self.composerText = composerText
+        self.composer = ComposerTextModel(text: composerText)
         self.readyDeliveryDescription = readyDeliveryDescription
         self.isLocalOnly = isLocalOnly
         self.textRepliesEnabled = textRepliesEnabled
         self.stopTextReply = stopTextReply
+        self.stopWorkers = stopWorkers
+        self.agenticJobDecision = agenticJobDecision
+        self.textReplyApprovalDecision = textReplyApprovalDecision
+        self.textReplyApprovalTurnAllowance = textReplyApprovalTurnAllowance
+        self.textReplyMissingFileReplacement = textReplyMissingFileReplacement
+        self.textReplyQuestionAnswer = textReplyQuestionAnswer
         self.saveLocally = saveLocally
         self.submit = submit
         self.beforeSubmission = beforeSubmission
@@ -1309,7 +1597,8 @@ public final class ConversationModel: ObservableObject {
     public func setSearchNavigationNotice(_ text: String) { searchNavigationNotice = text }
 
     public func focusLatestMessage() {
-        guard let conversationID, let lastID = messageRows.last?.id, !isViewingSearchResult else { return }
+        guard let conversationID, !isViewingSearchResult,
+              let lastID = messageRows.last(where: { !Self.isSynthetic($0.snapshot) })?.id else { return }
         latestFocus = TranscriptSearchFocus(conversationID: conversationID, messageID: lastID)
     }
 
@@ -1348,26 +1637,55 @@ public final class ConversationModel: ObservableObject {
         if hasAttachmentContent != hasContent { hasAttachmentContent = hasContent }
     }
 
+    /// Withdraws the attach affordance for a conversation that cannot hold
+    /// attachments. Sending text is unaffected by design.
+    public func setAttachmentsAvailable(_ available: Bool) {
+        guard attachmentsAvailable != available else { return }
+        attachmentsAvailable = available
+    }
+
+    public static let attachmentsUnavailableInTeamReason =
+        "Attachments are available in a bot chat, not in a team conversation."
+
     /// The pending bubble is inserted synchronously on the main actor. Durable
     /// persistence and runtime delivery occur through the injected async seam.
     public func sendCurrentText(now: Date = Date(), messageID: UUID = UUID()) {
         submitCurrentText(now: now, messageID: messageID, locally: false)
     }
 
-    private func submitCurrentText(now: Date = Date(), messageID: UUID = UUID(), locally: Bool) {
+    /// Sends the text and leaves the draft's files exactly where they are.
+    /// Nothing from the draft is frozen into the message; the chips stay.
+    public func submitTextKeepingAttachments(now: Date = Date(), messageID: UUID = UUID()) {
+        guard canSendTextOnly else { return }
+        submitCurrentText(now: now, messageID: messageID, locally: false, keepsAttachments: true)
+    }
+
+    public static let attachmentBusyRefusal = "The file is still being added. Try again in a moment."
+
+    private func submitCurrentText(now: Date = Date(), messageID: UUID = UUID(), locally: Bool, keepsAttachments: Bool = false) {
         guard !isShuttingDown else { return }
-        guard locally ? canSaveLocally : canSend else { return }
+        lastSubmissionRefusal = nil
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A file still being added holds the send; Return used to do nothing
+        // at all here, so the reason is said before the gates below.
+        if !keepsAttachments, !attachmentSubmissionAllowed, inputAvailability == .ready,
+           !text.isEmpty || hasAttachmentContent {
+            lastSubmissionRefusal = Self.attachmentBusyRefusal
+            return
+        }
+        guard locally ? canSaveLocally : (keepsAttachments ? canSendTextOnly : canSend) else { return }
         guard
             !text.isEmpty || hasAttachmentContent,
             inputAvailability == .ready,
             draftSubmissionAllowed,
-            attachmentSubmissionAllowed,
             let conversationID,
             let submit = locally ? saveLocally : submit
         else { return }
         let prepare = locally ? beforeLocalSubmission : beforeSubmission
-        guard prepare?(messageID, conversationID, composerText) ?? true else { return }
+        if let refusal = prepare?(messageID, conversationID, composerText, keepsAttachments) {
+            lastSubmissionRefusal = refusal
+            return
+        }
         if isViewingSearchResult {
             // An own-send leaves historical browsing immediately. Until the
             // newest page arrives, show only the current pending message with
@@ -1391,10 +1709,12 @@ public final class ConversationModel: ObservableObject {
         messageRows.append(ChatMessageModel(snapshot: pending))
         // Capture the target synchronously with the pending row. A fast sidebar
         // switch cannot redirect this message to a different conversation.
+        submissionConversations[messageID] = conversationID
         acceptedSubmissions[messageID] = Task { [weak self] in
             guard !Task.isCancelled else { return }
             await submit(messageID, conversationID, text)
             self?.acceptedSubmissions[messageID] = nil
+            self?.submissionConversations[messageID] = nil
         }
     }
 
@@ -1405,6 +1725,39 @@ public final class ConversationModel: ObservableObject {
             return
         }
         row.update(message)
+    }
+
+    /// Places a synthetic row (a card) right after its anchor, updating it in
+    /// place when it is already shown. An anchor that is not shown — its
+    /// message is older than the loaded page — puts the row at the top rather
+    /// than the bottom, so cards from months ago do not pile up under today's
+    /// messages. It is appended only when it is newer than everything shown.
+    public func insertMessage(_ message: ChatMessageSnapshot, after anchorID: UUID?) {
+        guard !didFinishShutdown else { return }
+        if let row = messageRows.first(where: { $0.id == message.id }) { row.update(message); return }
+        let row = ChatMessageModel(snapshot: message)
+        if let anchorID, let index = messageRows.firstIndex(where: { $0.id == anchorID }) {
+            messageRows.insert(row, at: index + 1)
+        } else if let earliest = messageRows.first(where: { !Self.isSynthetic($0.snapshot) }),
+                  message.timestamp < earliest.snapshot.timestamp {
+            messageRows.insert(row, at: 0)
+        } else {
+            messageRows.append(row)
+        }
+    }
+
+    /// Drops a synthetic row whose record no longer exists. Stored messages are
+    /// never removed this way; they leave only by reloading the conversation.
+    public func removeMessage(id: UUID) {
+        guard !didFinishShutdown else { return }
+        messageRows.removeAll { $0.id == id }
+    }
+
+    /// A synthetic row carries no stored sequence, so it can anchor neither
+    /// paging nor the latest-message focus: both walk past it to a real message.
+    private static func isSynthetic(_ snapshot: ChatMessageSnapshot) -> Bool {
+        guard snapshot.parts.count == 1, case .handoffCard = snapshot.parts[0].content else { return false }
+        return true
     }
 
     /// Prepends one older page without rebuilding any already-visible row.
@@ -1443,7 +1796,7 @@ public final class ConversationModel: ObservableObject {
 
         historyRequestGeneration += 1
         let generation = historyRequestGeneration
-        let earliestID = messageRows.first?.id
+        let earliestID = messageRows.first(where: { !Self.isSynthetic($0.snapshot) })?.id
         historyLoadState = .loading
 
         Task { [weak self] in

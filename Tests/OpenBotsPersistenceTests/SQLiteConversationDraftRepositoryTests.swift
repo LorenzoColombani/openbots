@@ -50,7 +50,11 @@ struct SQLiteConversationDraftRepositoryTests {
         #expect(try await reopened.loadDraft(conversationID: fixture.directID) == cleared)
     }
 
-    @Test("Direct, project and team conversations each support their own draft")
+    /// Composer drafts are not direct-only: the repository validates the
+    /// conversation's lifecycle and nothing about its kind, so a team
+    /// conversation saves, loads and clears exactly like a bot's chat. The
+    /// workspace relies on this to admit a send in a team conversation.
+    @Test("Direct, project and team conversations each save, reload and clear their own draft")
     func allConversationKinds() async throws {
         let fixture = try DraftStoreFixture()
         defer { fixture.remove() }
@@ -59,6 +63,13 @@ struct SQLiteConversationDraftRepositoryTests {
         for conversationID in [fixture.directID, fixture.projectChatID, fixture.teamChatID] {
             let saved = try await store.saveDraft(conversationID: conversationID, text: conversationID.persistedValue, expectedRevision: 0, updatedAt: fixture.date)
             #expect(try await store.loadDraft(conversationID: conversationID) == saved)
+            let cleared = try await store.saveDraft(conversationID: conversationID, text: "", expectedRevision: saved.revision, updatedAt: fixture.date.addingTimeInterval(1))
+            #expect(cleared.text.isEmpty && cleared.revision == saved.revision + 1)
+            #expect(try await store.loadDraft(conversationID: conversationID) == cleared)
+        }
+        let reopened = try fixture.open()
+        for conversationID in [fixture.directID, fixture.projectChatID, fixture.teamChatID] {
+            #expect(try await reopened.loadDraft(conversationID: conversationID)?.text.isEmpty == true)
         }
     }
 

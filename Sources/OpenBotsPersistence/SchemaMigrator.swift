@@ -36,7 +36,18 @@ enum SchemaMigrator {
         SchemaMigration(version: 17, name: "app-rendered-memory-conversation-publications", sql: memoryConversationPublications),
         SchemaMigration(version: 18, name: "durable-local-memory-corrections", sql: memoryLocalCorrections),
         SchemaMigration(version: 19, name: "durable-local-memory-clarifications", sql: memoryLocalCorrectionClarifications),
-        SchemaMigration(version: 20, name: "controlled-memory-provider-publication", sql: controlledMemoryProviderPublication)
+        SchemaMigration(version: 20, name: "controlled-memory-provider-publication", sql: controlledMemoryProviderPublication),
+        SchemaMigration(version: 21, name: "durable-agentic-job-associations", sql: agenticJobAssociations),
+        SchemaMigration(version: 22, name: "team-conversation-navigation-selection", sql: teamConversationNavigationSelection),
+        SchemaMigration(version: 23, name: "durable-team-handoffs", sql: durableTeamHandoffs),
+        SchemaMigration(version: 24, name: "teammate-role-reads-as-a-person", sql: teammateRoleReadsAsAPerson),
+        SchemaMigration(version: 25, name: "work-channel-record", sql: workChannelRecord),
+        SchemaMigration(version: 26, name: "delivered-member-replies-stay-visible", sql: deliveredMemberRepliesStayVisible),
+        SchemaMigration(version: 27, name: "bounded-sequential-handoff-chains", sql: sequentialHandoffChains),
+        SchemaMigration(version: 28, name: "teammate-seat", sql: teammateSeat),
+        SchemaMigration(version: 29, name: "hired-profile-author", sql: hiredProfileAuthor),
+        SchemaMigration(version: 30, name: "read-context-turn-proofs", sql: readContextTurnProofs),
+        SchemaMigration(version: 31, name: "deleted-teammate-marks", sql: deletedTeammateMarks)
     ]
 
     static func migrate(connection: SQLiteConnection) throws {
@@ -99,6 +110,90 @@ enum SchemaMigrator {
             result[Int(sqlite3_column_int64(statement, 0))] = String(cString: checksumPointer)
         }
     }
+
+    private static let teamConversationNavigationSelection = """
+    DROP TRIGGER chat_navigation_selected_direct_insert;
+    DROP TRIGGER chat_navigation_selected_direct_update;
+
+    CREATE TRIGGER chat_navigation_selected_direct_insert
+    BEFORE INSERT ON chat_navigation_state
+    WHEN NEW.selected_conversation_id IS NOT NULL
+    BEGIN
+        SELECT RAISE(ABORT, 'selected conversation must be direct or team')
+        WHERE NOT EXISTS (
+            SELECT 1 FROM conversations
+            WHERE id=NEW.selected_conversation_id AND kind IN ('direct','team')
+        );
+    END;
+
+    CREATE TRIGGER chat_navigation_selected_direct_update
+    BEFORE UPDATE OF selected_conversation_id ON chat_navigation_state
+    WHEN NEW.selected_conversation_id IS NOT NULL
+    BEGIN
+        SELECT RAISE(ABORT, 'selected conversation must be direct or team')
+        WHERE NOT EXISTS (
+            SELECT 1 FROM conversations
+            WHERE id=NEW.selected_conversation_id AND kind IN ('direct','team')
+        );
+    END;
+    """
+
+    private static let durableTeamHandoffs = """
+    CREATE TABLE handoffs (
+        id TEXT PRIMARY KEY,
+        leg_id TEXT NOT NULL UNIQUE,
+        origin_conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+        sender_teammate_id TEXT NOT NULL REFERENCES teammates(id) ON DELETE RESTRICT,
+        receiver_teammate_id TEXT NOT NULL REFERENCES teammates(id) ON DELETE RESTRICT,
+        brief_json TEXT NOT NULL CHECK(length(CAST(brief_json AS BLOB)) BETWEEN 1 AND 262144),
+        state TEXT NOT NULL CHECK(state IN ('staged','accepted','working','succeeded','returnedToOrigin','needsRecovery')),
+        source_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+        brief_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+        reply_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
+        run_id TEXT,
+        result_summary TEXT CHECK(result_summary IS NULL OR length(CAST(result_summary AS BLOB)) BETWEEN 1 AND 65536),
+        recovery_json TEXT CHECK(recovery_json IS NULL OR length(CAST(recovery_json AS BLOB)) BETWEEN 1 AND 16384),
+        created_at REAL NOT NULL,
+        last_transition_at REAL NOT NULL CHECK(last_transition_at >= created_at),
+        completed_at REAL,
+        returned_at REAL,
+        CHECK(sender_teammate_id != receiver_teammate_id),
+        CHECK((state IN ('succeeded','returnedToOrigin')) = (result_summary IS NOT NULL AND completed_at IS NOT NULL)),
+        CHECK((state = 'returnedToOrigin') = (returned_at IS NOT NULL)),
+        CHECK((state = 'needsRecovery') = (recovery_json IS NOT NULL))
+    ) STRICT;
+    CREATE INDEX handoffs_by_conversation ON handoffs(origin_conversation_id, created_at DESC);
+
+    CREATE TRIGGER handoffs_origin_is_a_shared_team
+    BEFORE INSERT ON handoffs
+    BEGIN
+        SELECT RAISE(ABORT, 'handoff origin must be a team conversation both parties belong to')
+        WHERE NOT EXISTS (
+            SELECT 1 FROM conversations c
+            WHERE c.id=NEW.origin_conversation_id AND c.kind='team'
+              AND EXISTS (SELECT 1 FROM team_memberships m
+                          WHERE m.team_id=c.subject_id AND m.teammate_id=NEW.sender_teammate_id
+                            AND m.revoked_at IS NULL)
+              AND EXISTS (SELECT 1 FROM team_memberships m
+                          WHERE m.team_id=c.subject_id AND m.teammate_id=NEW.receiver_teammate_id
+                            AND m.revoked_at IS NULL)
+        );
+    END;
+    """
+
+    private static let agenticJobAssociations = """
+    CREATE TABLE agentic_job_states (
+        run_id TEXT NOT NULL REFERENCES run_journal_metadata(run_id),
+        revision INTEGER NOT NULL CHECK(revision > 0),
+        conversation_generation INTEGER NOT NULL CHECK(conversation_generation >= 0),
+        session_id TEXT,
+        state_json TEXT NOT NULL CHECK(length(CAST(state_json AS BLOB)) BETWEEN 1 AND 65536),
+        recorded_at REAL NOT NULL,
+        PRIMARY KEY(run_id,revision),
+        CHECK((conversation_generation=0 AND session_id IS NULL) OR (conversation_generation>0 AND session_id IS NOT NULL))
+    ) STRICT;
+    CREATE INDEX agentic_job_sessions ON agentic_job_states(session_id,run_id,conversation_generation);
+    """
 
     private static let controlledMemoryProviderPublication = """
     CREATE TABLE controlled_memory_text_turns (
@@ -669,5 +764,120 @@ enum SchemaMigrator {
     CREATE UNIQUE INDEX memory_single_successor
     ON memory_documents(supersedes_id)
     WHERE supersedes_id IS NOT NULL;
+    """
+
+    /// The "Not configured" role text leaves
+    /// every surface; a bot created by New Bot is simply a teammate until its
+    /// profile says otherwise. Profile revision history is left as it was.
+    private static let teammateRoleReadsAsAPerson = """
+    UPDATE teammates SET role='Teammate' WHERE role='Not configured';
+    """
+
+    /// Migration 25 moved every member reply to the record. A reply whose
+    /// record never returned to the lead was, under the earlier contract,
+    /// the answer shown to the user as the member's own; it stays in the
+    /// transcript. Replies the lead already compiled (`returnedToOrigin`) stay
+    /// on the record. New legs are compiled by the lead.
+    private static let deliveredMemberRepliesStayVisible = """
+    UPDATE messages SET output_class='conversation'
+    WHERE output_class='workAudit' AND author_kind='teammate'
+      AND id IN (SELECT reply_message_id FROM handoffs WHERE reply_message_id IS NOT NULL AND state='succeeded');
+    """
+
+    /// What a bot did on the Mac during a turn, one short line
+    /// each ("Checking the folder.", "Asked to write report.md", "Approved"),
+    /// the work-channel record the transcript never shows.
+    private static let workChannelRecord = """
+    UPDATE messages SET output_class='workAudit'
+    WHERE output_class='conversation' AND (
+        id IN (SELECT brief_message_id FROM handoffs WHERE brief_message_id IS NOT NULL)
+        OR id IN (SELECT reply_message_id FROM handoffs WHERE reply_message_id IS NOT NULL));
+    CREATE TABLE run_activity (
+        run_id TEXT NOT NULL REFERENCES work_runs(id) ON DELETE CASCADE,
+        sequence INTEGER NOT NULL CHECK(sequence > 0),
+        recorded_at REAL NOT NULL,
+        line TEXT NOT NULL CHECK(length(CAST(line AS BLOB)) BETWEEN 1 AND 512),
+        PRIMARY KEY(run_id, sequence)
+    ) STRICT;
+    """
+
+    private static let sequentialHandoffChains = """
+    ALTER TABLE handoffs ADD COLUMN chain_id TEXT REFERENCES handoffs(id);
+    ALTER TABLE handoffs ADD COLUMN parent_handoff_id TEXT REFERENCES handoffs(id);
+    ALTER TABLE handoffs ADD COLUMN hop_count INTEGER NOT NULL DEFAULT 1 CHECK(hop_count BETWEEN 1 AND 4);
+    ALTER TABLE handoffs ADD COLUMN original_user_message_id TEXT REFERENCES messages(id);
+    ALTER TABLE handoffs ADD COLUMN report_run_id TEXT REFERENCES work_runs(id);
+    UPDATE handoffs SET chain_id=id;
+    CREATE INDEX handoffs_chain ON handoffs(chain_id,hop_count);
+    CREATE UNIQUE INDEX handoffs_single_successor ON handoffs(parent_handoff_id) WHERE parent_handoff_id IS NOT NULL;
+    CREATE UNIQUE INDEX handoffs_single_report_run ON handoffs(report_run_id) WHERE report_run_id IS NOT NULL;
+    CREATE TRIGGER handoffs_chain_shape BEFORE INSERT ON handoffs
+    WHEN NEW.chain_id IS NULL OR NOT (
+        (NEW.parent_handoff_id IS NULL AND NEW.chain_id=NEW.id AND NEW.hop_count=1)
+        OR (NEW.parent_handoff_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM handoffs p
+            WHERE p.id=NEW.parent_handoff_id AND p.chain_id=NEW.chain_id
+              AND p.hop_count+1=NEW.hop_count AND p.state='succeeded'
+              AND p.origin_conversation_id=NEW.origin_conversation_id
+              AND p.sender_teammate_id=NEW.sender_teammate_id
+              AND p.original_user_message_id IS NEW.original_user_message_id
+              AND NOT EXISTS (SELECT 1 FROM handoffs bad WHERE bad.chain_id=p.chain_id AND bad.state='needsRecovery')
+        )))
+    BEGIN SELECT RAISE(ABORT,'invalid handoff chain'); END;
+    CREATE TRIGGER handoffs_chain_immutable BEFORE UPDATE OF chain_id,parent_handoff_id,hop_count,original_user_message_id ON handoffs
+    WHEN NEW.chain_id IS NOT OLD.chain_id OR NEW.parent_handoff_id IS NOT OLD.parent_handoff_id
+      OR NEW.hop_count!=OLD.hop_count OR NEW.original_user_message_id IS NOT OLD.original_user_message_id
+    BEGIN SELECT RAISE(ABORT,'immutable handoff chain'); END;
+    """
+
+    /// A bot's seat, the four fields a hirer writes for the bot it
+    /// hires and the person edits later. Each field is optional; every bot
+    /// saved before this keeps none, and its history says the same.
+    private static let teammateSeat = """
+    ALTER TABLE teammates ADD COLUMN seat_purview TEXT;
+    ALTER TABLE teammates ADD COLUMN seat_never TEXT;
+    ALTER TABLE teammates ADD COLUMN seat_interfaces TEXT;
+    ALTER TABLE teammates ADD COLUMN seat_escalate TEXT;
+    ALTER TABLE teammate_profile_revisions ADD COLUMN seat_purview TEXT;
+    ALTER TABLE teammate_profile_revisions ADD COLUMN seat_never TEXT;
+    ALTER TABLE teammate_profile_revisions ADD COLUMN seat_interfaces TEXT;
+    ALTER TABLE teammate_profile_revisions ADD COLUMN seat_escalate TEXT;
+    """
+
+    /// The bot whose hire wrote a bot's role, instructions and seat,
+    /// kept until the person saves the profile. Every bot saved before has none:
+    /// the person made it.
+    private static let hiredProfileAuthor = """
+    ALTER TABLE teammates ADD COLUMN profile_written_by_hirer TEXT;
+    """
+
+    /// What each turn's saved read receipt rests on, proved once and kept, so a
+    /// context read proves only the turns it quotes instead of walking the whole conversation. The memory
+    /// references are every one under the turn, its own and those of every
+    /// turn it quotes, all the way down; whether they are still current is
+    /// checked when a read uses them. A turn saved before this migration has
+    /// no row and is proved the first time a read needs it.
+    private static let readContextTurnProofs = """
+    CREATE TABLE read_context_turn_proofs (
+        run_id TEXT PRIMARY KEY REFERENCES work_runs(id) ON DELETE CASCADE,
+        proven INTEGER NOT NULL CHECK(proven IN (0,1)),
+        memory_qualification_required INTEGER NOT NULL CHECK(memory_qualification_required IN (0,1)),
+        memory_references_json TEXT NOT NULL
+            CHECK(json_valid(memory_references_json) AND json_type(memory_references_json)='array'),
+        CHECK(proven=1 OR (memory_qualification_required=0 AND memory_references_json='[]'))
+    ) STRICT;
+    """
+
+    /// Delete goes
+    /// through for a bot that spoke in a team chat, and its team chat messages
+    /// stay under the name "Deleted bot". Those messages keep their author, so
+    /// the bot's row stays, emptied, and this mark says it was deleted: such a
+    /// bot is in no list, and nothing brings it back. Additive only; the
+    /// teammates and messages tables are not rebuilt.
+    private static let deletedTeammateMarks = """
+    CREATE TABLE deleted_teammates (
+        teammate_id TEXT PRIMARY KEY REFERENCES teammates(id) ON DELETE CASCADE,
+        deleted_at REAL NOT NULL
+    ) STRICT;
     """
 }

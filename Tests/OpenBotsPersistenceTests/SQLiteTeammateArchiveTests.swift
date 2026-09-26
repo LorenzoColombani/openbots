@@ -80,19 +80,27 @@ struct SQLiteTeammateArchiveTests {
         #expect(try await store.proposals(conversationID: f.conversationID, limit: 10) == [cancelled])
     }
 
-    @Test("Unresolved approval records also block archive", arguments: ["pending", "approved", "executing"])
-    func unresolvedApprovals(state: String) async throws {
+    /// Found in use: nothing moves a card's row past
+    /// `approved`, and a quit leaves `pending`, so every bot that had ever been
+    /// asked could never be archived. A card lives only inside its turn, which
+    /// the run check above already covers.
+    @Test("A card left behind by a turn that has ended does not block archive",
+          arguments: ["pending", "approved", "executing"])
+    func approvalsOfAnEndedTurn(state: String) async throws {
         let f = try ArchiveFixture(); defer { f.remove() }
-        let store = try f.open(); let original = try await f.seed(store)
+        let store = try f.open(); _ = try await f.seed(store)
+        let message = try f.message(sequence: 1)
+        try await store.append(message, expectedPreviousSequence: 0)
+        let run = try await store.enqueueRun(f.request(message), origin: .localFixture)
         let approval = try f.approval()
         try await store.insert(approval)
-        _ = try await store.execute(sql: "UPDATE approvals SET state=? WHERE id=?;", bindings: [.text(state), .text(approval.id.persistedValue)])
-        let before = try await f.unchangedRows(store)
-        await #expect(throws: TeammateArchiveError.unresolvedWork) {
-            try await store.archiveTeammate(id: f.teammateID, expectedProfileRevision: 1, now: f.at(10))
-        }
-        #expect(try await store.teammate(id: f.teammateID) == original)
-        #expect(try await f.unchangedRows(store) == before)
+        _ = try await store.execute(sql: """
+            UPDATE approvals SET state=?1, resolved_at=CASE WHEN ?1='pending' THEN NULL ELSE requested_at END WHERE id=?2;
+            """, bindings: [.text(state), .text(approval.id.persistedValue)])
+        _ = try await store.execute(sql: "UPDATE work_runs SET state='interrupted' WHERE id=?;", bindings: [.text(run.id.persistedValue)])
+        let archived = try await store.archiveTeammate(id: f.teammateID, expectedProfileRevision: 1, now: f.at(10))
+        #expect(archived.lifecycle == .archived)
+        #expect(try await store.approvals(conversationID: f.conversationID, limit: 10).map(\.state.rawValue) == [state])
     }
 
     @Test("Profile edits, duplicate transitions, invalid dates and revision exhaustion fail without archival")
@@ -182,6 +190,100 @@ struct SQLiteTeammateArchiveTests {
         try await store.append(staleMessage, expectedPreviousSequence: 1)
     }
 
+    @Test("Restoring is refused while another bot carries the archived bot's name, compared without case")
+    func restoreRefusedWhileNameTaken() async throws {
+        let f = try ArchiveFixture(); defer { f.remove() }
+        let store = try f.open(); let original = try await f.seed(store)
+        let archived = try await store.archiveTeammate(id: f.teammateID, expectedProfileRevision: original.profile.revision, now: f.at(1))
+        let successor = try Teammate(id: TeammateID(UUID()),
+            profile: TeammateProfile(displayName: "archive FIXTURE", role: "Took the name over"),
+            appearance: original.appearance, createdAt: f.at(2), updatedAt: f.at(2))
+        try await store.insert(successor)
+
+        await #expect(throws: TeammateNameTakenError(existingName: "archive FIXTURE")) {
+            try await store.restoreTeammate(id: f.teammateID, expectedProfileRevision: archived.profile.revision, now: f.at(3))
+        }
+        #expect(try await store.teammate(id: f.teammateID) == archived, "A refused restore changes nothing")
+        #expect(try await store.archivedTeammates() == [archived])
+
+        var renamed = successor
+        renamed.profile = try successor.profile.revised(displayName: "Successor")
+        try await store.update(renamed, expectedProfileRevision: successor.profile.revision)
+        let restored = try await store.restoreTeammate(id: f.teammateID, expectedProfileRevision: archived.profile.revision, now: f.at(4))
+        #expect(restored.lifecycle == .active)
+        #expect(try await store.listTeammates(includingArchived: false).map(\.profile.displayName).sorted() == ["Archive Fixture", "Successor"])
+    }
+
+    /// A service reads the roster and then awaits before it writes, so another
+    /// path's bot can take the name in between.
+    /// The store is the authority: each write checks inside its own transaction.
+    @Test("Creation and rename are refused inside the write when an active bot carries the name, even after a roster read from before that bot existed")
+    func theNameRuleHoldsInsideTheWrite() async throws {
+        let f = try ArchiveFixture(); defer { f.remove() }
+        let store = try f.open(); let holder = try await f.seed(store)
+        let stale = StaleRosterRepository(store: store)
+        let taken = TeammateNameTakenError(existingName: "Archive Fixture")
+        func bot(_ name: String) throws -> Teammate {
+            try Teammate(id: TeammateID(UUID()), profile: TeammateProfile(displayName: name, role: "Wants the name"),
+                appearance: holder.appearance, createdAt: f.at(1), updatedAt: f.at(1))
+        }
+        // The New Bot sheet's and a hire's path: the chat service's own check reads the stale roster.
+        let chats = DurableTeammateChatService(teammateRepository: stale, conversationRepository: store,
+            messageRepository: store, provisioningRepository: store, selectionRepository: store)
+        await #expect(throws: taken) {
+            try await chats.createTeammateAndDirectChat(DurableTeammateDraft(teammateID: TeammateID(UUID()),
+                displayName: " archive FIXTURE ", role: "Wants the name", appearance: holder.appearance), selectConversation: false)
+        }
+        await #expect(throws: taken) {
+            try await TeammateProfileService(repository: stale).createQuickTeammate(QuickTeammateDraft(displayName: "ARCHIVE fixture", role: "x"))
+        }
+        await #expect(throws: taken) { try await store.insert(try bot("Archive Fixture")) }
+        #expect(try await store.listTeammates(includingArchived: true).map(\.id) == [holder.id], "a refused name creates nothing")
+
+        // A rename into the name, through the profile service on the stale roster.
+        let other = try bot("Other")
+        try await store.insert(other)
+        await #expect(throws: taken) {
+            try await TeammateProfileService(repository: stale).saveProfile(teammateID: other.id, expectedRevision: 1,
+                draft: TeammateProfileEditDraft(displayName: "archive fixture", role: "Wants the name"))
+        }
+        #expect(try await store.teammate(id: other.id) == other, "a refused rename writes nothing")
+    }
+
+    @Test("A write that keeps a bot's own name passes while a bot saved before the rule shares it; an archived bot's name is free, and a plain update cannot bring its bot back into a taken name")
+    func keepingANameIsNotTakingIt() async throws {
+        let f = try ArchiveFixture(); defer { f.remove() }
+        let store = try f.open(); let holder = try await f.seed(store)
+        // A twin saved before the rule existed: only a raw write can make one now.
+        let first = try Teammate(id: TeammateID(UUID()), profile: TeammateProfile(displayName: "Twin", role: "Saved before the rule"),
+            appearance: holder.appearance, createdAt: f.at(1), updatedAt: f.at(1))
+        try await store.insert(first)
+        _ = try await store.execute(sql: "UPDATE teammates SET display_name='Archive Fixture' WHERE id=?;",
+                                    bindings: [.text(first.id.persistedValue)])
+        var twin = try #require(try await store.teammate(id: first.id))
+        twin.isPinned = true
+        try await store.update(twin, expectedProfileRevision: 1)
+        var shouted = twin
+        shouted.profile = try twin.profile.revised(displayName: "ARCHIVE FIXTURE")
+        try await store.update(shouted, expectedProfileRevision: 1)
+        #expect(try await store.teammate(id: twin.id)?.profile.displayName == "ARCHIVE FIXTURE", "its own name in another case")
+
+        // Both archived: the name is free to take.
+        let archivedHolder = try await store.archiveTeammate(id: holder.id, expectedProfileRevision: 1, now: f.at(2))
+        _ = try await store.archiveTeammate(id: twin.id, expectedProfileRevision: 2, now: f.at(2))
+        let successor = try Teammate(id: TeammateID(UUID()), profile: TeammateProfile(displayName: "archive fixture", role: "Took it over"),
+            appearance: holder.appearance, createdAt: f.at(3), updatedAt: f.at(3))
+        try await store.insert(successor)
+
+        // Brought back by a plain update rather than restore: refused like restore.
+        var back = archivedHolder
+        back.lifecycle = .active
+        await #expect(throws: TeammateNameTakenError(existingName: "archive fixture")) {
+            try await store.update(back, expectedProfileRevision: archivedHolder.profile.revision)
+        }
+        #expect(try await store.teammate(id: holder.id)?.lifecycle == .archived)
+    }
+
     @Test("Late history failure rolls back lifecycle, revision and selected chat together")
     func rollback() async throws {
         let f = try ArchiveFixture(); defer { f.remove() }
@@ -199,7 +301,7 @@ struct SQLiteTeammateArchiveTests {
     func preserveOtherSelection() async throws {
         let f = try ArchiveFixture(); defer { f.remove() }
         let other = try ArchiveFixture(); defer { other.remove() }
-        let store = try f.open(); _ = try await f.seed(store); _ = try await other.seed(store)
+        let store = try f.open(); _ = try await f.seed(store); _ = try await other.seed(store, name: "Other Archive Fixture")
         _ = try await store.archiveTeammate(id: f.teammateID, expectedProfileRevision: 1, now: f.at(1))
         #expect(try await store.selectedConversationID() == other.conversationID)
         #expect(try await store.teammate(id: other.teammateID)?.lifecycle == .active)
@@ -209,6 +311,18 @@ struct SQLiteTeammateArchiveTests {
 private struct ArchiveClock: OpenBotsClock {
     let date: Date
     func now() -> Date { date }
+}
+
+/// The roster as a service read it before another path's bot was saved:
+/// empty. Everything else is the real store.
+private struct StaleRosterRepository: TeammateRepository {
+    let store: SQLiteStore
+    func teammate(id: TeammateID) async throws -> Teammate? { try await store.teammate(id: id) }
+    func listTeammates(includingArchived: Bool) async throws -> [Teammate] { [] }
+    func insert(_ teammate: Teammate) async throws { try await store.insert(teammate) }
+    func update(_ teammate: Teammate, expectedProfileRevision: UInt64) async throws {
+        try await store.update(teammate, expectedProfileRevision: expectedProfileRevision)
+    }
 }
 
 private struct ArchiveFixture: Sendable {
@@ -230,9 +344,10 @@ private struct ArchiveFixture: Sendable {
     func remove() { try? FileManager.default.removeItem(at: root) }
     func at(_ seconds: TimeInterval) -> Date { date.addingTimeInterval(seconds) }
 
-    func seed(_ store: SQLiteStore, appearance: String = "guide", includeContent: Bool = false) async throws -> Teammate {
+    func seed(_ store: SQLiteStore, appearance: String = "guide", includeContent: Bool = false,
+              name: String = "Archive Fixture") async throws -> Teammate {
         var teammate = try Teammate(id: teammateID,
-            profile: TeammateProfile(displayName: "Archive Fixture", title: "Researcher", role: "Local synthetic work", detailedInstructions: "Keep every saved field."),
+            profile: TeammateProfile(displayName: name, title: "Researcher", role: "Local synthetic work", detailedInstructions: "Keep every saved field."),
             appearance: AgentAppearance(mode: appearance == "photo" ? .photo : .creature, grammarVersion: 3,
                 deterministicSeed: UInt64.max - 5, silhouette: "cloud", paletteToken: "violet", eyeDialect: "calm",
                 nonColorIdentityCue: "soft crown", accessibleIdentityDescription: "Original saved identity",

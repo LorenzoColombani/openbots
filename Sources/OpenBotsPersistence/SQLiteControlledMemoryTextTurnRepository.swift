@@ -23,16 +23,19 @@ extension SQLiteStore: ControlledMemoryTextTurnRepository {
                 try storeTextExecutionEvidence(current, evidence: executionEvidence, token: token,
                     terminalRevision: nil, allowsResult: false)
             }
+            // The same renewal a raw checkpoint performs: the process is alive,
+            // so its lease moves on with this write.
+            let lease = try renewedJournalLease(current, token: token, now: now, duration: Self.textTurnLeaseDuration)
             if current.state == .starting, state != .queued {
-                current = try updateJournal(current, state: .running, lease: current.lease, kind: .stateChanged, now: now)
+                current = try updateJournal(current, state: .running, lease: lease, kind: .stateChanged, now: now)
             }
             if state != before.inputState {
                 try writeTextInput(current, state: state, delivery: state == .submitted ? .submitted : .acknowledged, now: now)
-                current = try updateJournal(current, state: current.state, lease: current.lease,
+                current = try updateJournal(current, state: current.state, lease: lease,
                     kind: state == .submitted ? .inputSubmitted : .inputAcknowledged,
                     messageID: current.request.initiatingMessageID, now: now)
             }
-            current = try updateJournal(current, state: current.state, lease: current.lease, kind: .stateChanged, now: now)
+            current = try updateJournal(current, state: current.state, lease: lease, kind: .stateChanged, now: now)
             return try readTextTurnSnapshot(current)
         }
     }
@@ -126,26 +129,21 @@ extension SQLiteStore: ControlledMemoryTextTurnRepository {
 }
 
 extension SQLiteStore {
-    func requireRawTextTurn(_ current: RunJournalRecord) throws {
+    func requireRawTextTurn(_ current: RunJournalRecord, from source: JournalRowSource = .live) throws {
         guard current.request.textTurnIdentity?.controlledMemoryPolicyVersion == nil,
-              try controlledTextMarker(current.id) == nil else { throw TextTurnRepositoryError.invalidRequest }
+              try controlledTextMarker(current.id, from: source) == nil else { throw TextTurnRepositoryError.invalidRequest }
     }
 
-    func requireControlledTextTurn(_ current: RunJournalRecord) throws {
+    func requireControlledTextTurn(_ current: RunJournalRecord, from source: JournalRowSource = .live) throws {
         guard current.origin == .executor, current.request.textTurnIdentity?.controlledMemoryPolicyVersion == 1,
               current.request.textTurnIdentity?.executionRequest != nil,
               current.request.readContextReceipt?.qualificationVersion == 1,
-              let marker = try controlledTextMarker(current.id), try marker.integer("policy_version") == 1 else {
+              let marker = try controlledTextMarker(current.id, from: source), try marker.integer("policy_version") == 1 else {
             throw TextTurnRepositoryError.invalidRequest
         }
         guard try (marker.optionalText("publication_id") != nil) == (current.state == .succeeded) else {
             throw TextTurnRepositoryError.invalidRequest
         }
-    }
-
-    func controlledTextMarker(_ id: RunID) throws -> SQLiteRow? {
-        try query(sql: "SELECT run_id,policy_version,admission_token,publication_id,finish_revision FROM controlled_memory_text_turns WHERE run_id=?;",
-            bindings: [.text(id.persistedValue)]).first
     }
 
     func controlledPublicationRow(publicationID: UUID) throws -> MemoryConversationPublicationRecord? {

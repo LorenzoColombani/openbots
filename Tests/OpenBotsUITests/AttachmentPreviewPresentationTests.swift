@@ -309,8 +309,8 @@ final class AttachmentPreviewPresentationTests: XCTestCase {
         XCTAssertLessThanOrEqual(measured.height, 520.5)
         // On macOS 15 SwiftUI hosts its buttons as NSButton subclasses; on macOS 26 it does not, and
         // this loop is empty. `accessibilityRole()` only answers to an external accessibility client
-        // (VoiceOver), never in-process — even a plain NSButton reports AXUnknown here, on every
-        // macOS (Scripts/ci-ax-probe.swift). Check what is checkable in-process: it is a real button
+        // (VoiceOver); the release probe observed AXUnknown in-process even for a plain NSButton.
+        // Check that it is a real button
         // cell, and its alignment rect (not the bezel shadow frame) stays inside the viewport.
         let buttons = host.previewDescendants.compactMap { $0 as? NSButton }
         for button in buttons {

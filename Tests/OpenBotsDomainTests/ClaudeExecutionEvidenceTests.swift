@@ -121,4 +121,19 @@ struct ClaudeExecutionEvidenceTests {
         ClaudeExecutionRequest(sessionID: UUID(),
             selection: ClaudeExecutionSelection(model: "sonnet", effort: "default", contextWindow: "default"), launchModel: "sonnet")
     }
+    @Test("The Claude Code version rides the evidence, and a record written before it decodes without one")
+    func claudeCodeVersionRoundTrips() throws {
+        let request = self.request()
+        let evidence = ClaudeExecutionEvidence(request: request, initializedModel: "claude-sonnet-5",
+                                               resultModel: "claude-sonnet-5", claudeCodeVersion: "2.1.272")
+        #expect(try evidence.validated() == evidence)
+        let data = try JSONEncoder().encode(evidence)
+        #expect(try JSONDecoder().decode(ClaudeExecutionEvidence.self, from: data) == evidence)
+        #expect(try JSONDecoder().decode(ClaudeExecutionEvidence.self, from: data).claudeCodeVersion == "2.1.272")
+        let old = try JSONEncoder().encode(ClaudeExecutionEvidence(request: request, initializedModel: nil, resultModel: nil))
+        let root = try #require(JSONSerialization.jsonObject(with: old) as? [String: Any])
+        #expect(root["claudeCodeVersion"] == nil)
+        #expect(try JSONDecoder().decode(ClaudeExecutionEvidence.self, from: old).claudeCodeVersion == nil)
+    }
+
 }

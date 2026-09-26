@@ -284,7 +284,7 @@ private enum OutcomeHistoryTestError: Error, Equatable { case gateNotReached }
 private enum OutcomeHistoryFailure: Sendable { case privateDiagnostic, cancelled }
 private struct PrivateOutcomeHistoryFailure: LocalizedError {
     var errorDescription: String? {
-        "PRIVATE-SENTINEL /Users/lorenzo/secret.sqlite SELECT payload FROM action_proposals; credential=do-not-publish"
+        "PRIVATE-SENTINEL /Users/alex/secret.sqlite SELECT payload FROM action_proposals; credential=do-not-publish"
     }
 }
 

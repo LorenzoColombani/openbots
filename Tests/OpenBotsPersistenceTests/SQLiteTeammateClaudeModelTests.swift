@@ -161,7 +161,9 @@ private struct ClaudeModelSQLiteFixture {
     }
     func teammate() throws -> Teammate {
         let now = Date(timeIntervalSince1970: 1_000)
-        return try Teammate(id: TeammateID(UUID()), profile: TeammateProfile(displayName: "Model QA", role: "Research"),
+        // Two bots never share a name, and the store now refuses a second one.
+        let id = TeammateID(UUID())
+        return try Teammate(id: id, profile: TeammateProfile(displayName: "Model QA \(id.persistedValue.prefix(8))", role: "Research"),
             appearance: AgentAppearance(mode: .creature, grammarVersion: 1, deterministicSeed: 1,
                 silhouette: "round", paletteToken: "sky", eyeDialect: "calm", nonColorIdentityCue: "crown",
                 accessibleIdentityDescription: "Round creature"), createdAt: now, updatedAt: now)

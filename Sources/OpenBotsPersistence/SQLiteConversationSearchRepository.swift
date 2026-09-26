@@ -16,8 +16,10 @@ extension SQLiteStore: ConversationSearchRepository {
             }
             let teammateRows = try query(
                 sql: """
-                SELECT t.id,t.display_name,t.title,t.role,t.detailed_instructions,t.profile_revision,
-                    t.lifecycle,t.is_pinned,t.is_hidden,t.notification_preference,t.claude_model,t.claude_effort,t.claude_context_window,t.created_at,t.updated_at,
+                SELECT t.id,t.display_name,t.title,t.role,t.detailed_instructions,
+                    t.seat_purview,t.seat_never,t.seat_interfaces,t.seat_escalate,t.profile_revision,
+                    t.lifecycle,t.is_pinned,t.is_hidden,t.notification_preference,t.claude_model,t.claude_effort,t.claude_context_window,
+                    t.profile_written_by_hirer,t.created_at,t.updated_at,
                     a.mode,a.grammar_version,a.deterministic_seed,a.silhouette,a.palette_token,
                     a.eye_dialect,a.non_color_identity_cue,a.accessible_identity_description,
                     a.profile_asset_id,a.built_in_avatar_id,a.revision AS appearance_revision,c.id AS conversation_id

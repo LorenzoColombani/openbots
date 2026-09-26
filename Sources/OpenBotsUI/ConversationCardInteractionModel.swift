@@ -403,6 +403,93 @@ public final class SecretCardInteractionModel:
     }
 }
 
+public enum HandoffCardInteractionState: Equatable, Sendable {
+    case ready
+    case sending
+    case declining
+    case sent
+    case declined
+    case failed(String)
+
+    public var isBusy: Bool { self == .sending || self == .declining }
+    public var isTerminal: Bool { self == .sent || self == .declined }
+}
+
+/// One handoff card's actions. A lead's brief to its own member dispatches
+/// itself, so this drives only the single control a stalled record carries.
+@MainActor
+public final class HandoffCardInteractionModel: ObservableObject, Identifiable {
+    public typealias Action = @Sendable (
+        _ route: ConversationCardInteractionRoute,
+        _ attemptID: UUID
+    ) async -> ConversationCardActionResult
+
+    public nonisolated var id: UUID { route.partID }
+    public nonisolated let route: ConversationCardInteractionRoute
+    public let snapshot: ChatHandoffCardSnapshot
+
+    @Published public private(set) var state: HandoffCardInteractionState = .ready
+
+    private let sendAction: Action
+    private let declineAction: Action
+    private var activeAttemptID: UUID?
+
+    public init(
+        route: ConversationCardInteractionRoute,
+        snapshot: ChatHandoffCardSnapshot,
+        send: @escaping Action,
+        decline: @escaping Action
+    ) {
+        self.route = route
+        self.snapshot = snapshot
+        self.sendAction = send
+        self.declineAction = decline
+    }
+
+    public func send() {
+        perform(sendAction, busy: .sending, done: .sent, failure: "Could not send. Try again.")
+    }
+
+    public func decline() {
+        perform(declineAction, busy: .declining, done: .declined, failure: "Could not decline. Try again.")
+    }
+
+    private func perform(
+        _ action: @escaping Action,
+        busy: HandoffCardInteractionState,
+        done: HandoffCardInteractionState,
+        failure: String
+    ) {
+        guard !state.isBusy, !state.isTerminal, snapshot.control != nil else { return }
+        let attemptID = UUID()
+        activeAttemptID = attemptID
+        state = busy
+
+        Task { [weak self, route, action] in
+            let result = await action(route, attemptID)
+            self?.finish(result, expectedAttemptID: attemptID, done: done, failure: failure)
+        }
+    }
+
+    private func finish(
+        _ result: ConversationCardActionResult,
+        expectedAttemptID: UUID,
+        done: HandoffCardInteractionState,
+        failure: String
+    ) {
+        guard activeAttemptID == expectedAttemptID,
+              result.route == route,
+              result.attemptID == expectedAttemptID else { return }
+        activeAttemptID = nil
+        switch result.outcome {
+        case .succeeded:
+            state = done
+        case .failed:
+            state = .failed(failure)
+        }
+    }
+}
+
 /// A selected conversation owns its card interactions. Lookups require the
 /// message, part, and card IDs again, so merely passing the wrong conversation
 /// model cannot redirect an action to a visually similar card.
@@ -413,6 +500,7 @@ public final class ConversationCardInteractionModel: ObservableObject {
     private var questions: [UUID: QuestionCardInteractionModel] = [:]
     private var connectors: [UUID: ConnectorSetupCardInteractionModel] = [:]
     private var secrets: [UUID: SecretCardInteractionModel] = [:]
+    private var handoffs: [UUID: HandoffCardInteractionModel] = [:]
 
     public init(conversationID: UUID) {
         self.conversationID = conversationID
@@ -442,6 +530,14 @@ public final class ConversationCardInteractionModel: ObservableObject {
         return true
     }
 
+    @discardableResult
+    public func register(_ model: HandoffCardInteractionModel) -> Bool {
+        guard canRegister(route: model.route, modelID: model.id) else { return false }
+        handoffs[model.route.partID] = model
+        objectWillChange.send()
+        return true
+    }
+
     public func question(
         messageID: UUID,
         partID: UUID,
@@ -466,6 +562,14 @@ public final class ConversationCardInteractionModel: ObservableObject {
         matching(secrets[partID], messageID: messageID, partID: partID, cardID: cardID)
     }
 
+    public func handoff(
+        messageID: UUID,
+        partID: UUID,
+        cardID: UUID
+    ) -> HandoffCardInteractionModel? {
+        matching(handoffs[partID], messageID: messageID, partID: partID, cardID: cardID)
+    }
+
     private func canRegister(
         route: ConversationCardInteractionRoute,
         modelID: UUID
@@ -474,7 +578,8 @@ public final class ConversationCardInteractionModel: ObservableObject {
               route.partID == modelID,
               questions[route.partID] == nil,
               connectors[route.partID] == nil,
-              secrets[route.partID] == nil else { return false }
+              secrets[route.partID] == nil,
+              handoffs[route.partID] == nil else { return false }
         return true
     }
 
@@ -492,6 +597,8 @@ public final class ConversationCardInteractionModel: ObservableObject {
             route = connector.route
         case let secret as SecretCardInteractionModel:
             route = secret.route
+        case let handoff as HandoffCardInteractionModel:
+            route = handoff.route
         default:
             return nil
         }

@@ -1,39 +1,53 @@
 import SwiftUI
 
-/// A static, provenance-first handoff trail. S3A deliberately adds no motion:
+/// A static, provenance-first handoff trail. It deliberately adds no motion:
 /// Reduce Motion therefore preserves exactly the same identities, chronology,
 /// recovery, and fan-in result rather than substituting a weaker state.
 struct HandoffTrailView: View {
     let snapshot: ChatHandoffTrailSnapshot
+    /// The card's collapsed line already names the handoff and its state, so
+    /// the trail it discloses does not say both again. The standalone review
+    /// screen has no such line and keeps the header.
+    var showsStatusHeader = true
 
     var body: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing12) {
-                participantRoute
-                brief
-                Divider()
-                timeline
-                if let recoveryMessage = snapshot.recoveryMessage {
-                    recovery(message: recoveryMessage)
-                }
-                if let resultSummary = snapshot.resultSummary {
-                    returnedResult(summary: resultSummary)
-                }
+        if showsStatusHeader {
+            GroupBox { trail } label: { header }
+        } else {
+            GroupBox { trail }
+        }
+    }
+
+    private var header: some View {
+        Label(snapshot.isFixture ? "Local handoff fixture" : "Handoff", systemImage: snapshot.state.symbolName)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(snapshot.state == .needsRecovery ? .red : .secondary)
+            .accessibilityLabel(
+                "\(snapshot.isFixture ? "Local handoff fixture" : "Handoff"). Status: \(snapshot.state.visibleLabel)."
+            )
+    }
+
+    private var trail: some View {
+        VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing12) {
+            participantRoute
+            brief
+            Divider()
+            timeline
+            if let recoveryMessage = snapshot.recoveryMessage {
+                recovery(message: recoveryMessage)
+            }
+            if let resultSummary = snapshot.resultSummary {
+                returnedResult(summary: resultSummary)
+            }
+            if snapshot.isFixture {
                 Text(snapshot.fixtureDisclosure)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Fixture disclosure. \(snapshot.fixtureDisclosure)")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            Label("Local handoff fixture", systemImage: snapshot.state.symbolName)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(snapshot.state == .needsRecovery ? .red : .secondary)
-                .accessibilityLabel(
-                    "Local handoff fixture. Status: \(snapshot.state.visibleLabel)."
-                )
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var participantRoute: some View {
@@ -163,7 +177,7 @@ struct HandoffTrailView: View {
     private func returnedResult(summary: String) -> some View {
         Label {
             VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing4) {
-                Text("Result returned to \(snapshot.sender.name)")
+                Text("Result from \(snapshot.receiver.name)")
                     .font(.caption.weight(.semibold))
                 Text(summary)
                     .font(.caption)
