@@ -1,3 +1,4 @@
+import OpenBotsDomain
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -58,22 +59,14 @@ struct TranscriptMessagePartsView: View {
         case .text(let content):
             text(content)
         case .status(let status):
-            if message.isInformationalSystemStatus {
+            switch TranscriptStatusPresentation(status: status, in: message) {
+            case .informational:
                 StableSelectableText(status, style: .callout, tone: .secondary)
                     .accessibilityLabel("Status: \(status)")
-            } else {
-                Label(status, systemImage: "info.circle")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, OpenBotsVisualStyle.spacing8)
-                    .padding(.vertical, OpenBotsVisualStyle.spacing4)
-                    .background(
-                        .quaternary,
-                        in: RoundedRectangle(
-                            cornerRadius: OpenBotsVisualStyle.radiusSmall,
-                            style: .continuous
-                        )
-                    )
+            case .openableDiagnostic(let diagnostic):
+                DiagnosticStatusChip(status: status, diagnostic: diagnostic)
+            case .chip:
+                StatusChipLabel(status: status)
                     .accessibilityLabel("Status: \(status)")
             }
         case .attachment(let attachment):
@@ -304,6 +297,159 @@ private struct ArtifactPartCard: View {
         ["Artifact: \(artifact.title)", artifact.detail]
             .compactMap { $0 }
             .joined(separator: ". ")
+    }
+}
+
+/// How one status part is drawn: alone in an app message it is plain text
+/// with no action; beside a reply it is a chip, and a saved diagnostic's chip
+/// opens to say what it means.
+enum TranscriptStatusPresentation: Equatable {
+    case informational
+    case chip
+    case openableDiagnostic(TranscriptDiagnostic)
+
+    init(status: String, in message: ChatMessageSnapshot) {
+        if message.isInformationalSystemStatus { self = .informational }
+        else if let diagnostic = TranscriptDiagnostic(status: status) { self = .openableDiagnostic(diagnostic) }
+        else { self = .chip }
+    }
+}
+
+/// The rounded status line under a bot's reply.
+private struct StatusChipLabel: View {
+    let status: String
+
+    var body: some View {
+        Label(status, systemImage: "info.circle")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, OpenBotsVisualStyle.spacing8)
+            .padding(.vertical, OpenBotsVisualStyle.spacing4)
+            .background(
+                .quaternary,
+                in: RoundedRectangle(
+                    cornerRadius: OpenBotsVisualStyle.radiusSmall,
+                    style: .continuous
+                )
+            )
+    }
+}
+
+/// A saved "OpenBots diagnostic: <code>" status read back into words. The
+/// code is the finite app-authored classification the reply was saved with
+/// (never provider text), so the sentence is chosen here, not stored.
+struct TranscriptDiagnostic: Equatable {
+    static let prefix = "OpenBots diagnostic: "
+    let code: TextTurnDiagnosticCode
+    let sentence: String
+
+    init?(status: String) {
+        guard status.hasPrefix(Self.prefix),
+              let code = TextTurnDiagnosticCode(rawValue: String(status.dropFirst(Self.prefix.count))) else { return nil }
+        self.code = code
+        sentence = Self.sentence(code)
+    }
+
+    private static let kept = "Nothing was resent; your text is kept."
+
+    private static func sentence(_ code: TextTurnDiagnosticCode) -> String {
+        switch code {
+        case .providerFailure:
+            "Claude could not finish this reply, because of a problem on Claude’s side or with the connection. \(kept)"
+        case .turnLimitReached:
+            "The bot used up its rounds of tool calls before it finished this reply. \(kept)"
+        case .deadlineExceeded:
+            // One code for both limits (the runtime log says which fired):
+            // silence, or the whole reply's time. Replies saved before card
+            // time stopped counting carry it too, so no number and no promise
+            // about cards.
+            "Claude did not finish in time: it went quiet for too long, or the whole reply ran past its time limit. \(kept)"
+        case .outputLimitExceeded:
+            "The reply grew past the size OpenBots takes in one turn, so it was stopped. \(kept)"
+        case .finalModelMismatch:
+            "Claude answered on a different model than the one asked for, so OpenBots did not keep the reply. \(kept)"
+        case .executableRejected, .launchFailed, .inputWriteFailed:
+            "Claude Code could not be started for this reply. Check it under Settings → General & Claude Code. \(kept)"
+        case .streamReadFailed, .processFailed, .incompleteResult:
+            "Claude Code stopped before it finished this reply. \(kept)"
+        case .sessionNotFound:
+            "The bot’s saved session could not be continued. Send the message again and the bot starts fresh."
+        case .duplicateInitialization, .initializationSessionMismatch, .initializationToolsInvalid,
+             .initializationMCPInvalid, .initializationPluginsInvalid, .initializationExtensionsInvalid,
+             .initializationPermissionMismatch, .initializationKeySourceInvalid, .initializationModelInvalid,
+             .statusPermissionMismatch:
+            // The safety checks on how Claude Code started (its tools, its
+            // login, its permission mode, anything it loaded from a folder).
+            // An update can trip them and so can something planted, so the
+            // words name neither.
+            "OpenBots stopped this reply because Claude Code did not start the way OpenBots set it up. \(kept)"
+        case .invalidJSON, .invalidEnvelope, .unexpectedEvent, .eventAfterResult, .invalidCommandLifecycle,
+             .commandLifecycleRejected, .invalidKeepAlive, .unexpectedSystemEvent, .nestedToolEvent,
+             .invalidStatusMetadata, .replayNotConfirmed, .replayDuplicate, .replaySessionMismatch,
+             .replayMessageMismatch, .replayContentInvalid, .replayTextMismatch, .responseMismatch:
+            // The live sentence for a refused frame (ClaudeTextReplyPhase), kept
+            // for when the turn is over.
+            "OpenBots stopped this reply: Claude Code sent something OpenBots does not understand. \(kept)"
+        }
+    }
+}
+
+/// The diagnostic chip under a failed reply opens (it used to be drawn like
+/// a chip that did nothing on a click): what the code means in words,
+/// the code itself to quote, and the conversation's "What happened" record.
+private struct DiagnosticStatusChip: View {
+    let status: String
+    let diagnostic: TranscriptDiagnostic
+    @Environment(\.openWorkRecord) private var openWorkRecord
+    @State private var isShowingExplanation = false
+
+    var body: some View {
+        Button { isShowingExplanation = true } label: {
+            StatusChipLabel(status: status)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Why this reply stopped")
+        .accessibilityLabel("Status: \(status)")
+        .accessibilityHint("Opens what this means")
+        .accessibilityIdentifier("diagnostic-chip")
+        .popover(isPresented: $isShowingExplanation, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing8) {
+                Text("Why this reply stopped")
+                    .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Text(diagnostic.sentence)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Code: \(diagnostic.code.rawValue)")
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                if let openWorkRecord {
+                    Button("What happened") {
+                        isShowingExplanation = false
+                        openWorkRecord()
+                    }
+                    .help("What the bot did before it stopped")
+                    .accessibilityIdentifier("diagnostic-chip.record")
+                }
+            }
+            .padding(OpenBotsVisualStyle.spacing12)
+            .frame(width: 320, alignment: .leading)
+            .accessibilityIdentifier("diagnostic-explanation")
+        }
+    }
+}
+
+private struct OpenWorkRecordKey: EnvironmentKey {
+    static let defaultValue: (@MainActor @Sendable () -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    /// Opens the open conversation's "what happened" record, when
+    /// the workspace can show one.
+    var openWorkRecord: (@MainActor @Sendable () -> Void)? {
+        get { self[OpenWorkRecordKey.self] }
+        set { self[OpenWorkRecordKey.self] = newValue }
     }
 }
 

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import XCTest
 @testable import OpenBotsUI
+import OpenBotsDomain
 
 @MainActor
 final class ClaudeTurnStatusPresentationTests: XCTestCase {
@@ -68,6 +69,59 @@ final class ClaudeTurnStatusPresentationTests: XCTestCase {
         XCTAssertEqual(row.snapshot, snapshot)
         // Windowless rendering checks native text semantics and wrapping only.
         // The installed saved row still needs physical appearance verification.
+    }
+
+    // A failed turn ended its bubble with the chip
+    // "OpenBots diagnostic: responseMismatch", drawn like a chip that opens,
+    // and a click did nothing. Opening it says what the code means in words
+    // and leads to the conversation's "What happened" record.
+    func testADiagnosticStatusOpensToAPlainExplanation() throws {
+        let explanation = try XCTUnwrap(TranscriptDiagnostic(status: "OpenBots diagnostic: responseMismatch"))
+        XCTAssertEqual(explanation.code, .responseMismatch)
+        XCTAssertTrue(explanation.sentence.contains("sent something OpenBots does not understand"), explanation.sentence)
+        XCTAssertTrue(explanation.sentence.contains("your text is kept"), explanation.sentence)
+        for code in TextTurnDiagnosticCode.allCases {
+            let sentence = try XCTUnwrap(TranscriptDiagnostic(status: "OpenBots diagnostic: \(code.rawValue)")).sentence
+            XCTAssertFalse(sentence.isEmpty, "\(code)")
+            XCTAssertFalse(sentence.contains(code.rawValue), "\(code): the sentence is words, the code is shown apart")
+        }
+        XCTAssertNil(TranscriptDiagnostic(status: "Claude could not complete this reply"))
+        XCTAssertNil(TranscriptDiagnostic(status: "OpenBots diagnostic: arbitrary provider detail"))
+        XCTAssertNil(TranscriptDiagnostic(status: "OpenBots diagnostic: responseMismatch and more"))
+    }
+
+    // A work turn ended "deadlineExceeded", and
+    // nothing said which of the two limits it was. The one code covers both,
+    // on replies saved before and after card time stopped counting, so the
+    // words name both limits and neither number.
+    func testTheDeadlineDiagnosticNamesBothLimits() throws {
+        let sentence = try XCTUnwrap(TranscriptDiagnostic(status: "OpenBots diagnostic: deadlineExceeded")).sentence
+        XCTAssertTrue(sentence.contains("went quiet"), sentence)
+        XCTAssertTrue(sentence.contains("time limit"), sentence)
+        XCTAssertTrue(sentence.contains("your text is kept"), sentence)
+    }
+
+    func testTheDiagnosticChipOnABotsReplyIsTheOpenableChip() throws {
+        // Offscreen SwiftUI has no accessibility tree and draws a plain-style
+        // button as no NSButton, so the choice the view makes is what is
+        // tested here; the popover itself is proved on the installed app.
+        let bot = ChatAuthorSnapshot.teammate(TeammateIdentitySnapshot(
+            id: UUID(), name: "Designer", role: "Designer", appearance: .fixture(seed: 3)))
+        let reply = message(author: bot, parts: [
+            ChatMessagePartSnapshot(id: UUID(), ordinal: 0, content: .text("Building both files now.")),
+            ChatMessagePartSnapshot(id: UUID(), ordinal: 1, content: .status("OpenBots diagnostic: responseMismatch")),
+        ])
+        guard case .openableDiagnostic(let diagnostic) = TranscriptStatusPresentation(
+            status: "OpenBots diagnostic: responseMismatch", in: reply) else {
+            return XCTFail("A diagnostic under a bot's reply must be the chip that opens.")
+        }
+        XCTAssertEqual(diagnostic.code, .responseMismatch)
+        XCTAssertEqual(TranscriptStatusPresentation(status: "Waiting for the card", in: reply), .chip)
+        let systemOnly = message(parts: [
+            ChatMessagePartSnapshot(id: UUID(), ordinal: 0, content: .status("Claude could not complete this reply")),
+        ])
+        XCTAssertEqual(TranscriptStatusPresentation(status: "Claude could not complete this reply", in: systemOnly),
+                       .informational, "App-authored status alone keeps its plain, action-free text.")
     }
 
     private func message(

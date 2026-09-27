@@ -232,6 +232,13 @@ public struct TeammateProfileEditorView: View {
                 .disabled(!model.isEditingEnabled)
                 .accessibilityIdentifier("bot-claude-model")
             }
+            if let warning = ClaudeModelCatalog.creditsWarning(for: model.claudeModel) {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("bot-claude-model-credits-warning")
+            }
             effortFields
             contextWindowFields
             if ClaudeModelCatalog.option(for: model.claudeModel) == nil, model.claudeModel != "sonnet" {
@@ -242,7 +249,7 @@ public struct TeammateProfileEditorView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Supported choices apply to the next reply. Unavailable choices are refused without changing saved preferences. Actual intensity and context size aren’t verified.")
                     Text("Usage beyond your plan’s allowance may consume enabled credits.")
-                    if model.claudeModel == "claude-fable-5" {
+                    if model.claudeModel.hasPrefix("claude-fable-") {
                         Text("Fable uses the shared weekly allowance faster.")
                     }
                 }

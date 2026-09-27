@@ -735,6 +735,10 @@ final class AppCompositionRoot: ObservableObject {
             let teammateWorkers: TeammateWorkerService? = usesReviewFixtures ? nil : TeammateWorkerService(
                 access: agenticJobAccess, teammates: context.teammateRepository,
                 conversations: context.conversationRepository, preparer: textLaunchPreparer)
+            if !usesReviewFixtures { AgenticDiagnosticsLog.recordStreamRefusals() }
+            // The last few failed replies keep what led to them, for diagnosis.
+            let failedTurnRecords = usesReviewFixtures ? nil : FailedTurnRecords.inApplicationSupport()
+            failedTurnRecords?.holdRefusedFrames()
             let providerTextReplyService: (any ClaudeTextReplyServing)? = usesReviewFixtures ? nil :
                 OfficialClaudeTextReplyService(
                     repository: context.textTurnRepository,
@@ -780,7 +784,8 @@ final class AppCompositionRoot: ObservableObject {
                     selfSetup: botSelfSetup,
                     // One session per bot, resumed from turn to turn.
                     sessions: context.claudeSessionRepository,
-                    resumesSessions: true
+                    resumesSessions: true,
+                    failedTurns: failedTurnRecords
                 )
             let textReplyService: (any ClaudeTextReplyServing)?
             if let providerTextReplyService {

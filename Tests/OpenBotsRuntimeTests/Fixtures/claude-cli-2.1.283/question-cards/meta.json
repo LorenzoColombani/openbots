@@ -1,0 +1,11 @@
+{
+ "session_id": "f8050043-c683-492c-b708-528d4489444c",
+ "message_id": "874f7cf7-e4b1-469b-92b7-208347fa05f5",
+ "control_id": "c21a331d-37d1-4509-9c4d-41233474ce7a",
+ "model": "sonnet",
+ "text": "Picnic time! Help me plan a surprise birthday picnic for my sister next Saturday. Before anything, look at every file in your folder with a glob of **/*. Then set yourself up. Then say one sentence before each question card: first a card with three questions, then after my answers a second card with two more.",
+ "read_dirs": [
+  "/private/tmp/question-cards-probe.noindex/shared",
+  "/private/tmp/question-cards-probe.noindex/skills"
+ ]
+}

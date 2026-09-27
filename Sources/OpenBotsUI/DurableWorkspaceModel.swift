@@ -3956,6 +3956,14 @@ public struct DurableWorkspaceView: View {
         }
         .environment(\.attachmentPresentation, model.attachmentPresentation)
         .environment(\.profilePhotoPresentation, model.photoPresentation)
+        .environment(\.openWorkRecord, workRecordAction)
+    }
+
+    /// What a diagnostic chip's "What happened" opens, when there is a record.
+    private var workRecordAction: (@MainActor @Sendable () -> Void)? {
+        guard model.canShowWorkRecord else { return nil }
+        let model = model
+        return { model.openWorkRecord() }
     }
 
     private var searchAction: (@MainActor () -> Void)? {

@@ -31,6 +31,32 @@ final class ClaudeModelPickerTests: XCTestCase {
         XCTAssertFalse(reopened.hasUnsavedChanges)
     }
 
+    func testCatalogOffersOpus55AndFable51ButNotFable5() {
+        // Both current models, and not Fable 5.
+        let ids = ClaudeModelCatalog.options.map(\.id)
+        XCTAssertTrue(ids.contains("claude-opus-5-5"))
+        XCTAssertTrue(ids.contains("claude-fable-5-1"))
+        XCTAssertFalse(ids.contains("claude-fable-5"))
+        XCTAssertFalse(ids.contains { $0.contains("mythos") })
+        XCTAssertEqual(ClaudeModelCatalog.label(for: "claude-opus-5-5"), "Opus 5.5")
+        XCTAssertEqual(ClaudeModelCatalog.label(for: "claude-fable-5-1"), "Fable 5.1")
+        XCTAssertTrue(ClaudeModelCatalog.availabilityNote.contains("September 27, 2026"))
+        XCTAssertTrue(ClaudeModelCatalog.matches(requested: "claude-opus-5-5", observed: "claude-opus-5-5"))
+        XCTAssertFalse(ClaudeModelCatalog.matches(requested: "claude-opus-5-5", observed: "claude-opus-5"))
+    }
+
+    func testFable51CarriesTheCreditsWarningAndNoOtherChoiceDoes() {
+        // A warning directly under the picker, so the charge is never hidden.
+        let warning = try? XCTUnwrap(ClaudeModelCatalog.creditsWarning(for: "claude-fable-5-1"))
+        XCTAssertNotNil(warning)
+        XCTAssertTrue(warning?.contains("credits") == true)
+        XCTAssertTrue(warning?.contains("allowance") == true)
+        for option in ClaudeModelCatalog.options where option.id != "claude-fable-5-1" {
+            XCTAssertNil(ClaudeModelCatalog.creditsWarning(for: option.id), option.id)
+        }
+        XCTAssertNil(ClaudeModelCatalog.creditsWarning(for: "sonnet"))
+    }
+
     func testUnknownChoiceSurvivesUnrelatedEditAndDiscardDoesNotSave() async throws {
         var teammate = try modelPickerTeammate()
         teammate.claudeModel = "retired-model[1m]"

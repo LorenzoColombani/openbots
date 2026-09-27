@@ -293,7 +293,8 @@ public struct Teammate: Codable, Equatable, Sendable, Identifiable {
 public enum ClaudeEffortPolicy {
     public static func supportedValues(for model: String) -> [String] {
         switch model {
-        case "sonnet", "claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7":
+        case "sonnet", "claude-fable-5-1", "claude-opus-5-5", "claude-fable-5", "claude-opus-5", "claude-sonnet-5",
+             "claude-opus-4-8", "claude-opus-4-7":
             ["low", "medium", "high", "xhigh", "max"]
         case "claude-opus-4-6", "claude-sonnet-4-6":
             ["low", "medium", "high", "max"]
@@ -304,6 +305,7 @@ public enum ClaudeEffortPolicy {
 
     public static func defaultValue(for model: String) -> String? {
         if model == "claude-opus-4-7" { return "xhigh" }
+        if model == "claude-opus-5-5" { return "medium" }
         return supportedValues(for: model).isEmpty ? nil : "high"
     }
 }
@@ -312,8 +314,8 @@ public enum ClaudeEffortPolicy {
 public enum ClaudeContextWindowPolicy {
     public static func supportedValues(for model: String) -> [String] {
         switch model {
-        case "sonnet", "claude-fable-5", "claude-sonnet-5", "claude-opus-5", "claude-opus-4-8",
-             "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6":
+        case "sonnet", "claude-fable-5-1", "claude-opus-5-5", "claude-fable-5", "claude-sonnet-5", "claude-opus-5",
+             "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6":
             ["default", "standard", "long"]
         case "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001":
             // A saved standard cap remains compatible, though redundant at 200K.
@@ -325,8 +327,8 @@ public enum ClaudeContextWindowPolicy {
 
     public static func defaultTokenLimit(for model: String) -> Int? {
         switch model {
-        case "sonnet", "claude-fable-5", "claude-sonnet-5", "claude-opus-5", "claude-opus-4-8",
-             "claude-opus-4-7", "claude-opus-4-6":
+        case "sonnet", "claude-fable-5-1", "claude-opus-5-5", "claude-fable-5", "claude-sonnet-5", "claude-opus-5",
+             "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6":
             1_000_000
         case "claude-sonnet-4-6", "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001":
             200_000

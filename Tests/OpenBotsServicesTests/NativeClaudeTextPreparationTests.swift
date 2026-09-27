@@ -81,7 +81,7 @@ func textPreparationRequiresOwnedRoot() async throws {
     #expect(await status.calls == 1)
 }
 
-@Test("Pro cannot admit native-1M Opus or create any turn directory", arguments: ["claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5"])
+@Test("Pro cannot admit native-1M Opus or create any turn directory", arguments: ["claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5", "claude-fable-5-1"])
 func textPreparationRefusesMaxModelsOnProBeforeRuntimeMaterial(model: String) async throws {
     let fixture = try TextPreparationOwnedRootFixture()
     defer { fixture.remove() }
@@ -137,7 +137,7 @@ func textPreparationRefusesUnreviewedModelsWithoutStatus(model: String) async th
     #expect(await status.calls == 0)
 }
 
-@Test("Old preparation adapters cannot implicitly prove Max eligibility", arguments: ["claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-fable-5"])
+@Test("Old preparation adapters cannot implicitly prove Max eligibility", arguments: ["claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5", "claude-fable-5", "claude-fable-5-1"])
 func textPreparationCompatibilityDefaultRefusesMaxModels(model: String) async {
     let preparer = TextPreparationLegacyAdapter()
     guard case .refused(.modelUnavailable) = await preparer.prepareTextLaunch(runID: UUID(), model: model) else {
@@ -171,6 +171,24 @@ func textPreparationRefusesFullSelectionsBeforeStatus() async throws {
         #expect(await status.calls == 0)
         #expect(await roots.calls == 0)
         #expect(!FileManager.default.fileExists(atPath: fixture.turns.path))
+    }
+}
+
+@Test("Max admits Opus 5.5 and Fable 5.1 with any supported effort and context (Fable 5.1 runs, warned)",
+      arguments: ["claude-opus-5-5", "claude-fable-5-1"])
+func textPreparationAdmitsCurrentModelsOnMax(model: String) async throws {
+    for (effort, context) in [("default", "default"), ("max", "standard"), ("medium", "long")] {
+        let fixture = try TextPreparationOwnedRootFixture()
+        defer { fixture.remove() }
+        let status = TextPreparationStatusFixture(.eligible(.max))
+        let roots = TextPreparationRootCounter(root: fixture.root)
+        let preparer = try textPreparationFixture(status: status, suppliedLayout: fixture.layout,
+            applicationSupportRoot: { await roots.value() })
+        let selection = ClaudeExecutionSelection(model: model, effort: effort, contextWindow: context)
+        guard case .ready = await preparer.prepareTextLaunch(runID: UUID(), selection: selection) else {
+            Issue.record("Max should admit \(model) at \(effort)/\(context)"); continue
+        }
+        #expect(await status.calls == 1)
     }
 }
 

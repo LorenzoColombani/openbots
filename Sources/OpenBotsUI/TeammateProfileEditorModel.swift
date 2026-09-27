@@ -3,8 +3,10 @@ import Combine
 import OpenBotsDomain
 import OpenBotsServices
 
-/// Reviewed 2026-08-31 against Anthropic's model overview and Claude Code model
-/// configuration. Pinned versions avoid automatically moving a user's choice.
+/// Reviewed against Anthropic's model overview and Claude Code 2.1.283, which
+/// served both new ids as asked. Pinned versions avoid automatically moving a
+/// user's choice. Fable 5 left the list; a bot that saved it keeps the
+/// preference, shown as outside the catalog.
 enum ClaudeModelCatalog {
     struct Option: Identifiable {
         let id: String
@@ -19,12 +21,15 @@ enum ClaudeModelCatalog {
         .init(id: "claude-sonnet-5", name: "Sonnet 5",
               menuLabel: "Sonnet 5 · Balanced · 1M",
               detail: "Everyday work. 1,000,000-token model context."),
+        .init(id: "claude-opus-5-5", name: "Opus 5.5",
+              menuLabel: "Opus 5.5 · Complex reasoning · 1M · Max",
+              detail: "Newest Opus. 1,000,000-token model context, included with Max. Its default intensity is medium."),
+        .init(id: "claude-fable-5-1", name: "Fable 5.1",
+              menuLabel: "Fable 5.1 · Highest capability · 1M · Max",
+              detail: "Highest intensity. 1,000,000-token model context. Included in Max within its Fable allowance; uses the shared weekly limit faster."),
         .init(id: "claude-opus-5", name: "Opus 5",
               menuLabel: "Opus 5 · Complex reasoning · 1M · Max",
-              detail: "Higher intensity. 1,000,000-token model context, included with Max."),
-        .init(id: "claude-fable-5", name: "Fable 5",
-              menuLabel: "Fable 5 · Highest capability · 1M · Max",
-              detail: "Highest intensity. 1,000,000-token model context. Included in Max within its Fable allowance; uses the shared weekly limit faster."),
+              detail: "Earlier Opus version. 1,000,000-token model context, included with Max."),
         .init(id: "claude-opus-4-8", name: "Opus 4.8",
               menuLabel: "Opus 4.8 · Complex reasoning · 1M · Max", detail: "Earlier Opus version. 1M context on Max."),
         .init(id: "claude-opus-4-7", name: "Opus 4.7",
@@ -38,8 +43,15 @@ enum ClaudeModelCatalog {
         .init(id: "claude-sonnet-4-5-20250929", name: "Sonnet 4.5",
               menuLabel: "Sonnet 4.5 · Balanced · 200K", detail: "Earlier Sonnet version. 200K context.")
     ]
-    static let availabilityNote = "Catalog reference, reviewed August 31, 2026. Availability and limits depend on your Claude account. Provider use beyond included limits may consume enabled usage credits. Saving a preference does not verify access, change account settings, or enable or purchase credits."
+    static let availabilityNote = "Catalog reference, reviewed September 27, 2026. Availability and limits depend on your Claude account. Provider use beyond included limits may consume enabled usage credits. Saving a preference does not verify access, change account settings, or enable or purchase credits."
 
+    /// Shown directly under the picker, so the charge is never hidden. Print-mode
+    /// Fable turns keep going on usage credits
+    /// once the plan's Fable allowance is spent, without asking first.
+    static func creditsWarning(for id: String) -> String? {
+        guard id == "claude-fable-5-1" else { return nil }
+        return "Extra charges possible: once your plan’s Fable allowance runs out, this bot’s replies are billed to your usage credits, if you have turned them on."
+    }
     static func option(for id: String) -> Option? { options.first { $0.id == id } }
     static func label(for id: String) -> String {
         id == "sonnet" ? "Sonnet (existing default)" : option(for: id)?.name ?? id

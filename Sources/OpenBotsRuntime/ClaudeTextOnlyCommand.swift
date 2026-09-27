@@ -463,7 +463,8 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     /// Reviewed first-party choices. Unknown saved values stay in storage but
     /// cannot start an unreviewed model. The legacy alias retains its exact argv.
     public static let supportedModels: Set<String> = [
-        "sonnet", "claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5", "claude-fable-5",
+        "sonnet", "claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5-5", "claude-opus-5",
+        "claude-fable-5-1", "claude-fable-5",
         "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
         "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929"
     ]

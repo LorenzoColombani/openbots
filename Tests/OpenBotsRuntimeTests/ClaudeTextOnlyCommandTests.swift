@@ -90,6 +90,17 @@ func claudeTextRequestedModelIsLiteral(_ model: String) throws {
     #expect(settings["disableClaudeAiConnectors"] as? Bool == true)
 }
 
+@Test("Opus 5.5 and Fable 5.1 are reviewed choices passed literally",
+      arguments: ["claude-opus-5-5", "claude-fable-5-1"])
+func claudeTextAcceptsCurrentModels(_ model: String) throws {
+    #expect(ClaudeTextOnlyRequest.supportedModels.contains(model))
+    let request = try textOnlyTestRequest(model: model)
+    let arguments = ClaudeTextOnlyCommandBuilder.arguments(for: request)
+    let modelIndex = try #require(arguments.firstIndex(of: "--model"))
+    #expect(arguments[modelIndex + 1] == model)
+    #expect(ClaudeTextOnlyRequest.normalizedReportedModel(model) == model)
+}
+
 @Test("Unknown, retired or unsafe model tokens are refused without falling back",
       arguments: ["", "opus", "claude-sonnet-retired", "sonnet[1m]", "best", "--model", "sonnet --tools Bash",
                   "claude/sonnet", "sonnet\n", "sonnet\u{0}", "$(touch never)", String(repeating: "a", count: 201)])

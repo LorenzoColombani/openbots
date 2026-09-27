@@ -116,14 +116,16 @@ private enum ClaudeTextModelTierPolicy {
         }
         // Official model-config: Sonnet 4.6 [1m] requires credits
         // on every plan. Fable can silently bill credits in -p after its included
-        // allowance. No allowance-only route is proven here, so refuse it without
-        // reading or changing billing settings. Saved preferences stay untouched.
+        // allowance. Fable 5 stays refused; Fable 5.1 runs because the picker
+        // warns about those credits directly under it.
+        // Billing settings are never read or changed. Saved preferences stay untouched.
         if selection.model == "claude-fable-5" { return .modelUnavailable }
         if selection.model == "claude-sonnet-4-6", selection.contextWindow == "long" { return .contextWindowUnavailable }
         return nil
     }
 
     static func requiresMax(_ model: String) -> Bool {
-        ["claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-fable-5"].contains(model)
+        ["claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5",
+         "claude-fable-5", "claude-fable-5-1"].contains(model)
     }
 }

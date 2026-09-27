@@ -733,6 +733,28 @@ struct OfficialClaudeTextReplyServiceTests {
         #expect(try await store.runs(conversationID: f.conversationID, limit: 10).first?.state == .failed)
     }
 
+    @Test("A failed reply is kept for diagnosis, a whole one is not")
+    func failedReplyIsKept() async throws {
+        let f = try TextReplyServiceFixture()
+        defer { f.remove() }
+        let store = try f.open()
+        try await f.seed(store)
+        let keeper = FailedTurnRecorder()
+        let failing = TextReplyRunner(.failure(.invalidStream))
+        let target = try f.target()
+        _ = await f.service(store, prepare: TextReplyPreparer(.ready(target)), runner: failing, failedTurns: keeper)
+            .sendText(f.submission()) { _ in }
+        let failedRequest = try #require(await failing.requests.last)
+        let whole = TextReplyRunner(.success)
+        _ = await f.service(store, prepare: TextReplyPreparer(.ready(target)), runner: whole, failedTurns: keeper)
+            .sendText(f.submission(text: "Again")) { _ in }
+        let wholeRequest = try #require(await whole.requests.last)
+        #expect(keeper.calls == [
+            .init(runID: failedRequest.runID, profileURL: target.profileURL, sessionID: failedRequest.sessionID, keep: true),
+            .init(runID: wholeRequest.runID, profileURL: target.profileURL, sessionID: wholeRequest.sessionID, keep: false),
+        ])
+    }
+
     @Test("Cancellation saves the received partial reply as interrupted after the fake child stops", .timeLimit(.minutes(1)))
     func cancellationPersistsPartial() async throws {
         let f = try TextReplyServiceFixture()
@@ -1475,7 +1497,8 @@ private struct TextReplyServiceFixture: Sendable {
                  webAccess: (any ClaudeTextReplyWebAccessResolving)? = nil,
                  removeTranscript: @escaping @Sendable (URL, UUID) throws -> ClaudeSessionTranscriptRemoval = { _, _ in
                      ClaudeSessionTranscriptRemoval(removedPaths: [], droppedHistoryLines: 0)
-                 }) -> OfficialClaudeTextReplyService {
+                 },
+                 failedTurns: (any ClaudeTextFailedTurnKeeping)? = nil) -> OfficialClaudeTextReplyService {
         // With the assembler, the turn quotes its history in the production
         // envelope; without it, the seam prompt and the plain text. Left out,
         // resumesSessions uses the service's own default (what the app runs).
@@ -1488,13 +1511,13 @@ private struct TextReplyServiceFixture: Sendable {
                 contextReader: reader, contextAssembler: assembly, webAccess: webAccess, activity: activity, sessions: sessions,
                 resumesSessions: resumesSessions,
                 sessionTranscriptExists: { _, id in transcripts.contains(id) },
-                sessionTranscriptRemove: removeTranscript)
+                sessionTranscriptRemove: removeTranscript, failedTurns: failedTurns)
         }
         return OfficialClaudeTextReplyService(repository: store, teammates: store, conversations: store,
             messages: store, preparer: prepare, runner: runner, appOwnerID: appOwner, clock: clock,
             contextReader: reader, contextAssembler: assembly, webAccess: webAccess, activity: activity, sessions: sessions,
             sessionTranscriptExists: { _, id in transcripts.contains(id) },
-            sessionTranscriptRemove: removeTranscript)
+            sessionTranscriptRemove: removeTranscript, failedTurns: failedTurns)
     }
 }
 
@@ -1517,4 +1540,15 @@ final class TranscriptRemovalRecorder: @unchecked Sendable {
     private var recorded: [Call] = []
     var calls: [Call] { lock.withLock { recorded } }
     func record(profile: URL, session: UUID) { lock.withLock { recorded.append(Call(profile: profile, session: session)) } }
+}
+
+/// What the service told the failed-turn keeper, in order.
+final class FailedTurnRecorder: ClaudeTextFailedTurnKeeping, @unchecked Sendable {
+    struct Call: Equatable { let runID: UUID; let profileURL: URL; let sessionID: UUID; let keep: Bool }
+    private let lock = NSLock()
+    private var recorded: [Call] = []
+    var calls: [Call] { lock.withLock { recorded } }
+    func finished(runID: UUID, profileURL: URL, sessionID: UUID, keep: Bool) {
+        lock.withLock { recorded.append(Call(runID: runID, profileURL: profileURL, sessionID: sessionID, keep: keep)) }
+    }
 }

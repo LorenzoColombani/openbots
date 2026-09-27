@@ -39,6 +39,21 @@ public enum ClaudeSessionTranscriptLocator {
         try projects.names().filter { $0.first != CChar(UInt8(ascii: ".")) }
     }
 
+    /// The session's transcript, read as `exists` finds it: a regular file in
+    /// one project folder, opened without following a link. Nil when there is
+    /// none, when it is larger than `maximumBytes`, or when it cannot be read.
+    public static func read(profileURL: URL, sessionID: UUID, maximumBytes: Int) -> Data? {
+        let name = Array((sessionID.uuidString.lowercased() + ".jsonl").utf8CString)
+        guard let projects = try? projectsFolder(in: profileURL), let names = try? projectNames(in: projects) else {
+            return nil
+        }
+        for folderName in names {
+            guard let folder = try? projects.folder(named: folderName), (try? folder.kind(of: name)) == S_IFREG else { continue }
+            return folder.readRegularFile(named: name, maximumBytes: maximumBytes)
+        }
+        return nil
+    }
+
     public static let existsInProfile: @Sendable (URL, UUID) -> Bool = { profileURL, sessionID in
         exists(profileURL: profileURL, sessionID: sessionID)
     }
@@ -224,6 +239,29 @@ private final class HeldFolder {
             if name == [46, 0] || name == [46, 46, 0] { continue }
             names.append(name)
         }
+    }
+
+    /// The bytes of the regular file by that name, opened without following
+    /// a link; nil for anything else or anything larger than `maximumBytes`.
+    func readRegularFile(named name: [CChar], maximumBytes: Int) -> Data? {
+        let file = openat(descriptor, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard file >= 0 else { return nil }
+        defer { close(file) }
+        var status = stat()
+        guard fstat(file, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
+              status.st_size >= 0, Int(status.st_size) <= maximumBytes else { return nil }
+        var data = Data(count: Int(status.st_size))
+        let count = data.withUnsafeMutableBytes { buffer -> Int in
+            guard let base = buffer.baseAddress else { return 0 }
+            var done = 0
+            while done < buffer.count {
+                let got = Darwin.read(file, base + done, buffer.count - done)
+                if got <= 0 { break }
+                done += got
+            }
+            return done
+        }
+        return data.prefix(count)
     }
 
     /// The kind of the entry by that name, never following a link; nil when

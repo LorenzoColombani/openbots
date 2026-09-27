@@ -608,6 +608,132 @@ func claudeTextProcessRepublishesTextWhileTheChildIsBusy() async throws {
     #expect(await quiet.snapshot().filter { $0 == .textSnapshot("Hello") }.count == 2)
 }
 
+// An Opus 5 work turn ended "deadlineExceeded" 900.4 s after it began, and
+// about 302 s of that was the user reading approval cards. The ceiling is for
+// the model's own work; time a card waits for the user is given back to it, up to a cap, so a turn still cannot live
+// forever. Here the ceiling is four seconds.
+
+/// A work child that asks one question after `before` seconds and, once
+/// answered, works `after` more; `after` nil means it then writes forever.
+private func cardWaitingChild(_ template: ClaudeTextOnlyRequest, before: String, after: String?) throws -> String {
+    let initFrame = try textOnlyTestInit(template, override: ["tools": template.grantedToolNames, "permissionMode": "default"])
+    let question = try textOnlyTestLine(["type": "control_request", "request_id": "req-1",
+        "session_id": template.sessionID.uuidString,
+        "request": ["subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "toolu_1",
+                    "input": ["command": "mv a.txt b.txt"]]])
+    let announcement = try textOnlyTestLine(["type": "assistant", "session_id": template.sessionID.uuidString,
+        "message": ["role": "assistant", "model": template.expectedResolvedModel,
+                    "content": [["type": "tool_use", "id": "toolu_1", "name": "Bash", "input": ["command": "mv a.txt b.txt"]]]]])
+    let toolResult = try textOnlyTestLine(["type": "user", "session_id": template.sessionID.uuidString,
+        "parent_tool_use_id": NSNull(),
+        "message": ["role": "user", "content": [["type": "tool_result", "tool_use_id": "toolu_1", "content": "ok"]]]])
+    let ending: String
+    if let after {
+        ending = """
+        /bin/sleep \(after)
+        \(try textProcessEmit(textOnlyTestDelta(template, text: "Moved it.")))
+        \(try textProcessEmit(textOnlyTestResult(template, override: ["result": "Moved it."])))
+        if IFS= read -r extra; then exit 44; fi
+        """
+    } else {
+        ending = """
+        while :; do
+        /bin/sleep 0.4
+        \(try textProcessEmit(textOnlyTestDelta(template, text: "tick ")))
+        done
+        """
+    }
+    return """
+    IFS= read -r handshake
+    request_id=$(printf '%s' "$handshake" | /usr/bin/sed -n 's/.*"request_id":"\\([^"]*\\)".*/\\1/p')
+    printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{}}}\\n' "$request_id"
+    IFS= read -r line
+    \(try textProcessEmit(initFrame))
+    printf '{"isReplay":true,"parent_tool_use_id":null,%s\\n' "${line#?}"
+    /bin/sleep \(before)
+    \(try textProcessEmit(question))
+    IFS= read -r answer
+    \(try textProcessEmit(announcement))
+    \(try textProcessEmit(toolResult))
+    \(ending)
+    """
+}
+
+private func cardWaitingDesk(_ folder: URL) throws -> ClaudeTextWorkAccess {
+    try ClaudeTextWorkAccess(workingDirectoryURL: folder, additionalDirectoryURLs: [],
+                             protectedPaths: ["/private/tmp/protected-root.noindex"])
+}
+
+private func cardWaitingTemplate() throws -> ClaudeTextOnlyRequest {
+    try textOnlyTestRequest(workAccess: cardWaitingDesk(URL(fileURLWithPath: "/private/tmp/bot-desk.noindex/Yogurt")))
+}
+
+private func cardWaitingRequest(_ fixture: ClaudeConnectionFixture) throws -> ClaudeTextOnlyRequest {
+    try textOnlyTestRequest(target: fixture.target, workAccess: cardWaitingDesk(fixture.target.workingDirectoryURL))
+}
+
+@Test("Time an approval card waits for the owner is given back to the ceiling, so a turn that works under it finishes")
+func cardWaitDoesNotCountAgainstTheCeiling() async throws {
+    let template = try cardWaitingTemplate()
+    let fixture = try ClaudeConnectionFixture(body: try cardWaitingChild(template, before: "1.5", after: "1.5"))
+    defer { fixture.remove() }
+    let request = try cardWaitingRequest(fixture)
+    let control = ClaudeTextTurnControl()
+    let lifecycle = ClaudeProcessLifecycleObservation()
+    // About three seconds of work and three of the user reading the card: six in
+    // all, past the four-second ceiling from launch.
+    let result = await NativeClaudeTextOnlyRunner(testTimeout: 30, testOverallTimeout: 4) { lifecycle.record($0) }
+        .run(request: request, control: control) { event in
+            guard case .permissionRequested(let question) = event else { return }
+            try? await Task.sleep(for: .seconds(3))
+            control.respond(requestID: question.requestID, allow: true)
+        }
+    #expect(result == .success(.init(sessionID: request.sessionID, actualModel: "claude-sonnet-5",
+        text: "Moved it.", confirmedActualModel: "claude-sonnet-5")))
+    #expect(try #require(lifecycle.duration) > .seconds(4))
+}
+
+@Test("A turn whose own working time passes the ceiling still ends there, one card's wait later")
+func workingTimeStillEndsAtTheCeiling() async throws {
+    let template = try cardWaitingTemplate()
+    let fixture = try ClaudeConnectionFixture(body: try cardWaitingChild(template, before: "0.2", after: nil))
+    defer { fixture.remove() }
+    let request = try cardWaitingRequest(fixture)
+    let control = ClaudeTextTurnControl()
+    let lifecycle = ClaudeProcessLifecycleObservation()
+    let result = await NativeClaudeTextOnlyRunner(testTimeout: 3, testOverallTimeout: 4) { lifecycle.record($0) }
+        .run(request: request, control: control) { event in
+            guard case .permissionRequested(let question) = event else { return }
+            try? await Task.sleep(for: .seconds(2))
+            control.respond(requestID: question.requestID, allow: true)
+        }
+    // Output every 400 ms keeps the silence budget away; only the ceiling
+    // ends this turn, and it was moved by the two seconds the card waited.
+    #expect(result == .failed(.timedOut))
+    let elapsed = try #require(lifecycle.duration)
+    #expect(elapsed >= .milliseconds(5_600))
+    #expect(elapsed < .seconds(60))
+}
+
+@Test("A card nobody answers still ends the turn: the time given back to the ceiling is capped")
+func unansweredCardIsBoundedByTheCreditCap() async throws {
+    let template = try cardWaitingTemplate()
+    let fixture = try ClaudeConnectionFixture(body: try cardWaitingChild(template, before: "0.2", after: "0.2"))
+    defer { fixture.remove() }
+    let request = try cardWaitingRequest(fixture)
+    let control = ClaudeTextTurnControl()
+    let lifecycle = ClaudeProcessLifecycleObservation()
+    // Ceiling two seconds, at most three given back: the turn ends near five.
+    let result = await NativeClaudeTextOnlyRunner(testTimeout: 30, testOverallTimeout: 2, testCardCredit: 3) {
+        lifecycle.record($0)
+    }.run(request: request, control: control) { _ in }
+    #expect(result == .failed(.timedOut))
+    #expect(control.isAwaitingDecision)
+    let elapsed = try #require(lifecycle.duration)
+    #expect(elapsed >= .milliseconds(4_600))
+    #expect(elapsed < .seconds(20))
+}
+
 private func textProcessEmit(_ data: Data) throws -> String {
     // Synthetic JSON fixtures only. Quoted heredoc prevents shell expansion.
     let text = try #require(String(data: data, encoding: .utf8))

@@ -199,6 +199,16 @@ struct ClaudeTextOnlyStream {
     /// Approved renewals so far.
     private(set) var renewalCount = 0
 
+    /// The latest frames as the CLI wrote them, each cut to a bound, so a
+    /// refusal can hand over what led to it; without them a refused turn
+    /// leaves nothing to read.
+    private var recentFrames: [Data] = []
+
+    private mutating func remember(_ line: Data) {
+        if recentFrames.count == ClaudeTextOnlyRefusalLog.maximumFrames { recentFrames.removeFirst() }
+        recentFrames.append(Data(line.prefix(ClaudeTextOnlyRefusalLog.maximumFrameBytes)))
+    }
+
     init(request: ClaudeTextOnlyRequest, control: ClaudeTextTurnControl? = nil) {
         self.request = request
         self.control = control
@@ -283,7 +293,16 @@ struct ClaudeTextOnlyStream {
             // what Foundation autoreleases while parsing would otherwise live
             // until the turn ends: a screenshot's worth for every picture call
             // (666 MB over 128 of the largest, measured).
-            for event in try autoreleasepool(invoking: { try parse(line) }) { onEvent(event) }
+            remember(line)
+            do {
+                for event in try autoreleasepool(invoking: { try parse(line) }) { onEvent(event) }
+            } catch let rejection as ClaudeTextOnlyRejection {
+                // A failed reply keeps the frames that led to it.
+                if rejection.failure != .declined {
+                    ClaudeTextOnlyRefusalLog.reportFrames(runID: request.runID, frames: recentFrames)
+                }
+                throw rejection
+            }
         }
         searchedBytes = pending.count
         guard pending.count <= lineLimit else { throw reject(.outputLimitExceeded, .outputLimitExceeded) }
@@ -333,6 +352,7 @@ struct ClaudeTextOnlyStream {
             let shape = refusalShape(root)
             let code = String(describing: rejection.code)
             Self.logger.error("Refused a Claude stream frame; code \(code, privacy: .public); shape \(shape, privacy: .public)")
+            ClaudeTextOnlyRefusalLog.report("Refused a Claude stream frame; code \(code); shape \(shape)")
             throw rejection
         }
     }
@@ -891,6 +911,14 @@ struct ClaudeTextOnlyStream {
                     if reason == "refusal", !isUnderneathAToolCall { declined = true }
                 }
             case "content_block_stop", "message_stop": break
+            case "ping":
+                // The provider's keep-alive while a reply stalls, passed through
+                // since Claude Code 2.1.283: every 20 to 30 seconds while a long
+                // Write's arguments wait (a work turn died on the first one before
+                // it was admitted). Only the bare event, nothing in
+                // it; like keep_alive it carries no text and needs no budget of
+                // its own, since the turn's output limit already bounds it.
+                guard event.count == 1 else { throw reject(.invalidStream, .responseMismatch) }
             default: throw reject(.invalidStream, .responseMismatch)
             }
             return []
@@ -1695,6 +1723,53 @@ struct ClaudeTextOnlyStream {
 }
 
 extension ClaudeTextOnlyFailure: Error {}
+
+/// Where a refused frame's line goes besides the unified log, which drops
+/// such lines within about a day, so a refusal found later has nothing to
+/// read. The app points this at its own
+/// diagnostics file; the line is the code and the shape, names only.
+public enum ClaudeTextOnlyRefusalLog {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var lineObservers: [UUID: @Sendable (String) -> Void] = [:]
+    nonisolated(unsafe) private static var frameObservers: [UUID: @Sendable (UUID, [Data]) -> Void] = [:]
+
+    /// How many of a turn's latest frames a refusal hands over, and the most
+    /// of each: enough to see what the model and the CLI said just before.
+    public static let maximumFrames = 40
+    public static let maximumFrameBytes = 16_384
+
+    /// Adds a receiver of each refusal's line (code and shape, names only).
+    /// Returns the token that removes it.
+    @discardableResult
+    public static func observeLines(_ handler: @escaping @Sendable (String) -> Void) -> UUID {
+        let token = UUID()
+        lock.withLock { lineObservers[token] = handler }
+        return token
+    }
+
+    /// Adds a receiver of a refused turn's latest frames, the refused one
+    /// last. Unlike the line these carry what was said, so the app keeps them
+    /// only in its own private folder, the last few failures. Returns the
+    /// token that removes it.
+    @discardableResult
+    public static func observeFrames(_ handler: @escaping @Sendable (UUID, [Data]) -> Void) -> UUID {
+        let token = UUID()
+        lock.withLock { frameObservers[token] = handler }
+        return token
+    }
+
+    public static func removeObserver(_ token: UUID) {
+        lock.withLock { lineObservers[token] = nil; frameObservers[token] = nil }
+    }
+
+    static func report(_ line: String) {
+        for handler in lock.withLock({ Array(lineObservers.values) }) { handler(line) }
+    }
+
+    static func reportFrames(runID: UUID, frames: [Data]) {
+        for handler in lock.withLock({ Array(frameObservers.values) }) { handler(runID, frames) }
+    }
+}
 
 struct ClaudeTextOnlyRejection: Error, Equatable {
     let failure: ClaudeTextOnlyFailure

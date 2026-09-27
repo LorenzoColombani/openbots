@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import OSLog
 
 /// Single-turn transport, not a sandbox or general process executor. Services
 /// owns fresh signed-installation, profile, policy and Pro/Max admission.
@@ -9,10 +10,13 @@ public struct NativeClaudeTextOnlyRunner: ClaudeTextOnlyRunning {
     private let processLifecycleObserver: (@Sendable (Duration) -> Void)?
     public init() {
         // A long answer is not a failure. Only silence ends a turn early; the
-        // absolute ceiling is the one bound a still-writing child cannot push.
+        // ceiling is the one bound a still-writing child cannot push. Time a
+        // card waits for the user is given back to the ceiling, forty-five minutes
+        // at most, so an ordinary turn lives an hour at the very most.
         budget = ClaudeTextOnlyBudget(silence: 90_000_000_000, overall: 900_000_000_000,
                                       leaseHeartbeat: Self.leaseHeartbeatNanoseconds,
-                                      macControlOverall: Self.macControlCeilingNanoseconds)
+                                      macControlOverall: Self.macControlCeilingNanoseconds,
+                                      cardCredit: Self.macControlCeilingNanoseconds)
         processLifecycleObserver = nil
     }
     /// A text turn's run-journal lease lasts 180 seconds and is renewed by every
@@ -28,12 +32,17 @@ public struct NativeClaudeTextOnlyRunner: ClaudeTextOnlyRunning {
     /// Both budgets take the same clamped value, so a timing test keeps the
     /// single deadline it was written against. A separate overall cap and a
     /// separate heartbeat exist only for the tests that must tell them apart.
+    /// The card credit defaults to the test's own overall budget, so a test
+    /// that leaves a card unanswered waits at most twice that, never the
+    /// production forty-five minutes.
     init(testTimeout: TimeInterval, testOverallTimeout: TimeInterval? = nil, testLeaseHeartbeat: TimeInterval? = nil,
+         testCardCredit: TimeInterval? = nil,
          processLifecycleObserver: (@Sendable (Duration) -> Void)? = nil) {
         let silence = Self.testNanoseconds(testTimeout)
-        budget = ClaudeTextOnlyBudget(silence: silence,
-                                      overall: testOverallTimeout.map(Self.testNanoseconds) ?? silence,
-                                      leaseHeartbeat: testLeaseHeartbeat.map(Self.testNanoseconds) ?? Self.leaseHeartbeatNanoseconds)
+        let overall = testOverallTimeout.map(Self.testNanoseconds) ?? silence
+        budget = ClaudeTextOnlyBudget(silence: silence, overall: overall,
+                                      leaseHeartbeat: testLeaseHeartbeat.map(Self.testNanoseconds) ?? Self.leaseHeartbeatNanoseconds,
+                                      cardCredit: testCardCredit.map(Self.testNanoseconds) ?? overall)
         self.processLifecycleObserver = processLifecycleObserver
     }
 
@@ -109,10 +118,13 @@ private final class ClaudeTextOnlyTransfer: @unchecked Sendable {
     }
 }
 
-/// Two budgets, never one: a turn fails on silence, and the absolute ceiling
-/// from launch bounds a child that writes forever without ever finishing. The
-/// heartbeat is not a budget; it is how often a working child's text so far is
-/// republished so the turn's lease is renewed.
+/// Two budgets, never one: a turn fails on silence, and the ceiling from
+/// launch bounds a child that writes forever without ever finishing. The
+/// ceiling measures the model's own time: while a card waits for the user it is
+/// moved on by the wait, up to `cardCredit` in all, so the turn is still
+/// bounded (ceiling plus credit) even if nobody ever answers. The heartbeat is
+/// not a budget; it is how often a working child's text so far is republished
+/// so the turn's lease is renewed.
 private struct ClaudeTextOnlyBudget {
     let silence: UInt64
     let overall: UInt64
@@ -123,9 +135,17 @@ private struct ClaudeTextOnlyBudget {
     /// renewal still restarts its own ceiling. Tests that set
     /// their own overall budget keep it.
     var macControlOverall: UInt64? = nil
+    /// The most card time given back to one ceiling. A long work turn can
+    /// spend a third of its fifteen minutes on cards the user is reading.
+    /// Forty-five minutes in the app: an ordinary turn ends within an hour of
+    /// launch, a Control this Mac window within ninety minutes of its launch
+    /// or renewal.
+    let cardCredit: UInt64
 }
 
 private enum ClaudeTextOnlyProcess {
+    private static let logger = Logger(subsystem: "com.lorenzocolombani.openbotsnext.preview",
+                                       category: "ClaudeTextOnlyProcess")
     static func run(request: ClaudeTextOnlyRequest, budget: ClaudeTextOnlyBudget,
                     transfer: ClaudeTextOnlyTransfer, control: ClaudeTextTurnControl?) -> ClaudeTextOnlyResult {
         let result = execute(request: request, budget: budget, transfer: transfer, control: control)
@@ -160,8 +180,10 @@ private enum ClaudeTextOnlyProcess {
             }
         } catch {
             if transfer.isCancelled { return .cancelled }
-            return .failed(expired(budget, lastOutputAt: acceptedAt, overallDeadline: overallDeadline)
-                ? .timedOut : .launchFailed)
+            return expired(budget, lastOutputAt: acceptedAt, overallDeadline: overallDeadline)
+                ? timedOut(acceptedAt: acceptedAt, lastOutputAt: acceptedAt, overallDeadline: overallDeadline,
+                           cardCredited: 0, stage: "before launch")
+                : .failed(.launchFailed)
         }
         // The configuration naming this turn's servers is owned exactly like the
         // system prompt: private, single-link, and gone when the turn is.
@@ -180,12 +202,14 @@ private enum ClaudeTextOnlyProcess {
             } catch {
                 _ = promptFile.removeIfUnchanged()
                 if transfer.isCancelled { return .cancelled }
-                return .failed(expired(budget, lastOutputAt: acceptedAt, overallDeadline: overallDeadline)
-                    ? .timedOut : .launchFailed)
+                return expired(budget, lastOutputAt: acceptedAt, overallDeadline: overallDeadline)
+                    ? timedOut(acceptedAt: acceptedAt, lastOutputAt: acceptedAt, overallDeadline: overallDeadline,
+                               cardCredited: 0, stage: "before launch")
+                    : .failed(.launchFailed)
             }
         }
         let result = executePrepared(request: request, promptFile: promptFile, connectorFile: connectorFile,
-                                     budget: budget,
+                                     budget: budget, acceptedAt: acceptedAt,
                                      lastOutputAt: acceptedAt, overallDeadline: overallDeadline,
                                      transfer: transfer, control: request.requiresPermissionControl ? control : nil)
         // Whatever ended the turn — success, failure, timeout, Stop, quit — the
@@ -212,11 +236,17 @@ private enum ClaudeTextOnlyProcess {
 
     private static func executePrepared(request: ClaudeTextOnlyRequest, promptFile: ClaudeTextOnlyPromptFile,
                                         connectorFile: ClaudeTextOnlyPromptFile?,
-                                        budget: ClaudeTextOnlyBudget, lastOutputAt: UInt64, overallDeadline: UInt64,
+                                        budget: ClaudeTextOnlyBudget, acceptedAt: UInt64,
+                                        lastOutputAt: UInt64, overallDeadline: UInt64,
                                         transfer: ClaudeTextOnlyTransfer, control: ClaudeTextTurnControl?) -> ClaudeTextOnlyResult {
         var lastOutputAt = lastOutputAt
-        // Moves only when the user renews a turn's rounds (below).
+        // Moves on while a card waits for the user, and when they renew a
+        // turn's rounds (below).
         var overallDeadline = overallDeadline
+        // Card time given back to the ceiling since launch or the last
+        // renewal, and when the loop last looked at an open card.
+        var cardCredited: UInt64 = 0
+        var cardSeenAt: UInt64?
         guard let userInput = try? ClaudeTextOnlyCommandBuilder.input(for: request) else { return .failed(.inputRejected) }
         // A work turn opens the control channel first, then sends the message;
         // both go out in order on the same pipe. Its stdin stays open for the
@@ -268,7 +298,8 @@ private enum ClaudeTextOnlyProcess {
               posix_spawnattr_setpgroup(&attributes, 0) == 0 else { return .failed(.launchFailed) }
         guard !transfer.isCancelled else { return .cancelled }
         guard !expired(budget, lastOutputAt: lastOutputAt, overallDeadline: overallDeadline) else {
-            return .failed(.timedOut)
+            return timedOut(acceptedAt: acceptedAt, lastOutputAt: lastOutputAt, overallDeadline: overallDeadline,
+                            cardCredited: 0, stage: "before launch")
         }
         guard promptFile.isUnchanged(), connectorFile?.isUnchanged() ?? true else { return .failed(.launchFailed) }
         var pid: pid_t = 0
@@ -326,9 +357,26 @@ private enum ClaudeTextOnlyProcess {
             republishForLease(stream, transfer: transfer, lastSnapshotAt: &lastSnapshotAt, budget: budget)
             // A child waiting on the user's decision is not a silent child: the
             // silence budget pauses while a question is open, and while the
-            // card renewing the rounds waits. The absolute ceiling from launch
-            // still ends a turn nobody comes back to.
-            if let control, control.isAwaitingDecision { lastOutputAt = DispatchTime.now().uptimeNanoseconds }
+            // card renewing the rounds waits. Nor is it working: the ceiling
+            // measures the model's own time, so it moves on by every moment
+            // any card is open, whatever kind. It moves while the card is
+            // still open, not when it closes, so a long read that crosses the
+            // ceiling does not end the turn under the user. At most
+            // `cardCredit` is given back, so a turn nobody comes back to still
+            // ends: ceiling plus credit from launch or from the last renewal.
+            if let control, control.isAwaitingDecision {
+                let now = DispatchTime.now().uptimeNanoseconds
+                lastOutputAt = now
+                if let seen = cardSeenAt, now > seen, cardCredited < budget.cardCredit {
+                    let credit = min(now - seen, budget.cardCredit - cardCredited)
+                    cardCredited += credit
+                    let (moved, overflowed) = overallDeadline.addingReportingOverflow(credit)
+                    overallDeadline = overflowed ? UInt64.max : moved
+                }
+                cardSeenAt = now
+            } else {
+                cardSeenAt = nil
+            }
             // The renewal card waits ten minutes and unanswered is a Deny. A window of
             // sixty-four rounds can leave less than that of the ceiling measured
             // from launch, and the turn would end as "did not finish in time"
@@ -363,6 +411,9 @@ private enum ClaudeTextOnlyProcess {
                 overallDeadline = overflowed ? UInt64.max : ceiling
                 lastOutputAt = now
                 ceilingMovedForRenewalCard = false
+                // A new window, and a new allowance of card time with it.
+                cardCredited = 0
+                cardSeenAt = nil
             }
 
             if inputPipe[1] >= 0, written < input.count {
@@ -416,6 +467,9 @@ private enum ClaudeTextOnlyProcess {
             let polled = Darwin.poll(&descriptors, nfds_t(descriptors.count), 20)
             if polled < 0, errno != EINTR { failure = .processFailed; break }
         }
+        // Which limit ended the loop is read now, before the reaping below
+        // takes its own time.
+        let loopEndedAt = DispatchTime.now().uptimeNanoseconds
 
         // Cleanup is independent of UI callbacks. It is group lifecycle control,
         // not containment against a program deliberately creating another group.
@@ -428,7 +482,10 @@ private enum ClaudeTextOnlyProcess {
         repeat { reaped = waitpid(pid, &status, 0) } while reaped < 0 && errno == EINTR
         guard !transfer.isCancelled else { return .cancelled }
         if let failure { return .failed(failure) }
-        guard exited else { return .failed(.timedOut) }
+        guard exited else {
+            return timedOut(acceptedAt: acceptedAt, lastOutputAt: lastOutputAt, overallDeadline: overallDeadline,
+                            cardCredited: cardCredited, stage: "running", at: loopEndedAt)
+        }
         guard reaped == pid, status & 0x7f == 0 else { return .failed(.processFailed) }
         guard written == input.count else { return .failed(.inputRejected) }
         return stream.finish(exitCode: (status >> 8) & 0xff) { transfer.recordDiagnostic($0) }
@@ -501,8 +558,30 @@ private enum ClaudeTextOnlyProcess {
         }
     }
 
-    /// The effective deadline at any check is the earlier of the absolute
-    /// ceiling and the last output plus the silence budget.
+    /// Both limits end a turn as the one stored code, `deadlineExceeded`: a
+    /// new code would be a saved status an older build (a rollback copy,
+    /// or a public v1.0) refuses to read, and it reads every saved reply of a
+    /// conversation together. So which limit fired is said here, in the log,
+    /// with the numbers a reader needs, and nothing of the turn's content.
+    private static func timedOut(acceptedAt: UInt64, lastOutputAt: UInt64, overallDeadline: UInt64,
+                                 cardCredited: UInt64, stage: String,
+                                 at now: UInt64 = DispatchTime.now().uptimeNanoseconds) -> ClaudeTextOnlyResult {
+        let limit = now >= overallDeadline ? "whole-turn ceiling" : "silence budget"
+        func seconds(_ nanoseconds: UInt64) -> String { String(format: "%.1f", Double(nanoseconds) / 1_000_000_000) }
+        let sinceLaunch = seconds(now > acceptedAt ? now - acceptedAt : 0)
+        let quiet = seconds(now > lastOutputAt ? now - lastOutputAt : 0)
+        let credited = seconds(cardCredited)
+        logger.error("""
+            Text turn timed out \(stage, privacy: .public) on the \(limit, privacy: .public); \
+            \(sinceLaunch, privacy: .public) s since launch, \(credited, privacy: .public) s of card time \
+            given back to the ceiling, \(quiet, privacy: .public) s since the last output
+            """)
+        return .failed(.timedOut)
+    }
+
+    /// The effective deadline at any check is the earlier of the ceiling (as
+    /// moved by card time and renewals) and the last output plus the silence
+    /// budget.
     private static func expired(_ budget: ClaudeTextOnlyBudget, lastOutputAt: UInt64,
                                 overallDeadline: UInt64) -> Bool {
         let now = DispatchTime.now().uptimeNanoseconds

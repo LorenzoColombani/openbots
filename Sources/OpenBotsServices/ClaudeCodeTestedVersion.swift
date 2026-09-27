@@ -9,7 +9,7 @@ public enum ClaudeCodeTestedVersion {
     /// The newest Claude Code whose wire the tests replay. A test holds this
     /// equal to the newest `Tests/OpenBotsRuntimeTests/Fixtures/claude-cli-<version>`
     /// folder, so capturing a new version is what moves it.
-    public static let lastTested = "2.1.282"
+    public static let lastTested = "2.1.283"
 
     /// Whether `version` is a later dotted number than `other`. Anything that
     /// is not a plain dotted version is never newer.

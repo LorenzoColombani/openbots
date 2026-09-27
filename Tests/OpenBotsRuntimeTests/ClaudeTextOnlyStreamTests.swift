@@ -955,3 +955,75 @@ func lostSessionIsNamed() throws {
         }
     }
 }
+
+@Test("A refused frame's code and shape reach the refusal observer, the app's diagnostics file, and no value does")
+func claudeTextStreamReportsRefusalShape() throws {
+    // The unified log drops the app's refusal lines within about a day, so
+    // the shape also goes to the observer the app points at its own file.
+    let seen = RefusalLines()
+    let token = ClaudeTextOnlyRefusalLog.observeLines { seen.append($0) }
+    defer { ClaudeTextOnlyRefusalLog.removeObserver(token) }
+    let request = try textOnlyTestRequest()
+    var stream = ClaudeTextOnlyStream(request: request)
+    _ = try stream.consume(try textOnlyTestInit(request) + textOnlyTestReplay(request))
+    let bogus = Data(#"{"type":"stream_event","session_id":"\#(request.sessionID.uuidString.lowercased())","parent_tool_use_id":null,"uuid":"\#(UUID().uuidString.lowercased())","event":{"type":"brand_new_event_a","secret":"VALUE-NEVER-LOGGED"}}"#.utf8) + Data([0x0a])
+    #expect(throws: (any Error).self) { _ = try stream.consume(bogus) }
+    // Other tests refuse frames in parallel; only this one names this event.
+    let lines = seen.all.filter { $0.contains("brand_new_event_a") }
+    #expect(lines.count == 1)
+    let line = try #require(lines.first)
+    #expect(line.contains("code responseMismatch"))
+    #expect(line.contains("type=stream_event") && line.contains("event=[type:brand_new_event_a"))
+    #expect(!line.contains("VALUE-NEVER-LOGGED"))
+}
+
+private final class RefusalLines: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lines: [String] = []
+    func append(_ line: String) { lock.withLock { lines.append(line) } }
+    var all: [String] { lock.withLock { lines } }
+}
+
+@Test("A refused frame hands the turn's last frames, the refused one last, to the frames observer, each cut to its bound")
+func claudeTextStreamHandsBackLastFramesOnRefusal() throws {
+    let seen = RefusedFrames()
+    let token = ClaudeTextOnlyRefusalLog.observeFrames { runID, frames in seen.record(runID, frames) }
+    defer { ClaudeTextOnlyRefusalLog.removeObserver(token) }
+    let request = try textOnlyTestRequest()
+    var stream = ClaudeTextOnlyStream(request: request)
+    let prefix = try textOnlyTestInit(request) + textOnlyTestReplay(request)
+    _ = try stream.consume(prefix)
+    let marker = "LAST-FRAME-\(UUID().uuidString)"
+    let bogus = Data(#"{"type":"stream_event","session_id":"\#(request.sessionID.uuidString.lowercased())","parent_tool_use_id":null,"uuid":"\#(UUID().uuidString.lowercased())","event":{"type":"brand_new_event_b","note":"\#(marker)"}}"#.utf8) + Data([0x0a])
+    #expect(throws: (any Error).self) { _ = try stream.consume(bogus) }
+    let frames = try #require(seen.frames(for: request.runID))
+    #expect(frames.count == prefix.filter { $0 == 0x0a }.count + 1, "every frame so far, then the refused one")
+    #expect(String(decoding: try #require(frames.last), as: UTF8.self).contains(marker))
+    #expect(frames.allSatisfy { $0.count <= ClaudeTextOnlyRefusalLog.maximumFrameBytes })
+}
+
+@Test("The frames kept for a refusal are the latest few and each is cut to its bound")
+func claudeTextStreamKeepsOnlyTheLatestFrames() throws {
+    let seen = RefusedFrames()
+    let token = ClaudeTextOnlyRefusalLog.observeFrames { runID, frames in seen.record(runID, frames) }
+    defer { ClaudeTextOnlyRefusalLog.removeObserver(token) }
+    let request = try textOnlyTestRequest()
+    var stream = ClaudeTextOnlyStream(request: request)
+    _ = try stream.consume(try textOnlyTestInit(request) + textOnlyTestReplay(request))
+    let long = String(repeating: "a", count: ClaudeTextOnlyRefusalLog.maximumFrameBytes * 2)
+    for _ in 0..<(ClaudeTextOnlyRefusalLog.maximumFrames + 5) {
+        _ = try stream.consume(textOnlyTestDelta(request, text: long.prefix(200) + ""))
+    }
+    let huge = Data(#"{"type":"stream_event","session_id":"\#(request.sessionID.uuidString.lowercased())","parent_tool_use_id":null,"uuid":"\#(UUID().uuidString.lowercased())","event":{"type":"brand_new_event_c","note":"\#(long)"}}"#.utf8) + Data([0x0a])
+    #expect(throws: (any Error).self) { _ = try stream.consume(huge) }
+    let frames = try #require(seen.frames(for: request.runID))
+    #expect(frames.count == ClaudeTextOnlyRefusalLog.maximumFrames)
+    #expect(try #require(frames.last).count == ClaudeTextOnlyRefusalLog.maximumFrameBytes)
+}
+
+private final class RefusedFrames: @unchecked Sendable {
+    private let lock = NSLock()
+    private var byRun: [UUID: [Data]] = [:]
+    func record(_ runID: UUID, _ frames: [Data]) { lock.withLock { byRun[runID] = frames } }
+    func frames(for runID: UUID) -> [Data]? { lock.withLock { byRun[runID] } }
+}

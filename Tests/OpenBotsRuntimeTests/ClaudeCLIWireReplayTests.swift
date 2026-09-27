@@ -274,3 +274,56 @@ func cli2_1_282RefusalReplaysAsDeclined() throws {
         try handed.consume(fallback) { _ in }
     }
 }
+
+// Claude Code 2.1.283 installed itself overnight, and the next morning two
+// work turns died mid-reply with
+// "responseMismatch": the log named a stream event of type `ping`, sent while
+// a long Write's arguments stalled. This capture reproduces that turn's shape
+// (Opus 5, effort high, long context): a failing command, a refused one, then
+// a Write whose arguments paused for two minutes, with three pings in the gap.
+@Test("Claude Code 2.1.283: a work turn whose long Write stalls replays whole, its stall pings admitted")
+func cli2_1_283WorkTurnWithStallPingsReplays() throws {
+    let capture = try WireCapture(version: "2.1.283", shape: "work")
+    let pings = capture.frames.filter { frame in
+        let root = (try? JSONSerialization.jsonObject(with: frame) as? [String: Any]) ?? [:]
+        return (root["event"] as? [String: Any])?["type"] as? String == "ping"
+    }
+    #expect(pings.count == 3)
+    let replay = try replay(capture, control: ClaudeTextTurnControl()) { $0.admitted }
+    #expect(replay.rejections.isEmpty, "\(replay.rejections)")
+    #expect(replay.completed && replay.text.contains("checklist.html"))
+    let tools = replay.events.compactMap { event -> String? in
+        if case .toolUse(let use) = event { return use.toolName }; return nil
+    }
+    #expect(tools == ["Bash", "Bash", "Write"])
+}
+
+@Test("Claude Code 2.1.283: only the bare ping is admitted; a ping carrying anything else, or another event kind, is refused at that frame")
+func cli2_1_283OnlyTheBarePingIsAdmitted() throws {
+    let capture = try WireCapture(version: "2.1.283", shape: "work")
+    let index = try #require(capture.frames.firstIndex { frame in
+        let root = (try? JSONSerialization.jsonObject(with: frame) as? [String: Any]) ?? [:]
+        return (root["event"] as? [String: Any])?["type"] as? String == "ping"
+    })
+    let edits: [(String, [String: Any])] = [
+        ("a ping with data", ["type": "ping", "data": "x"]),
+        ("a ping with an index", ["type": "ping", "index": 2]),
+        ("an unknown event kind", ["type": "pong"]),
+    ]
+    for (name, event) in edits {
+        var root = try #require(JSONSerialization.jsonObject(with: capture.frames[index]) as? [String: Any])
+        root["event"] = event
+        var frame = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
+        frame.append(0x0a)
+        let request = try capture.request()
+        var stream = ClaudeTextOnlyStream(request: request, control: ClaudeTextTurnControl())
+        if let id = capture.meta["control_id"] as? String { stream.expectControlInitialization(requestID: id) }
+        var failure: ClaudeTextOnlyRejection?
+        for (position, original) in capture.frames.enumerated() {
+            let data = position == index ? frame : original
+            do { try stream.consume(data) { _ in } } catch let rejection as ClaudeTextOnlyRejection { failure = rejection; break }
+            if position == index { break }
+        }
+        #expect(failure == ClaudeTextOnlyRejection(failure: .invalidStream, code: .responseMismatch), "\(name): \(String(describing: failure))")
+    }
+}

@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.0.2 — 27 September 2026
+
+- **New models.** Each bot's model picker offers Claude Opus 5.5 (its default
+  intensity is medium) and Claude Fable 5.1. Fable 5.1 shows a warning directly
+  under the picker: once your plan's Fable allowance runs out, its replies are
+  billed to your usage credits if you have turned them on. Fable 5 leaves the
+  list; a bot that saved it keeps the preference and is refused at launch as before.
+- **Claude Code 2.1.283.** Its keep-alive pings during a long file write no longer
+  end a reply, and time a reply spends waiting on your approval cards no longer
+  counts against its fifteen minutes (up to forty-five minutes of cards).
+- **Failed replies explain themselves.** The chip under a failed reply opens to say
+  what happened in words, with the code to quote and a link to the "What happened"
+  record. When a reply fails, the app keeps a private record of it (the last five,
+  on your Mac only, never for a reply that used a secret) so the cause can be found.
+
 ## v1.0.1 — 26 September 2026
 
 - **Install guide.** The install steps as 16 short cards: a [web page](https://lorenzocolombani.github.io/openbots/guides/install-guide.html)

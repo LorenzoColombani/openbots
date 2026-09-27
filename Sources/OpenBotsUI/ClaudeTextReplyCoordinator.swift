@@ -77,7 +77,7 @@ public enum ClaudeTextReplyPhase: Equatable, Sendable {
         case .subscriptionNotVerified: "The Claude.ai subscription could not be verified. Check Settings → General & Claude Code."
         case .managedPolicyPresentOrUnknown: "Claude’s required tool-free configuration could not be verified. Nothing was sent."
         case .invalidResponse: "Claude’s response could not be verified. Saved text is kept; no retry will run automatically."
-        case .timedOut: "Claude did not finish in time. Saved text is kept; no retry will run automatically."
+        case .timedOut: "Claude did not finish in time: it went quiet for too long, or the whole reply ran past its time limit. Saved text is kept; no retry will run automatically."
         case .persistenceFailed: "The reply could not be confirmed saved. Any already-saved messages are kept; do not resend automatically."
         case .turnLimitReached: "Claude used up its rounds of tool calls before it finished this reply. Saved text is kept; no retry will run automatically."
         case .macControlRoundsUsedUp: "The bot used up its rounds on your Mac before it finished this reply. Saved text is kept; no retry will run automatically."

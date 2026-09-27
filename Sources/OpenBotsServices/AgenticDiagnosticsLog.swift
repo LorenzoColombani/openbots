@@ -1,4 +1,5 @@
 import Foundation
+import OpenBotsRuntime
 import os
 
 /// Bounded, secret-free diagnostics for the agentic job path. Lines go to the
@@ -14,6 +15,13 @@ public enum AgenticDiagnosticsLog {
     public static func note(_ category: String, _ message: String) {
         logger.notice("\(category, privacy: .public): \(message, privacy: .public)")
         append("\(category) \(message)")
+    }
+
+    /// A Claude reply that dies on a refused stream frame names that frame's
+    /// shape here, in the file that survives (the unified log drops such
+    /// lines within about a day). Called once at launch by the app.
+    public static func recordStreamRefusals() {
+        ClaudeTextOnlyRefusalLog.observeLines { line in error("text-turn", line) }
     }
 
     public static func error(_ category: String, _ message: String) {

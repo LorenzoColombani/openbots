@@ -129,6 +129,9 @@ public actor OfficialClaudeTextReplyService: ClaudeTextReplyServing {
     /// Removes what the CLI kept of a session under the app's profile when
     /// the stored session is dropped.
     private let sessionTranscriptRemove: @Sendable (URL, UUID) throws -> ClaudeSessionTranscriptRemoval
+    /// Keeps a failed reply's latest frames and CLI transcript for diagnosis;
+    /// nil keeps nothing.
+    private let failedTurns: (any ClaudeTextFailedTurnKeeping)?
     private let appOwnerID: UUID
     private let ownerID: UUID
     private let clock: any OpenBotsClock
@@ -543,6 +546,7 @@ public actor OfficialClaudeTextReplyService: ClaudeTextReplyServing {
                 resumesSessions: Bool = false,
                 sessionTranscriptExists: @escaping @Sendable (URL, UUID) -> Bool = ClaudeSessionTranscriptLocator.existsInProfile,
                 sessionTranscriptRemove: @escaping @Sendable (URL, UUID) throws -> ClaudeSessionTranscriptRemoval = ClaudeSessionTranscriptLocator.removeFromProfile,
+                failedTurns: (any ClaudeTextFailedTurnKeeping)? = nil,
                 gmailSendLedger: GoogleGmailSendApprovalLedger = .standard(),
                 chromeTabs: any ChromeTabDirectory = OsascriptChromeTabDirectory(),
                 missingFileHeartbeat: Duration = .seconds(60),
@@ -555,6 +559,7 @@ public actor OfficialClaudeTextReplyService: ClaudeTextReplyServing {
         self.resumesSessions = resumesSessions
         self.sessionTranscriptExists = sessionTranscriptExists
         self.sessionTranscriptRemove = sessionTranscriptRemove
+        self.failedTurns = failedTurns
         self.repository = repository; self.teammates = teammates
         self.conversations = conversations; self.messages = messages
         self.preparer = preparer; self.runner = runner
@@ -1517,6 +1522,14 @@ public actor OfficialClaudeTextReplyService: ClaudeTextReplyServing {
         } onCancel: { process.cancel() }
         // The transport has already killed/reaped its group before returning.
         let settled = await settle(runID, runtime: result, onProgress: onProgress)
+        // Before a failed session's transcript is deleted below: a failed reply
+        // that used no secret is kept, the last few, for the next diagnosis.
+        if let failedTurns {
+            var failed = false
+            if case .failed = settled.outcome { failed = true }
+            failedTurns.finished(runID: runtimeRequest.runID, profileURL: target.profileURL,
+                                 sessionID: runtimeRequest.sessionID, keep: failed && turns[runID]?.usedSecret != true)
+        }
         if resumable, let sessions {
             // A session is kept only after a whole reply. One the CLI no
             // longer has, or one stopped or failed mid-reply, is dropped, so

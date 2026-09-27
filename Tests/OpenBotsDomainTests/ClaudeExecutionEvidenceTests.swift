@@ -51,6 +51,21 @@ struct ClaudeExecutionEvidenceTests {
         #expect(Set(root.keys) == ["request", "initializedModel", "resultModel"])
     }
 
+    @Test("Opus 5.5 and Fable 5.1 are recordable and match their plain reported ids (CLI 2.1.283)")
+    func currentModelsRecordable() throws {
+        for model in ["claude-opus-5-5", "claude-fable-5-1"] {
+            #expect(ClaudeExecutionSelection.recordableModels.contains(model))
+            #expect(ClaudeExecutionSelection.normalizedReportedModel(model) == model)
+            #expect(ClaudeExecutionSelection.normalizedReportedModel(model + "[1m]") == nil)
+            let selection = ClaudeExecutionSelection(model: model, effort: "xhigh", contextWindow: "long")
+            #expect(selection.launchModel == model)
+            let request = ClaudeExecutionRequest(sessionID: UUID(), selection: selection, launchModel: selection.launchModel)
+            let evidence = ClaudeExecutionEvidence(request: request, initializedModel: model, resultModel: model)
+            #expect(try evidence.validated().modelStatus == .resultMatches)
+        }
+        #expect(ClaudeExecutionSelection.normalizedReportedModel("claude-opus-5-5") != "claude-opus-5")
+    }
+
     @Test("Unsupported execution selectors fail without rewriting their raw values")
     func unavailableSelections() throws {
         let values = [

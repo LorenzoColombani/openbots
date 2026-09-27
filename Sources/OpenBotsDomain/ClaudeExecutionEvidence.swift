@@ -10,7 +10,8 @@ public struct ClaudeExecutionSelection: Codable, Equatable, Sendable {
     public static let maximumModelBytes = 200
     /// Keep historical identities recordable if future launch availability changes.
     public static let recordableModels: Set<String> = [
-        "sonnet", "claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5", "claude-fable-5",
+        "sonnet", "claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5-5", "claude-opus-5",
+        "claude-fable-5-1", "claude-fable-5",
         "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
         "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929"
     ]

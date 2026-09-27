@@ -46,6 +46,17 @@ struct TeammateClaudeModelTests {
         #expect(ClaudeEffortPolicy.supportedValues(for: "unknown").isEmpty)
     }
 
+    @Test("Opus 5.5 and Fable 5.1 take all five efforts; Opus 5.5 defaults to medium")
+    func currentModelsEffortPolicy() {
+        for model in ["claude-opus-5-5", "claude-fable-5-1"] {
+            #expect(ClaudeEffortPolicy.supportedValues(for: model) == ["low", "medium", "high", "xhigh", "max"])
+            #expect(ClaudeContextWindowPolicy.supportedValues(for: model) == ["default", "standard", "long"])
+            #expect(ClaudeContextWindowPolicy.defaultTokenLimit(for: model) == 1_000_000)
+        }
+        #expect(ClaudeEffortPolicy.defaultValue(for: "claude-opus-5-5") == "medium")
+        #expect(ClaudeEffortPolicy.defaultValue(for: "claude-fable-5-1") == "high")
+    }
+
     @Test("Context policy distinguishes ordinary windows, explicit long support, and unknown models")
     func contextWindowCompatibilityAndDefaultPolicy() {
         #expect(ClaudeContextWindowPolicy.supportedValues(for: "claude-sonnet-4-6") == ["default", "standard", "long"])
