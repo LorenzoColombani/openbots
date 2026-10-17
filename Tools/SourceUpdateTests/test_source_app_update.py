@@ -388,7 +388,11 @@ class FakeWorker(updater.Worker):
                 return 1, b"synthetic bad replacement"
             return 0, b""
         if "--entitlements" in arguments:
-            return 0, plistlib.dumps({"com.apple.security.automation.apple-events": True})
+            # As the real tool answers through one merged stream: the display
+            # lines around the plist, which the parser must leave out.
+            return 0, (b"Executable=" + arguments[-1].encode() + b"\n"
+                       + plistlib.dumps({"com.apple.security.automation.apple-events": True})
+                       + b"Identifier=com.example.synthetic\n")
         return 0, ("TeamIdentifier=" + TEAM + "\n").encode()
 
 

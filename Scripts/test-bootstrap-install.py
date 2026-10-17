@@ -138,6 +138,20 @@ class BootstrapTests(unittest.TestCase):
             permissions_compatible=lambda old, new: old == new,
             write_json=lambda path, value: bootstrap.write_new(path, json.dumps(value).encode()))
 
+    def test_permissions_ignore_codesign_display_lines_around_the_plist(self):
+        # codesign writes the entitlements to stdout and "Executable=…" to stderr;
+        # run() hands back both, in either order. An upgrade over an installed app
+        # failed on 17 October 2026 because the display lines were parsed as XML.
+        plist = bootstrap.plistlib.dumps({'com.apple.security.automation.apple-events': True})
+        display = b'Executable=/Applications/OpenBots Next.app/Contents/MacOS/OpenBots Next\nIdentifier=x\n'
+        for data in (plist + display, display + plist, plist):
+            with patch.object(bootstrap, 'run', return_value=data):
+                self.assertEqual(bootstrap.permissions(Path('/x')), {'com.apple.security.automation.apple-events': True})
+        with patch.object(bootstrap, 'run', return_value=b'Executable=/x\n'):
+            self.assertEqual(bootstrap.permissions(Path('/x')), {})
+        with patch.object(bootstrap, 'run', return_value=plist[:40] + display), self.assertRaises(bootstrap.BootstrapError):
+            bootstrap.permissions(Path('/x'))
+
     def test_launcher_curl_has_only_allowlisted_environment_and_no_config(self):
         launcher = Path(__file__).parents[1] / 'install.sh'
         logical_lines = re.sub(r'\\\n\s*', ' ', launcher.read_text()).splitlines()

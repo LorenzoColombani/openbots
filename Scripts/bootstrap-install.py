@@ -479,10 +479,14 @@ def signature(app, *, allow_adhoc=False, runtime=False):
 
 def permissions(app):
     data = run(['/usr/bin/codesign', '--display', '--entitlements', ':-', str(app)], home=True)
+    # codesign prints the entitlements on stdout and its "Executable=…" display
+    # lines on stderr; run() returns both, so parse only the plist itself.
     start = data.find(b'<?xml')
     if start < 0:
         start = data.find(b'<plist')
-    result = plistlib.loads(data[start:]) if start >= 0 else {}
+    end = data.find(b'</plist>', start) if start >= 0 else -1
+    require(start < 0 or end >= 0, 'Application signing permissions could not be read.')
+    result = plistlib.loads(data[start:end + len(b'</plist>')]) if start >= 0 else {}
     require(type(result) is dict, 'Application signing permissions could not be read.')
     return result
 

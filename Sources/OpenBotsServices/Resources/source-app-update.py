@@ -597,11 +597,16 @@ def verify_bundle(app, job, run, expected_team=None, candidate=False, check=lamb
     if expected_team is not None and team != expected_team:
         fail("The built application uses a different signing team from the installed app.")
     status, entitlements = run(["/usr/bin/codesign", "--display", "--entitlements", ":-", str(app)])
+    # The display lines ("Executable=…") share the captured stream with the
+    # entitlements plist; parse only the plist itself, wherever it sits.
     start = entitlements.find(b"<?xml")
     if start < 0:
         start = entitlements.find(b"<plist")
+    end = entitlements.find(b"</plist>", start) if start >= 0 else -1
     try:
-        permissions = plistlib.loads(entitlements[start:]) if start >= 0 else {}
+        if start >= 0 and end < 0:
+            raise ValueError("unterminated plist")
+        permissions = plistlib.loads(entitlements[start:end + len(b"</plist>")]) if start >= 0 else {}
     except Exception:
         fail("The application's signing permissions could not be verified.")
     if status or not isinstance(permissions, dict):

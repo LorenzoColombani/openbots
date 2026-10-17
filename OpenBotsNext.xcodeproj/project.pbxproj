@@ -2887,7 +2887,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.1.2;
 				OPENBOTS_GOOGLE_OAUTH_CLIENT_ID = "";
 				OPENBOTS_SOURCE_COMMIT = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.lorenzocolombani.openbotsnext.preview;
@@ -2936,7 +2936,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.1.2;
 				OPENBOTS_GOOGLE_OAUTH_CLIENT_ID = "";
 				OPENBOTS_SOURCE_COMMIT = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.lorenzocolombani.openbotsnext.preview;
