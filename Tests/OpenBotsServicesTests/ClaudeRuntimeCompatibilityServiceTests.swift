@@ -299,8 +299,11 @@ struct ClaudeRuntimeCompatibilityServiceTests {
     func overallDeadline() async throws {
         let fixture = try CompatibilityServiceFixture()
         defer { fixture.remove() }
+        // One 600 ms case fits the 900 ms budget with 300 ms to spare for a slow
+        // runner's overhead; the second cannot (public CI on macos-15 saw the
+        // first case time out at 100 ms / 150 ms).
         let runner = CompatibilityScriptedRunner(fault: .delay)
-        let result = try await fixture.service(runner, overallLimit: .milliseconds(150)).run(fixture.request())
+        let result = try await fixture.service(runner, overallLimit: .milliseconds(900)).run(fixture.request())
         #expect(result == .failed(.init(failedCase: .sonnetReply, reason: .timedOut)))
         #expect(await runner.requests.count == 2)
     }
@@ -403,7 +406,7 @@ private actor CompatibilityScriptedRunner: ClaudeTextOnlyRunning {
         }
         if fault == .hang { return await stall() }
         if fault == .delay {
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return .cancelled }
+            do { try await Task.sleep(for: .milliseconds(600)) } catch { return .cancelled }
         }
         let newerIdentity = "claude-" + request.model + "-5-5"
         let initializedModel: String

@@ -273,7 +273,7 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_NSHumanReadableCopyright: Copyright © 2026 Lorenzo Colombani
         CODE_SIGN_STYLE: Automatic
-        MARKETING_VERSION: 1.1.0
+        MARKETING_VERSION: 1.1.1
         OPENBOTS_GOOGLE_OAUTH_CLIENT_ID: ""
         OPENBOTS_SOURCE_COMMIT: ""
 schemes:

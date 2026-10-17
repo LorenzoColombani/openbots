@@ -451,8 +451,8 @@ public final class SourceAppUpdateCoordinator {
             do {
                 let value = try await service.prepare(offer) { [weak self] progress in
                     Task { @MainActor [weak self] in
-                        guard let self, operationID == token else { return }
-                        model.sourceProgress(progress, cycle: cycle)
+                        guard let self, self.operationID == token else { return }
+                        self.model.sourceProgress(progress, cycle: cycle)
                     }
                 }
                 try Task.checkCancellation()

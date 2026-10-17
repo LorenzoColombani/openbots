@@ -297,7 +297,11 @@ class ControllerRestoreTests(unittest.TestCase):
             self.admit()
             (self.stage / "cancel").touch()
 
-        self.assertEqual(self.run_controller(worker_side), 1)
+        # The fuse (0.2 s) must be the deadline that fires, not the whole-install
+        # limit: on a slow runner admission alone took longer than the 0.5 s limit
+        # and the controller reported "failed" before the fuse could speak.
+        with patch.object(updater, "INSTALL_LIMIT", 5):
+            self.assertEqual(self.run_controller(worker_side), 1)
         self.assertEqual(updater.private_json(self.stage / "error.json")["code"], "cleanup_failed")
         self.assertEqual(self.stops, [3])
 
