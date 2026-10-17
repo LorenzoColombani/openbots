@@ -321,6 +321,7 @@ private actor HandoffWorkspaceReplyFake: ClaudeTextReplyServing {
         } catch { return .init(outcome: .failed(.persistenceFailed)) }
     }
 
+
     /// The lead compiles a finished leg, the way the shipped service
     /// does: the report is the member's work-channel message, the reply the
     /// lead's for the room, and the record returns to the lead.
@@ -410,6 +411,7 @@ private struct HandoffWorkspaceHarness {
     let replyService: HandoffWorkspaceReplyFake
     let workspace: DurableWorkspaceModel
 
+
     /// `handoffs: false` is the workspace built without the handoff service:
     /// a team conversation that behaves exactly as it did before handoffs existed.
     init(selectTeam: Bool, handoffs: Bool = true, secondTeam: Bool = false, workers: Bool = false) throws {
@@ -479,6 +481,7 @@ private struct HandoffWorkspaceHarness {
         return HandoffRecord(handoff: Handoff(provenance: provenance, brief: brief), sourceMessageID: anchor)
     }
 
+
     /// A card lives on the conversation's record, never in the transcript.
     func card(for record: HandoffRecord) -> ChatHandoffCardSnapshot? {
         workspace.handoffCards.first { $0.id == record.id.rawValue }?.card
@@ -503,6 +506,7 @@ private struct HandoffWorkspaceHarness {
         workspace.cardInteractions?.handoff(messageID: record.id.rawValue,
                                             partID: record.legID.rawValue, cardID: record.id.rawValue)
     }
+
 
     /// What the bot's own sidebar row shows. A leg runs in the team, so its
     /// motion never lands here; a leg that ends badly still
@@ -606,6 +610,7 @@ struct HandoffWorkspaceTests {
         try await h.waitUntilAsync { await h.replyService.submissions.count == 2 }
     }
 
+
     /// A worker's result waiting for the room must not take it the moment the
     /// lead's turn ends, or the brief that turn staged is refused and never
     /// sent, and a finished leg's report can be dropped.
@@ -652,7 +657,7 @@ struct HandoffWorkspaceTests {
         let staged = try await h.stageHandoff(after: h.leadReplyID)
         try await h.workspace.loadInitialWorkspace(messageLimit: 20)
 
-        // Nothing runs on display: a pending handoff is not permission to
+        // Nothing runs on display. A pending handoff is not permission to
         // wake work after close.
         try await h.settle()
         #expect(await h.replyService.legSubmissions.isEmpty)

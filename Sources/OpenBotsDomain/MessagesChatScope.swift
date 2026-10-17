@@ -1,5 +1,6 @@
 import Foundation
 
+
 /// The conversations one bot may read through the app's Messages connector.
 ///
 /// The ported connector read across every conversation, so a bot holding it
@@ -21,8 +22,7 @@ public struct AppleMessagesChatScope: Codable, Equatable, Hashable, Sendable {
     /// at most 80 bytes each, JSON-quoted, come to at most 2,658 bytes before
     /// base64 and 3,544 after.
     public static let maximumChats = 32
-    /// The longest guid that can be chosen. Real guids are well under
-    /// this.
+    /// Maximum byte length of a chosen conversation guid.
     public static let maximumGUIDBytes = 80
 
     /// Sorted and without repeats, so two lists naming the same chats are one.
@@ -69,9 +69,9 @@ public struct AppleMessagesChatScope: Codable, Equatable, Hashable, Sendable {
     }
 }
 
-/// One conversation in the user's Messages history, as the app lists it for
-/// them to choose from. Nothing in it is a message: the list names conversations, and
-/// only a bot's server, on a read the user allowed, opens what was said.
+/// One conversation in the user's Messages history, as the app lists it for them to
+/// choose from. Nothing in it is a message: the list names conversations, and
+/// only a bot's server, on a read they allowed, opens what was said.
 public struct MessagesConversation: Equatable, Identifiable, Sendable {
     public var id: String { guid }
     /// Messages' own `chat.guid`, exactly as stored: what a bot's list names.
@@ -82,8 +82,7 @@ public struct MessagesConversation: Equatable, Identifiable, Sendable {
     /// The name a group was given, when it has one.
     public let displayName: String?
     public let isGroup: Bool
-    /// When the newest message this Mac keeps in it was sent or received; nil
-    /// when it keeps none (true of most conversations).
+    /// When the newest retained message was sent or received; nil when no message is retained.
     public let lastMessageAt: Date?
     /// The addresses of the people in it, sorted.
     public let memberAddresses: [String]

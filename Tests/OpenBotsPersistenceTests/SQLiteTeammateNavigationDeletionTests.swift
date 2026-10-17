@@ -82,7 +82,7 @@ struct SQLiteTeammateNavigationDeletionTests {
         #expect(switches.app == [.work])
     }
 
-    /// Found live: the records of a bot's own runs point at
+    /// The records of a bot's own runs point at
     /// the runs without cascading, so a bot that had ever replied through Claude
     /// or run Work could not be deleted. The earlier fixture bots had no runs.
     @Test("Delete removes a bot that has run real turns, with every record of its runs")
@@ -129,8 +129,7 @@ struct SQLiteTeammateNavigationDeletionTests {
         #expect(await deleted.botStillSaved == [false])
     }
 
-    /// Delete left a bot's connector grants in `connector_access_v1` (found
-    /// live). They go through the connector store after the
+    /// A bot's connector grants in `connector_access_v1` go through the connector store after the
     /// delete, as saved sessions do; a refused delete keeps them.
     @Test("A bot's connector grants are forgotten only once the delete has happened")
     func grantsForgottenOnlyAfterTheDelete() async throws {
@@ -153,6 +152,7 @@ struct SQLiteTeammateNavigationDeletionTests {
         #expect(await deleted.forgotten == [bot.id])
         #expect(await deleted.botStillSaved == [false])
     }
+
 
     /// Delete goes
     /// through for a bot that spoke in a team chat, and its team chat messages
@@ -228,6 +228,7 @@ struct SQLiteTeammateNavigationDeletionTests {
         #expect(try await f.foreignKeyProblems(store).isEmpty)
     }
 
+
     /// A kept handoff that could still move lost
     /// its card with its bot, so it could never be sent or declined and held
     /// its chain open for good. Delete ends each one as Decline would, in the
@@ -291,7 +292,7 @@ struct SQLiteTeammateNavigationDeletionTests {
         #expect(try await f.foreignKeyProblems(store).isEmpty)
     }
 
-    /// The plain case: a bot that answered in a team chat keeps its
+    /// A bot that answered in a team chat keeps its
     /// words there even when no other record points at them.
     @Test("A bot that only spoke in a team chat is kept as a Deleted bot and its words stay")
     func teamWordsNothingPointsAtStay() async throws {
@@ -449,7 +450,7 @@ struct SQLiteTeammateNavigationDeletionTests {
     }
 
     /// Asking a bot what it remembers writes records that point into its own
-    /// chat and memory without cascading, so such a bot could never be deleted.
+    /// chat and memory without cascading, so deletion must remove those records.
     @Test("Delete removes a bot's own memory records and moves its memory folder to the Trash")
     func deleteRemovesTheBotsMemory() async throws {
         let f = try NavDeleteFixture(); defer { f.remove() }
@@ -472,9 +473,8 @@ struct SQLiteTeammateNavigationDeletionTests {
         #expect(trash.trashed.map(\.standardizedFileURL.path) == [folder.standardizedFileURL.path])
     }
 
-    /// Found in use: nothing moves a
-    /// card's row past `approved`, and a quit leaves `pending`, so a bot that
-    /// had ever been asked could never be deleted.
+    /// Card rows can remain `approved` or `pending` after their turn has ended.
+    /// Those stale rows must not block bot deletion.
     @Test("A card left behind by a turn that has ended does not block Delete",
           arguments: ["pending", "approved", "executing"])
     func approvalsOfAnEndedTurn(state: String) async throws {

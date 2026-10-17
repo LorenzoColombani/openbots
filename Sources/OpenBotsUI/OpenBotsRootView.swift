@@ -41,10 +41,9 @@ enum NormalBusyFeedbackPolicy {
         case .stopping, .correcting, .stopped, .failed: true
         }
     }
-    /// The activity beat the service writes ("Ran `ls` in Yogurt"), fit for
-    /// the line beside the working creature: no code ticks, one line, or
-    /// nothing when there is nothing to say. Working feedback stays in the
-    /// avatars; this is the words a long turn was missing.
+    /// The activity beat the service writes ("Ran `ls` in Yogurt"), fit for the line beside the
+    /// working creature: no code ticks, one line, or nothing when there is nothing to say.
+    /// Working feedback stays in the avatars; this is the words a long turn was missing.
     static func activityCaption(_ activity: String?) -> String? {
         guard let activity else { return nil }
         let line = activity.replacingOccurrences(of: "`", with: "")
@@ -75,7 +74,7 @@ enum NormalBusyFeedbackPolicy {
                        "Actual Claude reply · partial text saved", "Claude reply in progress · partial text saved"]
         if routine.contains(notice) { return nil }
         // The unverified fallback is what every message with no recorded
-        // delivery carries; under a sent one it only worried the user.
+        // delivery carries; it would be misleading under a confirmed sent message.
         if message.delivery == .sent,
            ["Saved locally · not sent to Claude", "Saved Claude turn outcome", "Saved on this Mac",
             "Saved on this Mac · Claude delivery not verified"].contains(notice) { return nil }
@@ -757,9 +756,9 @@ public struct OpenBotsRootView: View {
 
     private var accountMenu: some View {
         Menu {
-            // True in every state. This view holds only a closure that opens
-            // Claude setup; whether anyone is signed in lives in
-            // ClaudeSetupModel, so the header may not claim it.
+            // True in every state. This view holds only a closure that opens Claude setup;
+            // whether anyone is signed in lives in ClaudeSetupModel, so the header may not
+            // claim it.
             Text("Runs on this Mac.")
             Button("Settings…", systemImage: "gearshape") {
                 // Leave per-window responder restoration to AppKit. A later
@@ -778,7 +777,7 @@ public struct OpenBotsRootView: View {
                 Image(systemName: "person.crop.circle")
                     .font(.system(size: 24))
                     .foregroundStyle(OpenBotsVisualStyle.secondaryText(for: colorScheme))
-                // The displayed name alone: "Preview" stays out of it.
+                // Use the app's display name without an internal build-channel suffix.
                 Text("OpenBots Next").font(.callout.weight(.medium))
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.up.chevron.down").font(.caption2)
@@ -822,29 +821,31 @@ public struct OpenBotsRootView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(OpenBotsVisualStyle.canvas(for: colorScheme))
         } else {
-            VStack(spacing: 0) {
-                conversationHeader
-                Divider()
-                creationStatusWithoutSidebar
-                if conversation.needsLatestPage {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Label(conversation.isShowingLatestPlaceholder ? "Current message — latest history not loaded" : "Saved search result",
-                                  systemImage: conversation.isShowingLatestPlaceholder ? "clock" : "magnifyingglass")
-                            Spacer()
-                            Button("Return to Latest", action: conversation.requestLatestMessages)
-                                .disabled(conversation.isReturningToLatest)
-                        }
-                        if let notice = conversation.searchNavigationNotice {
-                            Text(notice).foregroundStyle(.secondary)
-                        }
-                    }
-                    .font(.callout)
-                    .padding(12)
+            GeometryReader { geometry in
+                VStack(spacing: 0) {
+                    conversationHeader(compact: openWorkRecord != nil && geometry.size.width < 520)
                     Divider()
+                    creationStatusWithoutSidebar
+                    if conversation.needsLatestPage {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Label(conversation.isShowingLatestPlaceholder ? "Current message — latest history not loaded" : "Saved search result",
+                                      systemImage: conversation.isShowingLatestPlaceholder ? "clock" : "magnifyingglass")
+                                Spacer()
+                                Button("Return to Latest", action: conversation.requestLatestMessages)
+                                    .disabled(conversation.isReturningToLatest)
+                            }
+                            if let notice = conversation.searchNavigationNotice {
+                                Text(notice).foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.callout)
+                        .padding(12)
+                        Divider()
+                    }
+                    transcript
+                    composerSection
                 }
-                transcript
-                composerSection
             }
             .background(OpenBotsVisualStyle.canvas(for: colorScheme))
             .navigationTitle(conversation.title)
@@ -869,71 +870,21 @@ public struct OpenBotsRootView: View {
         }
     }
 
-    private var conversationHeader: some View {
-        HStack(spacing: 12) {
-            if !isSidebarVisible { showSidebarButton }
-            if let selected = selectedTeammate {
-                Button { focus = .details; toggleDetails() } label: {
-                    SelectedTeammateHeader(row: selected)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut("i", modifiers: [.command, .shift])
-                .help(detailsPanel == nil ? "Show details" : "Hide details")
-                .accessibilityIdentifier("conversation.details")
-                .accessibilityValue(detailsPanel == nil ? "Collapsed" : "Expanded")
-                .focused($focus, equals: .details)
-                .layoutPriority(1)
-            } else if let team = selectedTeamRow {
-                SelectedTeamHeader(row: team, memberRows: TeamRosterAvatarPolicy.rows(for: team, from: sidebar.teamMemberRowModels), members: teamMembers,
-                                   hiddenMembers: hiddenTeamMembers, openMemberSettings: openMemberSettings,
-                                   workingAvatar: sidebar.workingAvatarByConversation[team.conversationID]).layoutPriority(1)
-            } else {
-                Text(conversation.title)
-                    .font(.title2.weight(.semibold))
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                    .accessibilityAddTraits(.isHeader)
+    private func conversationHeader(compact: Bool) -> some View {
+        // Keep the record's words discoverable. Below a 520pt chat width,
+        // secondary actions get a row of their own instead of squeezing labels.
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                if !isSidebarVisible { showSidebarButton }
+                conversationHeaderIdentity
+                Spacer(minLength: 8)
+                if !compact { conversationHeaderActions }
             }
-            Spacer(minLength: 8)
-            if !isSidebarVisible {
-                searchHeaderButton
-            }
-            if let openWorkRecord {
-                Button(action: openWorkRecord) {
-                    // Said in words: an unlabelled icon was
-                    // never found.
-                    Label("What happened", systemImage: "list.bullet.rectangle")
+            if compact {
+                HStack(spacing: 12) {
+                    Spacer(minLength: 0)
+                    conversationHeaderActions
                 }
-                .labelStyle(.titleAndIcon)
-                .buttonStyle(.plain)
-                .foregroundStyle(OpenBotsVisualStyle.secondaryText(for: colorScheme))
-                .help("What happened here: briefs between bots, the cards you answered, what a bot did on the Mac")
-                .accessibilityIdentifier("conversation.record")
-            }
-            if selectedTeamRow == nil {
-                Button { if let selected = selectedTeammate { openBotSettings?(selected.id) } } label: {
-                    Label("Bot settings", systemImage: "gearshape")
-                        .frame(width: 32, height: 32)
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .foregroundStyle(OpenBotsVisualStyle.secondaryText(for: colorScheme))
-                .disabled(openBotSettings == nil || selectedTeammate == nil)
-                .help("Edit this bot’s profile and preferences")
-                .accessibilityIdentifier("conversation.bot-settings")
-            } else {
-                // A bot's details panel has no team counterpart, so the same
-                // slot opens the team's own settings instead of staying blank.
-                Button { if let row = selectedTeamRow { configureTeam?(row.id) } } label: {
-                    Label("Team Settings", systemImage: "gearshape")
-                        .frame(width: 32, height: 32)
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.plain)
-                .foregroundStyle(OpenBotsVisualStyle.secondaryText(for: colorScheme))
-                .disabled(configureTeam == nil || selectedTeamRow == nil)
-                .help("Edit this team's name, members and lead")
-                .accessibilityIdentifier("team-settings")
             }
         }
         .padding(.horizontal, 20)
@@ -944,6 +895,88 @@ public struct OpenBotsRootView: View {
             // surface continues underneath it; content stays in the safe area.
             OpenBotsVisualStyle.surface(for: colorScheme)
                 .ignoresSafeArea(.container, edges: .top)
+        }
+    }
+
+    @ViewBuilder
+    private var conversationHeaderIdentity: some View {
+        if let selected = selectedTeammate {
+            Button { focus = .details; toggleDetails() } label: {
+                SelectedTeammateHeader(row: selected)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .help(detailsPanel == nil ? "Show details" : "Hide details")
+            .accessibilityIdentifier("conversation.details")
+            .accessibilityValue(detailsPanel == nil ? "Collapsed" : "Expanded")
+            .focused($focus, equals: .details)
+            .layoutPriority(1)
+            if let openBotAccess {
+                Button { openBotAccess(selected.id) } label: {
+                    Label("Access", systemImage: "hand.raised")
+                        .frame(minHeight: 24)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .fixedSize()
+                .help("Review what \(selected.snapshot.name) may do")
+                .accessibilityIdentifier("conversation.access")
+            }
+        } else if let team = selectedTeamRow {
+            SelectedTeamHeader(row: team, memberRows: TeamRosterAvatarPolicy.rows(for: team, from: sidebar.teamMemberRowModels), members: teamMembers,
+                               hiddenMembers: hiddenTeamMembers, openMemberSettings: openMemberSettings,
+                               workingAvatar: sidebar.workingAvatarByConversation[team.conversationID]).layoutPriority(1)
+        } else {
+            Text(conversation.title)
+                .font(.title2.weight(.semibold))
+                .lineLimit(1)
+                .layoutPriority(1)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    @ViewBuilder
+    private var conversationHeaderActions: some View {
+        if !isSidebarVisible {
+            searchHeaderButton
+        }
+        if let openWorkRecord {
+            Button(action: openWorkRecord) {
+                // A visible label makes this action discoverable.
+                Label("What happened", systemImage: "list.bullet.rectangle")
+                    .frame(minHeight: 32)
+            }
+            .labelStyle(.titleAndIcon)
+            .fixedSize(horizontal: true, vertical: false)
+            .buttonStyle(.plain)
+            .foregroundStyle(OpenBotsVisualStyle.secondaryText(for: colorScheme))
+            .help("What happened here: briefs between bots, the cards you answered, what a bot did on the Mac")
+            .accessibilityIdentifier("conversation.record")
+        }
+        if selectedTeamRow == nil {
+            Button { if let selected = selectedTeammate { openBotSettings?(selected.id) } } label: {
+                Label("Bot settings", systemImage: "gearshape")
+                    .frame(width: 32, height: 32)
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .foregroundStyle(OpenBotsVisualStyle.secondaryText(for: colorScheme))
+            .disabled(openBotSettings == nil || selectedTeammate == nil)
+            .help("Edit this bot’s profile and preferences")
+            .accessibilityIdentifier("conversation.bot-settings")
+        } else {
+            // A bot's details panel has no team counterpart, so the same
+            // slot opens the team's own settings instead of staying blank.
+            Button { if let row = selectedTeamRow { configureTeam?(row.id) } } label: {
+                Label("Team Settings", systemImage: "gearshape")
+                    .frame(width: 32, height: 32)
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.plain)
+            .foregroundStyle(OpenBotsVisualStyle.secondaryText(for: colorScheme))
+            .disabled(configureTeam == nil || selectedTeamRow == nil)
+            .help("Edit this team's name, members and lead")
+            .accessibilityIdentifier("team-settings")
         }
     }
 
@@ -975,21 +1008,17 @@ public struct OpenBotsRootView: View {
         ScrollViewReader { proxy in
             let _ = LayoutStormCounters.hit("transcript.body")
             ScrollView {
-                // A plain stack, deliberately. The transcript was once a
-                // `LazyVStack`, and twice the installed app froze inside one
-                // SwiftUI transaction flush that never drained: once when the
-                // details pane narrowed the column under a reader at the end, and
-                // once when the user scrolled up by trackpad after a team research
-                // (main thread at 100 %, memory climbing 5 MB/s to 1.9 GB, sampled
-                // twice). Both samples show the lazy
-                // stack's own machinery looping — rows placed and un-placed
+                // A plain stack, deliberately. A `LazyVStack` can repeatedly
+                // re-estimate rows when the column narrows or the user scrolls,
+                // keeping a SwiftUI transaction flush from draining. Its
+                // machinery loops — rows placed and un-placed
                 // (`initialPlacement`/`finalPlacement`), their estimates re-measured,
                 // the scroll anchor translated for the changed estimate, and a
                 // prefetch signal queueing the next transaction inside the same
                 // flush — while the labels themselves answered from their caches.
                 // The loaded page is bounded and every row's height is cached per
                 // width, so laying out every row costs one text layout per row per
-                // width; a lazy stack saved that and cost the app itself.
+                // width; a plain stack avoids that feedback loop.
                 VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 18) {
                     historyControl
@@ -1034,14 +1063,9 @@ public struct OpenBotsRootView: View {
                     .frame(width: 0, height: 0)
                 )
             }
-            // A reader at the end of the transcript stays at the end when the rows
-            // re-wrap (details pane opening, window width). Without this anchor the
-            // scroll view's own end-of-content offset adjustment and the lazy stack's
-            // placement of the last rows never agreed once the transcript column
-            // narrowed under a reader at the very end: every transaction queued the
-            // next inside one run-loop turn, main thread at 100 %, memory climbing
-            // (the same conversation scrolled to the top opened the pane without
-            // incident).
+            // Keep a reader at the transcript end when rows rewrap after the pane or window
+            // changes width. Without an anchor, content-offset adjustment and row placement can
+            // repeatedly invalidate one another within a run-loop turn.
             .defaultScrollAnchor(.bottom)
             .onChange(of: conversation.messageRows.map(\.id)) { oldIDs, newIDs in
                 guard !conversation.isViewingSearchResult else { return }
@@ -1302,22 +1326,15 @@ public struct OpenBotsRootView: View {
 }
 
 /// Which of an approval card's buttons may be pressed.
-///
-/// Approve, and Allow for this turn beside it, wait while the end of the
-/// card's words is known to be past its box: the box holds nine lines of its
-/// type, a trackpad hides the scroller, and a text whose second paragraph sat
-/// below the fold could be approved with only its first line ever on screen.
-/// Deny never waits: refusing unread is always
-/// safe.
-///
-/// `endSeen` is nil until the box has measured words laid out, and nil waits
-/// for nothing. No hint flashes on a card whose words fit, and a box that
-/// could not be measured leaves Approve as it was before the wait existed,
-/// rather than dead, with no hint, on every card in the app.
-///
-/// Chosen over letting the box grow to fit: an accepted text can still run
-/// to twelve hundred lines, so any box that grows needs a ceiling, and a
-/// ceiling brings the fold back.
+/// Approve, and Allow for this turn beside it, wait while the end of the card's words is known
+/// to be past its box: the box holds nine lines of its type, a trackpad hides the scroller, and
+/// a text whose second paragraph sat below the fold could be approved with only its first line
+/// ever on screen. Deny never waits: refusing unread is always safe.
+/// `endSeen` is nil until the box has measured words laid out, and nil waits for nothing. No
+/// hint flashes on a card whose words fit, and a box that could not be measured leaves Approve
+/// as it was before the wait existed, rather than dead, with no hint, on every card in the app.
+/// Chosen over letting the box grow to fit: an accepted text can still run to twelve hundred
+/// lines, so any box that grows needs a ceiling, and a ceiling brings the fold back.
 struct ApprovalCardButtons: Equatable {
     let expired: Bool
     let endSeen: Bool?
@@ -1326,9 +1343,10 @@ struct ApprovalCardButtons: Equatable {
     var showsScrollHint: Bool { !expired && endSeen == false }
 }
 
-/// How long a card still waits, in words: "About 4 minutes left", never a clock
-/// time to subtract. The card redraws on a 30-second tick that lands on the
-/// deadline itself, so its buttons grey the moment time is up.
+/// How long a card still waits, in words: "About 4 minutes left", never a
+/// clock time to subtract. The card
+/// redraws on a 30-second tick that lands on the deadline itself, so its
+/// buttons grey the moment time is up.
 enum CardDeadlineWording {
     enum Kind { case action, handOver, missingFile, question }
 
@@ -1384,21 +1402,18 @@ enum AttachmentChipWording {
 }
 
 /// What "Allow for this turn" says it allows, in words true of the card.
-///
-/// A folder card's allowance is the tool kind in that one folder. Control this
-/// Mac shares one scope across every card of the connector, and its "folder" is
-/// the words "your Mac", so the folder sentence read "Lets this bot do this in
-/// your Mac" when the allowance covers every reviewed Control this Mac action
-/// until the reply ends. Only a connector card can
-/// carry that scope, so a real folder that happens to share the name keeps the
-/// folder sentence.
+/// A folder card's allowance is the tool kind in that one folder. Control this Mac shares one
+/// scope across every card of the connector, and its "folder" is the words "your Mac", so the
+/// folder sentence read "Lets this bot do this in your Mac" when the allowance covers every
+/// reviewed Control this Mac action until the reply ends. Only a connector card can carry that
+/// scope, so a real folder that happens to share the name keeps the folder sentence.
 enum TurnAllowanceWording {
     static func help(toolName: String, folder: String) -> String {
         if ClaudeTextConnectorApprovalPolicy.isConnectorTool(toolName),
            folder == ClaudeTextMacControlApprovalPolicy.turnScope.folderName {
-            // What the card beside this button says, and what the policy does: only
-            // Control this Mac's own quit and open actions ask every time, while a
-            // click, a keystroke or a menu can still quit an app or open a link.
+            // What the card beside this button says, and what the policy does: only Control
+            // this Mac's own quit and open actions ask every time, while a click, a keystroke
+            // or a menu can still quit an app or open a link.
             return "Lets this bot keep seeing your screen, clicking, typing and pressing keys in your apps until "
                 + "this reply ends, without asking again: its own quit and open still ask, but a click or a "
                 + "shortcut can still close or quit things, or open a link. Stop ends it at once."
@@ -1445,22 +1460,20 @@ struct ApprovalDetailBox: View {
                 })
         }
         .onPreferenceChange(ApprovalWordsHeight.self) { wordsHeight = $0 }
-        // Never shorter than its words, up to the cap. In a short window the
-        // box was the part that gave way beside the transcript: squeezed to no
-        // height, its words could not scroll and Approve stayed grey. The
-        // transcript above gives way instead.
+        // Keep the words' height up to the cap, even in a short window. The transcript yields
+        // space so the approval text can scroll and its controls remain usable.
         .frame(minHeight: min(wordsHeight, Self.maximumHeight), maxHeight: Self.maximumHeight)
         // The box the user must read to the end of shows its scroller, and keeps it.
         .scrollIndicators(.visible)
     }
 }
 
-/// The card's target line, under the same clamp as its words. It was a plain line
-/// with no limit, so a target shaped by the bot could push Approve and Deny off the
-/// card while the words above it were held to their box. It keeps the height of its
-/// words up to that cap, for the reason `ApprovalDetailBox` does; it asks for no
-/// reading to the end, because the target repeats what the words say rather than
-/// adding to it.
+/// The card's target line, under the same clamp as its words. Without a limit,
+/// a target shaped by the bot could push Approve and Deny off the card while
+/// the words above it stayed within their box. It keeps the height of its words up to that cap,
+/// for the reason `ApprovalDetailBox` does; it asks for no reading to the
+/// end, because the target repeats what the words say rather than adding to
+/// it.
 struct ApprovalTargetBox: View {
     let target: String
     @State private var wordsHeight: CGFloat = 0
@@ -1546,7 +1559,7 @@ struct TextReplyApprovalCard: View {
             if !approval.handsOverScreen, !approval.asksForMissingFile {
                 ApprovalTargetBox(target: approval.target)
             }
-            // A web call after a look at the user's screen shows what the bot saw,
+            // A web call after a look at the screen shows what the bot saw,
             // from memory only.
             if let picture = screenPicture {
                 ApprovalScreenPicture(picture: picture)
@@ -1559,7 +1572,7 @@ struct TextReplyApprovalCard: View {
                 .accessibilityIdentifier("text.approval.revealScript")
             }
             // Redrawn every 30 seconds, with a tick on the deadline itself, so the
-            // time left counts down and the buttons grey when it is up.
+            // time left counts down and the buttons grey when it is up (L6-8).
             TimelineView(.periodic(from: CardDeadlineWording.tickStart(expiresAt: approval.expiresAt, now: Date()),
                                    by: CardDeadlineWording.tick)) { context in
                 let now = context.date
@@ -1577,8 +1590,8 @@ struct TextReplyApprovalCard: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .accessibilityIdentifier("text.approval.deadline")
                     if approval.asksForMissingFile {
-                        // A member's missing file: the user chooses a file in its
-                        // place, or lets it go.
+                        // A member's missing file: the user chooses a
+                        // file in its place, or lets it go.
                         HStack {
                             Button("Choose the File…") { conversation.chooseMissingFileForTextReplyApproval(approval) }
                                 .accessibilityIdentifier("text.approval.chooseFile")
@@ -1607,12 +1620,9 @@ struct TextReplyApprovalCard: View {
                             Button("Deny") { conversation.decideTextReplyApproval(approval, allow: false) }
                                 .accessibilityIdentifier("text.approval.deny")
                                 .disabled(!buttons.denyEnabled)
-                            // Only on a card that can be answered once for the rest of the
-                            // turn: a kind of edit in one folder, a rerun of the
-                            // same script, or Control this Mac, whose every card
-                            // shares one allowance until the reply ends. A plain
-                            // command, a helper and every other connector call ask
-                            // every time.
+                            // Offer a turn allowance only for a tool kind in one folder, reruns
+                            // of one script, or Control this Mac's shared turn scope. Plain
+                            // commands, helpers and other connector calls ask every time.
                             if let folder = approval.turnScopeFolder {
                                 Button("Allow for this turn") { conversation.allowTextReplyApprovalForTurn(approval) }
                                     .accessibilityIdentifier("text.approval.allowTurn")
@@ -1624,9 +1634,8 @@ struct TextReplyApprovalCard: View {
                 }
             }
         }
-        // Decoded as the Details preview decodes the same bytes (ImageIO, pixel
-        // size): NSImage(data:) drew the card's picture with no height while
-        // Details showed it.
+        // Decode through ImageIO with explicit pixel size, matching Details, so the approval
+        // picture has intrinsic height.
         .onAppear {
             if screenPicture == nil {
                 screenPicture = approval.screenPicture.flatMap(ConversationModel.decodedScreenPicture)
@@ -1859,6 +1868,12 @@ private struct ComposerView: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel("Reply status")
                 }
+                if let notice = conversation.modelMismatchNotice {
+                    Label(notice, systemImage: "info.circle")
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("reply.modelMismatch")
+                }
                 if let approval = conversation.textReplyApproval {
                     TextReplyApprovalCard(approval: approval, conversation: conversation)
                         .id(approval.id)
@@ -1912,6 +1927,7 @@ private struct ComposerView: View {
                 HStack(spacing: 8) {
                     Menu {
                         Button("Attach files…", systemImage: "paperclip") {
+                            guard ApplicationUpdateGate.shared.allowsWork else { return }
                             guard let attachmentDraft, conversation.attachmentsAvailable else { return }
                             attachmentPickerRequest = AttachmentPickerRequest(draft: attachmentDraft)
                             isSelectingAttachment = true
@@ -2175,8 +2191,8 @@ private struct TeammateRow: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
-                    // A pinned bot sits above the rest; the pin says why. Still,
-                    // like the unread badge: no motion.
+                    // A pinned bot sits above the rest; the pin says why.
+                    // Still, like the unread badge: no motion.
                     if row.snapshot.isPinned {
                         Image(systemName: "pin.fill")
                             .font(.system(size: 9))

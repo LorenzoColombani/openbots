@@ -10,6 +10,7 @@ public struct TeammateProfileEditorView: View {
     @Environment(\.profilePhotoPresentation) private var photoPresentation
     @ObservedObject private var model: TeammateProfileEditorModel
     @State private var isChoosingPhoto = false
+    @State private var photoPickerOperation: ApplicationUpdateGate.Operation?
     @StateObject private var photoPreview = ProfilePhotoViewModel()
     @FocusState private var focusedControl: ProfileEditorFocusDestination?
     @State private var avatarFocusRequest: ProfileEditorFocusDestination?
@@ -99,9 +100,14 @@ public struct TeammateProfileEditorView: View {
             await photoPreview.load(assetID: previewPhotoID, presentation: photoPresentation)
         }
         .fileImporter(isPresented: $isChoosingPhoto, allowedContentTypes: [.image]) { result in
+            let operation = photoPickerOperation
+            photoPickerOperation = nil
             switch result {
             case .success(let url):
-                Task { await model.importPhoto(from: url) }
+                Task {
+                    defer { withExtendedLifetime(operation) {} }
+                    await model.importPhoto(from: url)
+                }
             case .failure(let error):
                 if (error as? CocoaError)?.code != .userCancelled {
                     model.photoSelectionFailed()
@@ -169,10 +175,8 @@ public struct TeammateProfileEditorView: View {
         VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing12) {
             textField("Name", accessibilityName: "Bot name", text: $model.displayName, error: model.nameValidationMessage)
             textField("Label (optional)", accessibilityName: "Bot label", text: $model.title, error: model.titleValidationMessage)
-            // The same paragraph the New Bot sheet asks for, under the same name: the
-            // role. It once sat over the instructions, with the role folded away
-            // under Advanced as "Short role", so the words typed at creation never
-            // showed here.
+            // Present the role under the same name as the New Bot sheet, keeping it distinct
+            // from instructions.
             VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing4) {
                 Text("What this bot does").font(.callout.weight(.medium))
                 TextField("What this bot does", text: $model.role, axis: .vertical)
@@ -203,13 +207,15 @@ public struct TeammateProfileEditorView: View {
     private var notificationSettings: some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            Picker("Notifications", selection: $model.notificationPreference) {
-                Text("Use app default").tag(NotificationPreference.inherit)
-                Text("On").tag(NotificationPreference.enabled)
-                Text("Off").tag(NotificationPreference.disabled)
+            preferenceField("Notifications") {
+                Picker("Notifications", selection: $model.notificationPreference) {
+                    Text("Use app default").tag(NotificationPreference.inherit)
+                    Text("On").tag(NotificationPreference.enabled)
+                    Text("Off").tag(NotificationPreference.disabled)
+                }
+                .disabled(!model.isEditingEnabled)
+                .accessibilityIdentifier("bot.notification-preference")
             }
-            .disabled(!model.isEditingEnabled)
-            .accessibilityIdentifier("bot.notification-preference")
             Text("Requires Allow notifications in Settings. Message contents never appear in notifications.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -221,7 +227,7 @@ public struct TeammateProfileEditorView: View {
             preferenceField("Preferred model") {
                 Picker("Preferred model", selection: $model.claudeModel) {
                     if !ClaudeModelCatalog.options.contains(where: { $0.id == model.claudeModel }) {
-                        Text(model.claudeModel == "sonnet" ? "Sonnet · Existing preference" : "Saved preference: \(model.claudeModel) (not in catalog)")
+                        Text(ClaudeModelCatalog.savedPreferenceLabel(for: model.claudeModel, in: ClaudeModelPolicy.current))
                             .tag(model.claudeModel)
                     }
                     ForEach(ClaudeModelCatalog.options) { option in
@@ -232,6 +238,10 @@ public struct TeammateProfileEditorView: View {
                 .disabled(!model.isEditingEnabled)
                 .accessibilityIdentifier("bot-claude-model")
             }
+            Text(ClaudeModelCatalog.availabilityNote)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("bot-claude-model-source")
             if let warning = ClaudeModelCatalog.creditsWarning(for: model.claudeModel) {
                 Label(warning, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -241,9 +251,10 @@ public struct TeammateProfileEditorView: View {
             }
             effortFields
             contextWindowFields
-            if ClaudeModelCatalog.option(for: model.claudeModel) == nil, model.claudeModel != "sonnet" {
+            if !ClaudeModelCatalog.contains(model.claudeModel, in: ClaudeModelPolicy.current) {
                 Text("This saved preference is outside the current catalog. It is preserved until you choose another.")
                     .font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("bot-claude-model-unavailable")
             }
             DisclosureGroup("About these preferences") {
                 VStack(alignment: .leading, spacing: 8) {
@@ -330,7 +341,7 @@ public struct TeammateProfileEditorView: View {
                 }
             } else {
                 Text(ClaudeContextWindowPolicy.defaultTokenLimit(for: model.claudeModel) == nil
-                     ? "No context options are listed for this saved model."
+                     ? "Claude Code has not supplied context capabilities for this model."
                      : "Catalog context: 200K. No long-context option is listed.")
                 if !choices.contains(model.claudeContextWindow) {
                     Text("Saved context preference \(model.claudeContextWindow) is not listed for this model.")
@@ -346,16 +357,19 @@ public struct TeammateProfileEditorView: View {
 
     private func creatureFields(original: Teammate) -> some View {
         VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing8) {
-            Picker("Avatar model", selection: Binding(
-                get: { model.pendingBuiltInAvatar?.rawValue ?? "" },
-                set: { model.chooseBuiltInAvatar(BuiltInAvatar(rawValue: $0)) }
-            )) {
-                Text("Keep saved appearance").tag("")
-                ForEach(BuiltInAvatar.allCases, id: \.self) { avatar in
-                    Text(avatar.displayName).tag(avatar.rawValue)
+            preferenceField("Avatar model") {
+                Picker("Avatar model", selection: Binding(
+                    get: { model.pendingBuiltInAvatar?.rawValue ?? "" },
+                    set: { model.chooseBuiltInAvatar(BuiltInAvatar(rawValue: $0)) }
+                )) {
+                    Text("Keep saved appearance").tag("")
+                    ForEach(BuiltInAvatar.allCases, id: \.self) { avatar in
+                        Text(avatar.displayName).tag(avatar.rawValue)
+                    }
                 }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("bot-avatar-model")
             }
-            .pickerStyle(.menu)
             Text("Save applies the appearance preview to this bot only.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -366,7 +380,11 @@ public struct TeammateProfileEditorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if model.isPhotoImportAvailable {
-                Button("Choose Photo…") { isChoosingPhoto = true }
+                Button("Choose Photo…") {
+                    guard let operation = ApplicationUpdateGate.shared.beginOperation() else { return }
+                    photoPickerOperation = operation
+                    isChoosingPhoto = true
+                }
                     .disabled(!model.canChoosePhoto)
                     .focused($focusedControl, equals: .photo)
                 if model.isImportingPhoto {

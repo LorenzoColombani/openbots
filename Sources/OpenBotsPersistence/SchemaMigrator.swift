@@ -766,12 +766,12 @@ enum SchemaMigrator {
     WHERE supersedes_id IS NOT NULL;
     """
 
-    /// The "Not configured" role text leaves
-    /// every surface; a bot created by New Bot is simply a teammate until its
-    /// profile says otherwise. Profile revision history is left as it was.
+    /// Remove the "Not configured" role placeholder. A bot created by New Bot is a teammate
+    /// until its profile says otherwise. Preserve profile revision history.
     private static let teammateRoleReadsAsAPerson = """
     UPDATE teammates SET role='Teammate' WHERE role='Not configured';
     """
+
 
     /// Migration 25 moved every member reply to the record. A reply whose
     /// record never returned to the lead was, under the earlier contract,
@@ -783,6 +783,7 @@ enum SchemaMigrator {
     WHERE output_class='workAudit' AND author_kind='teammate'
       AND id IN (SELECT reply_message_id FROM handoffs WHERE reply_message_id IS NOT NULL AND state='succeeded');
     """
+
 
     /// What a bot did on the Mac during a turn, one short line
     /// each ("Checking the folder.", "Asked to write report.md", "Approved"),
@@ -830,9 +831,8 @@ enum SchemaMigrator {
     BEGIN SELECT RAISE(ABORT,'immutable handoff chain'); END;
     """
 
-    /// A bot's seat, the four fields a hirer writes for the bot it
-    /// hires and the person edits later. Each field is optional; every bot
-    /// saved before this keeps none, and its history says the same.
+    /// A bot's seat has four optional fields written by the hirer and editable by the user.
+    /// Existing bots and their history have no seat until one is assigned.
     private static let teammateSeat = """
     ALTER TABLE teammates ADD COLUMN seat_purview TEXT;
     ALTER TABLE teammates ADD COLUMN seat_never TEXT;
@@ -844,12 +844,12 @@ enum SchemaMigrator {
     ALTER TABLE teammate_profile_revisions ADD COLUMN seat_escalate TEXT;
     """
 
-    /// The bot whose hire wrote a bot's role, instructions and seat,
-    /// kept until the person saves the profile. Every bot saved before has none:
-    /// the person made it.
+    /// The bot whose hire wrote a bot's role, instructions and seat, kept until the person
+    /// saves the profile. Every bot saved before has none: the person made it.
     private static let hiredProfileAuthor = """
     ALTER TABLE teammates ADD COLUMN profile_written_by_hirer TEXT;
     """
+
 
     /// What each turn's saved read receipt rests on, proved once and kept, so a
     /// context read proves only the turns it quotes instead of walking the whole conversation. The memory
@@ -867,6 +867,7 @@ enum SchemaMigrator {
         CHECK(proven=1 OR (memory_qualification_required=0 AND memory_references_json='[]'))
     ) STRICT;
     """
+
 
     /// Delete goes
     /// through for a bot that spoke in a team chat, and its team chat messages

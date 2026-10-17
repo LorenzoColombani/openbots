@@ -1,5 +1,6 @@
 import Foundation
 
+
 /// Claude Code updates itself under the app: the binary at `~/.local/bin/claude`
 /// is shared with interactive Claude Code, and each version can change how it
 /// talks to OpenBots. Settings says when the installed
@@ -9,7 +10,7 @@ public enum ClaudeCodeTestedVersion {
     /// The newest Claude Code whose wire the tests replay. A test holds this
     /// equal to the newest `Tests/OpenBotsRuntimeTests/Fixtures/claude-cli-<version>`
     /// folder, so capturing a new version is what moves it.
-    public static let lastTested = "2.1.283"
+    public static let lastTested = "2.1.287"
 
     /// Whether `version` is a later dotted number than `other`. Anything that
     /// is not a plain dotted version is never newer.

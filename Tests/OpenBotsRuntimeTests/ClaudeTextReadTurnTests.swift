@@ -2,17 +2,18 @@ import Foundation
 import Testing
 @testable import OpenBotsRuntime
 
+
 // Every bot reads the team's shared folder and its own skills, probed on 2.1.272
 // with the tool-free turn's own flags: Glob, Grep and Read inside the added folders
 // ran without a question; a Read outside them was refused.
 
-private let sharedFolder = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Shared")
-private let skillsFolder = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Skills/Pillow")
+private let sharedFolder = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Shared")
+private let skillsFolder = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Skills/Pillow")
 
 private func readAccessFixture(skills withSkills: Bool = true) throws -> ClaudeTextReadAccess {
     try ClaudeTextReadAccess(sharedDirectoryURL: sharedFolder, skillsDirectoryURL: withSkills ? skillsFolder : nil,
         skills: withSkills ? [ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project")] : [],
-        protectedPaths: ["/Users/x/.ssh"])
+        protectedPaths: ["/Users/fixture/.ssh"])
 }
 
 private func flag(_ arguments: [String], _ name: String) -> String? {
@@ -44,7 +45,7 @@ func readTurnCommandContract() throws {
     #expect(permissions["defaultMode"] as? String == "dontAsk")
     let deny = try #require(permissions["deny"] as? [String])
     #expect(!deny.contains("*"))
-    for tool in ["Read", "Glob", "Grep"] { #expect(deny.contains("\(tool)(//Users/x/.ssh/**)")) }
+    for tool in ["Read", "Glob", "Grep"] { #expect(deny.contains("\(tool)(//Users/fixture/.ssh/**)")) }
     // A turn given nothing still launches the shipped tool-free command.
     let plain = ClaudeTextOnlyCommandBuilder.arguments(for: try textOnlyTestRequest())
     #expect(flag(plain, "--tools") == "" && flag(plain, "--disallowedTools") == "*")
@@ -59,14 +60,14 @@ func readJoinsTheOtherShapes() throws {
     #expect(flag(webArguments, "--allowedTools") == "WebSearch")
     #expect(addedFolders(webArguments) == [sharedFolder.path])
     let webSettings = try #require(flag(webArguments, "--settings"))
-    #expect(webSettings.contains("Read(//Users/x/.ssh/**)") && !webSettings.contains("\"*\""))
+    #expect(webSettings.contains("Read(//Users/fixture/.ssh/**)") && !webSettings.contains("\"*\""))
 
     let connector = try textOnlyTestRequest(connectorAccess: try connectorAccessFixture(), readAccess: try readAccessFixture())
     #expect(connector.grantedToolNames == ["AskUserQuestion", "Glob", "Grep", "Read"])
     let connectorArguments = ClaudeTextOnlyCommandBuilder.arguments(for: connector)
     #expect(connectorArguments.contains("--permission-prompt-tool"))
     #expect(addedFolders(connectorArguments) == [sharedFolder.path, skillsFolder.path])
-    #expect(try #require(flag(connectorArguments, "--settings")).contains("Grep(//Users/x/.ssh/**)"))
+    #expect(try #require(flag(connectorArguments, "--settings")).contains("Grep(//Users/fixture/.ssh/**)"))
 
     let work = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/private/tmp/desk.noindex/Pillow"), protectedPaths: [])
     let workTurn = try textOnlyTestRequest(workAccess: work, readAccess: try readAccessFixture())
@@ -91,10 +92,10 @@ func readTurnInitAnnouncesExactlyTheReadTools() throws {
 func readAccessShape() throws {
     _ = try readAccessFixture()
     #expect(throws: ClaudeTextWorkAccessError.self) {
-        try ClaudeTextReadAccess(sharedDirectoryURL: URL(fileURLWithPath: "/Users/x/a/../Shared"), protectedPaths: [])
+        try ClaudeTextReadAccess(sharedDirectoryURL: URL(fileURLWithPath: "/Users/fixture/a/../Shared"), protectedPaths: [])
     }
     #expect(throws: ClaudeTextWorkAccessError.self) {
-        try ClaudeTextReadAccess(sharedDirectoryURL: URL(fileURLWithPath: "/Users/x/.ssh/Shared"), protectedPaths: ["/Users/x/.ssh"])
+        try ClaudeTextReadAccess(sharedDirectoryURL: URL(fileURLWithPath: "/Users/fixture/.ssh/Shared"), protectedPaths: ["/Users/fixture/.ssh"])
     }
     #expect(throws: ClaudeTextWorkAccessError.self) {
         try ClaudeTextReadAccess(sharedDirectoryURL: sharedFolder, skills: [ClaudeTextWorkSkill(name: "pickup", summary: "")], protectedPaths: [])

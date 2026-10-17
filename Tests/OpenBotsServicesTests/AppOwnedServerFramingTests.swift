@@ -4,7 +4,7 @@ import Testing
 
 /// The app's own MCP servers read newline-delimited JSON-RPC on stdin: one
 /// frame, one 0x0A. Node's `readline` ends a line at U+000D, U+2028 and U+2029
-/// as well (measured on Node v26.8.2), and `JSON.stringify`,
+/// as well (Node v26.8.2), and `JSON.stringify`,
 /// which is how the CLI writes a frame, leaves U+2028 and U+2029 raw inside a
 /// string. So a call whose arguments carried one arrived as two or three
 /// halves, each a parse error with no id, and the call itself was never

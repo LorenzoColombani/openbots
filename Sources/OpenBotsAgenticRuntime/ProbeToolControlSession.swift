@@ -319,9 +319,9 @@ public struct ProbeToolControlSession {
             return .inputAcknowledged(id)
         }
         if phase == .active, type == "system", frame["subtype"] as? String == "init" {
-            // The CLI re-announces its session when a later queued input starts a
-            // new turn. An identical announcement
-            // changes nothing; any difference in session, tools or mode closes.
+            // The CLI re-announces its session when a later queued input starts a new turn. An
+            // identical announcement changes nothing; any difference in session, tools or mode
+            // closes.
             guard Self.uuid(frame["session_id"]) == sessionID,
                   Self.sameTools(frame["tools"], expectedTools),
                   (frame["mcp_servers"] as? [Any])?.isEmpty == true,
@@ -674,7 +674,7 @@ public struct ProbeToolControlSession {
     }
 
     private static func requireMainOrigin(_ object: [String: Any]) throws {
-        // This single-bot session has no admitted subagent identity or lifecycle.
+        // This single-bot slice has no admitted subagent identity or lifecycle.
         // A shared session ID cannot attribute its worker traffic to the main run.
         for key in ["parent_tool_use_id", "agent_id", "agent_type"] {
             if let value = object[key], !(value is NSNull) { throw ProbeToolControlError.wrongSession }
@@ -695,8 +695,7 @@ public struct ProbeToolControlSession {
                   number.doubleValue.rounded() == number.doubleValue else { throw ProbeToolControlError.malformed }
         }
         if let value = input["run_in_background"], Self.boolean(value) != false {
-            // Background jobs need their own lifecycle proof; this session runs
-            // foreground commands only.
+            // Background jobs need their own lifecycle proof after this foreground slice.
             throw ProbeToolControlError.unexpectedFrame
         }
     }

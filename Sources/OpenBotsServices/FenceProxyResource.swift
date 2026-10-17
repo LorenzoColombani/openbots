@@ -51,7 +51,7 @@ public struct FenceProxyResource: Sendable {
     ///
     /// `label` is what the model reads in `tool result from <label>`, so it is
     /// the connector's own short name rather than the hashed server key: the
-    /// key would tell the model nothing, and the name is not authority for anything.
+    /// key would tell the user nothing, and the name is not authority for anything.
     public func fenced(_ program: ClaudeTextConnectorProgram,
                        label: String) throws -> ClaudeTextConnectorProgram {
         guard let scriptURL, FileManager().isReadableFile(atPath: scriptURL.path) else {
@@ -92,7 +92,7 @@ public extension ClaudeTextConnectorRole {
         // typed by other people through sharing, and the reader hands them
         // back verbatim. Fenced for the same reason the mail reader is.
         // An invitation's title, location and notes are written by whoever
-        // sent it, and the reader hands them back verbatim.
+        // sent it, and the reader hands them back verbatim. 
         // A text message is written by whoever sent it, and the Messages
         // server hands the words back verbatim. Its send reports are the
         // app's own sentences, but one server has one fence, and the reads
@@ -113,12 +113,9 @@ public extension ClaudeTextConnectorRole {
         // A page in the user's Chrome is written by whoever runs the site, and a tab's
         // title too; the extension hands both back verbatim.
         case .chromeControl: true
-        // The sender speaks only about what it did with what the user approved:
-        // an account name, the user's own address, a recipient count, and the subject the
-        // caller itself claimed. It is built to read nothing of a stranger's
-        // back — a reply path that echoed the real subject of a message someone
-        // else wrote would leak it, which is why it echoes the claim and
-        // returns a count rather than addresses.
+        // Report only the approved account, own address, recipient count and caller-supplied
+        // subject. Echo the claim and counts instead of another person's original subject or
+        // recipient addresses.
         case .appleMailSend: false
         }
     }
@@ -154,8 +151,8 @@ public extension ClaudeTextConnectorRole {
             "read-only access to the user's own Apple Mail: search and read, no send, reply or "
                 + "delete — no tool for those exists here. Where to look matters, and searching "
                 + "only the inbox is the common mistake: the search tool defaults to INBOX, while "
-                + "mail is often filed into an ARCHIVE once it has been dealt with, so much of it "
-                + "may live there. Call list_mailboxes for the real names, then search the "
+                + "he files everything into the ARCHIVE once he has dealt with it, so almost all of "
+                + "his mail lives there. Call list_mailboxes for the real names, then search the "
                 + "archive as well as the inbox — and the sent mailbox when you are looking for "
                 + "something he wrote rather than something he received. If a search finds nothing, "
                 + "say which mailboxes you actually looked in before concluding it is not there"
@@ -163,7 +160,7 @@ public extension ClaudeTextConnectorRole {
             "the ability to send, draft or answer mail through the user's own Mail, as them. "
                 + "Starting a NEW mail, the user chooses which of his addresses it goes from: list "
                 + "the accounts, ask him with your question tool and send from the one he picks, "
-                + "never from one you chose. That tool takes at most FOUR options and he may have more "
+                + "never from one you chose. That tool takes at most FOUR options and he has more "
                 + "accounts than that, so offer the four he is likeliest to want, say in the "
                 + "question that any other account can be typed into the box, and treat whatever "
                 + "he types there as the account name. When you answer an existing message, pass "
@@ -193,8 +190,8 @@ public extension ClaudeTextConnectorRole {
                 + "when something happens are all on his Mac already, and asking him to type out "
                 + "what he has already put in his calendar is the thing this connector exists to "
                 + "stop. Repeating events come back as the individual occurrences on the days they "
-                + "actually fall, so you can trust a week's list to be the whole week. Two "
-                + "calendars can share a name, so call list_calendars and pass an id when he names one "
+                + "actually fall, so you can trust a week's list to be the whole week. Two of his "
+                + "calendars share a name, so call list_calendars and pass an id when he names one "
                 + "rather than guessing from the name. When you read one event, pass the "
                 + "`occurrence:` line as well as the id, or you may read a different week's"
         case .googleGmailReadDraft:

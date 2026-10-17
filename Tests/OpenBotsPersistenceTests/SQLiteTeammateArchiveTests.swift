@@ -80,7 +80,7 @@ struct SQLiteTeammateArchiveTests {
         #expect(try await store.proposals(conversationID: f.conversationID, limit: 10) == [cancelled])
     }
 
-    /// Found in use: nothing moves a card's row past
+    /// Nothing moves a card's row past
     /// `approved`, and a quit leaves `pending`, so every bot that had ever been
     /// asked could never be archived. A card lives only inside its turn, which
     /// the run check above already covers.

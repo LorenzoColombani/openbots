@@ -548,10 +548,11 @@ struct FirstToolJobProcessTests {
     }
 
     @Test("An init frame that names a plugin, or leaves the plugin list out, is refused before the job starts",
-          arguments: ["init-agents-md", "init-no-plugins"])
+          arguments: ["init-agents-md", "init-plugin-authoring", "init-no-plugins"])
     func pluginInitRefused(_ mode: String) async throws {
         // Claude Code 2.1.281 announces a built-in AGENTS.md plugin unless the
-        // settings switch it off; a frame that stops naming plugins proves nothing.
+        // settings switch it off, 2.1.287 a plugin-authoring one; a frame that
+        // stops naming plugins proves nothing.
         try await withPeer(mode: mode, role: .worker) { fixture, process in
             try await process.start(initialInput: "Look up the fixture totals")
             let events = await collected(process)
@@ -726,6 +727,8 @@ private struct ProcessPeerFixture: Sendable {
         del init_frame["plugins"]
     elif mode == "init-agents-md":
         init_frame["plugins"] = [{"name":"agents-md","path":"builtin","source":"agents-md@builtin"}]
+    elif mode == "init-plugin-authoring":
+        init_frame["plugins"] = [{"name":"cc-plugin-plugin-authoring","path":"builtin","source":"cc-plugin-plugin-authoring@builtin"}]
     emit(init_frame)
     emit(user)
     def assistant(content, sid=session):
@@ -814,7 +817,7 @@ private struct ProcessPeerFixture: Sendable {
         if mode == "pair":
             # The real CLI evaluates its ask rule after the hook allowed: the same
             # tool use returns as a permission callback under a new request ID,
-            # with thinking-token progress frames around it (observed live).
+            # with thinking-token progress frames around it.
             assert allowed and decision["response"]["request_id"] == "fixture-request"
             emit({"type":"system","subtype":"thinking_tokens","session_id":session,"uuid":str(uuid.uuid4()),"estimated_tokens":42,"estimated_tokens_delta":42})
             emit({"type":"control_request","request_id":"fixture-request-2","request":{"subtype":"can_use_tool","tool_name":"Bash","tool_use_id":"fixture-tool","input":tool_input}})

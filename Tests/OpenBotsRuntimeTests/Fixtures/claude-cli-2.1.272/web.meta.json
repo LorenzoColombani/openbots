@@ -1,11 +1,11 @@
 {
- "shape": "web",
- "claude_code_version": "2.1.272",
- "captured": "2026-09-15",
- "model": "claude-sonnet-5",
- "session_id": "c3e76ec8-a058-4280-8571-af9296ff52c3",
- "message_id": "f644712d-77aa-4cd6-9815-a12f171d8184",
- "control_id": "11073407-006d-48d3-8804-0b2d812b3029",
- "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
- "prompt": "Use web search to find the official website of the Velmont School and tell me its home page title in one sentence."
+  "shape": "web",
+  "claude_code_version": "2.1.272",
+  "captured": "2000-01-01",
+  "model": "claude-sonnet-5",
+  "session_id": "0b7daadf-f9f5-563f-8376-caca8f88eaa1",
+  "message_id": "a6cc8726-014d-5c14-93ba-971fb5d69d04",
+  "control_id": "c7680e55-7ef9-5562-9a45-f816abb7f1a1",
+  "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+  "prompt": "Use web search to find the official website of the Velmont School and tell me its home page title in one sentence."
 }

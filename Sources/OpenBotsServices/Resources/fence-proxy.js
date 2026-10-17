@@ -1,65 +1,22 @@
 #!/usr/bin/env node
 "use strict";
 /*
- * OpenBots fence-proxy — an app-owned shim around THIRD-PARTY MCP servers.
- *
- * Ported into OpenBots Next from the old app's
- * Resources/mcp/fence-proxy.js — carried over whole rather
- * than rewritten, because almost every rule in it was learned from something
- * that actually happened. The only edits are this header and the marker
- * literals now being pinned to OpenBotsDomain/UntrustedMaterial.swift, which a
- * Swift test asserts against this file.
- *
- * WHY: OpenBots' own servers (messages-server.js, apple-mail-send.js) fence
- * what they return, but uvx-installed servers like workspace-mcp (gmail/gcal)
- * and apple-mail-fast-mcp hand back stranger-written text raw — persona prose
- * was the only guard. This shim sits between the client and the real server:
- *
- *     fence-proxy.js <label> <real-command> [real-args…]
- *
- * It pipes stdin through untouched and intercepts stdout line-by-line
- * (MCP stdio transport is newline-delimited JSON-RPC). Every `tools/call`
- * response's text content blocks get defanged, bounded and wrapped in the
- * exact [UNTRUSTED MATERIAL] markers the persona teaches. Request IDs are
- * correlated, so only responses to observed `tools/call` requests change;
- * every other line is forwarded byte-identical.
- *
- * RESPONSE vs REQUEST: a frame is only ever treated as a request/notification
- * (unconditional pass-through, pending state untouched) when it carries a
- * `method` and NEITHER `result` nor `error` — real JSON-RPC requests never
- * carry either. A frame with `method` AND `result`/`error` is malformed
- * either way, so it is treated as a response: fenced like any other if its
- * id collides with a pending call, but it never CONSUMES that pending
- * entry (only a frame with no `method` at all can), so the genuine result
- * for that id is still fenced when it arrives afterward.
- *
- * CLOSED (was a residual): `initialize.result.instructions`. The CLI injects
- * that server-authored string into the seat's SYSTEM prompt, above the
- * persona — the one model-visible channel that is NOT a tool result, so the
- * marker contract cannot cover it. The proxy deletes the field (advisory;
- * the CLI works without it) rather than fencing it into a system prompt.
- *
- * DOCUMENTED RESIDUALS (accepted, persona rule is the backstop):
- *  - `image` and `audio` content blocks pass through unwrapped: the markers are
- *    text and cannot be written into pixels. A screenshot is a quiet read for
- *    the browser, so a page CAN hand the model an image with no marker on it.
- *    The prompt's "the rule holds even where the markers are missing" is the
- *    only guard there.
- *  - `resources/read` and `prompts/get` results pass unfenced: no tool in the
- *    app's seats invokes them today (the resource tools are disallowed), so
- *    nothing reaches a model through them — revisit the moment a
- *    resource-bearing server is pinned.
- *  - `tools/list` results (tool names/descriptions from the real server) pass
- *    unfenced, forwarded byte-identical — NEVER defang tool schemas, it breaks
- *    the client's tool wiring — UNLESS a tool declares `outputSchema`, in
- *    which case only that key is stripped (the client's MCP SDK rejects a
- *    result that carries an outputSchema without matching structuredContent,
- *    which this proxy also strips; the rest of the tool entry is untouched).
- *
- * FRAMING DRIFT fails OPEN on framing, never on fencing: a line that isn't
- * valid JSON is forwarded as-is (it might be a partial frame or a banner);
- * a sustained run of such lines is logged to stderr as a drift warning. A
- * line that IS a tool result is always fenced before it leaves this process.
+ * OpenBots fence-proxy wraps third-party MCP servers. Marker literals are pinned to
+ * OpenBotsDomain/UntrustedMaterial.swift and checked by a Swift test.
+ * Invoke as `fence-proxy.js <label> <real-command> [real-args...]`. Forward stdin and correlate
+ * JSON-RPC tool-call ids. Bound, defang and wrap text content in each matching tools/call
+ * result; forward unrelated lines unchanged.
+ * Requests and notifications have method but neither result nor error. A malformed mixed frame
+ * is treated as a response for fencing if its id matches a pending call, but cannot consume
+ * that pending entry. The genuine response will still be fenced.
+ * Remove initialize.result.instructions because the CLI inserts it into the system prompt,
+ * outside tool-result markers. Preserve tool schemas except outputSchema: the client otherwise
+ * requires structuredContent, which the proxy strips.
+ * Image and audio blocks cannot carry textual markers, so the prompt's untrusted-content rule
+ * also applies when markers are absent. resources/read and prompts/get are unfenced and remain
+ * disallowed in the app; enabling resource-bearing servers requires revisiting that boundary.
+ * Invalid JSON is forwarded as potential partial framing or a banner; sustained framing drift
+ * is logged. Recognized tool results are always fenced.
  */
 
 const { spawn } = require("child_process");
@@ -79,9 +36,9 @@ const UM_MAX = 50000;
 // Forged markers are defanged with a middle dot — visibly neutralised, never
 // censored (the fidelity rule: content is not silently altered).
 //
-// A LOOKALIKE counts as a forgery too: splitting on the four exact literals
-// alone would let a zero-width, lower-case or full-width close marker reach
-// the model as written. Markers are found
+// A LOOKALIKE counts as a forgery too: matching only the four exact literals
+// would let zero-width, lower-case or full-width close markers reach the model.
+// Markers are found
 // on a folded copy — each code point through NFKC, format characters
 // (zero-width, bidi) dropped, Unicode white space read as one space, lower
 // case — and the dot goes into the ORIGINAL text where the exact form always
@@ -258,8 +215,7 @@ child.on("error", (err) => {
 });
 
 // An EPIPE on the child's stdin (or our own stdout) is an unhandled 'error'
-// event that would take the proxy down mid-conversation — the same lesson
-// the old app's messages-server.js learned.
+// event that would take the proxy down mid-conversation.
 child.stdin.on("error", () => {});
 process.stdout.on("error", () => {});
 
@@ -299,18 +255,12 @@ function observeRequestLine(lineBuf) {
     }
 }
 
-// Client roots must never reach the server (found live):
-// `server-filesystem` 2026.7.10 replaces its argv directories with the
-// client's MCP roots — Claude Code's cwd + --add-dir — as soon as the client
-// advertises the `roots` capability, so the "scoped to <root>/shared" server
-// actually served workspace + vault and the shared folder was unreachable.
-// Three channels carry roots to a server; all three are closed here, at the
-// app's one interposition point: the capability advert in `initialize`, the
-// `roots/list_changed` notification, and the client's answer to the server's
-// own `roots/list` request (rewritten to an empty list — the server keeps its
-// argv when no valid root arrives). Lines that need no change are forwarded
-// byte-identical; unparseable lines pass through untouched (framing is never
-// the proxy's to repair).
+// Prevent client roots from widening server access. server-filesystem 2026.7.10 replaces argv
+// directories with the client's MCP roots when the client advertises the roots capability.
+// Close all three channels here: initialize capability advertisement, roots/list_changed
+// notification, and replies to the server's roots/list request. Rewrite the last to an empty
+// list so the server retains argv roots. Forward unrelated lines byte-for-byte; do not repair
+// unparseable framing.
 function rewriteRequestLine(lineBuf) {
     let request;
     try { request = JSON.parse(lineBuf.toString("utf8")); } catch { return lineBuf; }

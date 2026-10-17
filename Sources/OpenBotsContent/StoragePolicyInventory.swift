@@ -11,6 +11,10 @@ public enum PreviewStorageDataClass: String, CaseIterable, Codable, Sendable {
     case checkpoints
     case runtimeMetadata
     case claudeCLIProfile
+    case claudeCompatibilityProfile
+    case claudeRetainedRuntimes
+    case claudeRuntimeSelection
+    case claudeRuntimeChecks
     case generatedConfiguration
     case redactedLogs
     case teammateProfileAssets
@@ -157,7 +161,11 @@ public struct PreviewStoragePolicyInventory: Sendable {
         case .leaseSpool: layout.leaseRoot
         case .checkpoints: layout.checkpointRoot
         case .runtimeMetadata: layout.runtimeMetadataRoot
-        case .claudeCLIProfile: layout.claudeCLIProfileRoot
+        case .claudeCLIProfile: layout.withClaudeProfilePurpose(.primary).claudeCLIProfileRoot
+        case .claudeCompatibilityProfile: layout.withClaudeProfilePurpose(.compatibility).claudeCLIProfileRoot
+        case .claudeRetainedRuntimes: layout.claudeRetainedRoot
+        case .claudeRuntimeSelection: layout.claudeRuntimeStateURL
+        case .claudeRuntimeChecks: layout.claudeRuntimeChecksRoot
         case .generatedConfiguration: layout.generatedConfigurationRoot
         case .redactedLogs: layout.logsRoot
         case .teammateProfileAssets: layout.profileAssetsRoot
@@ -218,12 +226,12 @@ public struct PreviewStoragePolicyInventory: Sendable {
                 .durableRecovery, .high, .requiresNoIndexAncestor, .includedByDefault,
                 .never, .verifiedOwnedRoot(.applicationSupport)
             )
-        case .queueSpool, .leaseSpool, .runtimeMetadata:
+        case .queueSpool, .leaseSpool, .runtimeMetadata, .claudeRetainedRuntimes, .claudeRuntimeSelection, .claudeRuntimeChecks:
             return (
                 .durableRuntimeAuthority, .high, .requiresNoIndexAncestor, .includedByDefault,
                 .selectedAuditOrStatusOnly, .verifiedOwnedRoot(.applicationSupport)
             )
-        case .claudeCLIProfile:
+        case .claudeCLIProfile, .claudeCompatibilityProfile:
             return (
                 .providerOwnedState, .high, .requiresNoIndexAncestor,
                 .providerOwnedNoOpenBotsMutation, .providerOwnedNever,

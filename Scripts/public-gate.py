@@ -35,7 +35,7 @@ EMAIL_OK = re.compile(
 # Home folders the tests use on purpose; any other /Users/<name> is a leak.
 SYNTHETIC_HOMES = {
     "x", "probe", "alex", "example", "someone", "somebody", "you", "USER",
-    "private", "Shared", "name", "me", "user", "test", "a", "b",
+    "private", "Shared", "name", "me", "user", "test", "fixture", "a", "b",
 }
 HOME = re.compile(r"/Users/([A-Za-z0-9._-]+)")
 
@@ -91,6 +91,11 @@ def scrub_allowed(text):
 
 
 def check_text(rel, text, where, findings):
+    # This one negative URL fixture verifies that the allowed feed host still
+    # rejects userinfo. Its fixed synthetic username is not an email address.
+    if rel == 'Tests/OpenBotsServicesTests/SourceAppUpdateManifestTests.swift':
+        text = re.sub(r'https://user@raw\.githubusercontent\.com/LorenzoColombani/openbots/main/docs/updates/source-update\.json',
+                      lambda match: ' ' * len(match.group()), text)
     clean = scrub_allowed(text)
     for label, pattern in RULES:
         for match in pattern.finditer(clean):

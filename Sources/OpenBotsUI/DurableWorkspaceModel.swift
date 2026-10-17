@@ -22,6 +22,7 @@ public struct ConversationCardFixturePresentation {
     }
 }
 
+
 /// Screen-scoped orchestration for the durable teammate/chat loop.
 /// Repositories remain behind `DurableTeammateChatServing`; this model owns
 /// presentation identity, selection generations, and row-local updates only.
@@ -31,8 +32,8 @@ public final class DurableWorkspaceModel: ObservableObject {
         "Messages save locally at once; replies are a preview fixture. Claude and tools are not running."
     public static let localDeliveryDescription =
         "Claude isn’t connected. Save messages and attachments on this Mac; drafts and history remain available. Nothing is sent automatically."
-    /// Under the line that names what a reply's hires made: the
-    /// app's own note, saved here, never a Claude reply that did not arrive.
+    /// Under the line that names what a reply's hires made: the app's own note, saved here,
+    /// never a Claude reply that did not arrive.
     public static let hireNoteNotice = "OpenBots note · saved on this Mac"
     public static let textReplyDeliveryDescription =
         "Memory questions and explicit memory updates are handled on this Mac. Other messages use Claude when their context can be published safely. Attachments, tools and connectors are not sent."
@@ -135,6 +136,8 @@ public final class DurableWorkspaceModel: ObservableObject {
 
     private let service: any DurableTeammateChatServing
     private let textReplyService: (any ClaudeTextReplyServing)?
+    private let claudeAuthenticationEpoch: @MainActor () -> UInt64
+    private let claudeAuthenticationRequired: @MainActor (UInt64) -> Void
     private let agenticJobService: (any AgenticJobServing)?
     private let agenticJobAccess: AgenticJobAccessStore?
     public let agenticJobAccessModel: AgenticJobAccessModel?
@@ -142,8 +145,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     /// the sample-folder job service the way the switch model is: browsing is
     /// its own grant and must not inherit that coupling.
     public let connectorAccessStore: ConnectorAccessStore?
-    /// The user's Messages conversations, for choosing the chats each bot may
-    /// read on its Access sheet. Nil in tests, which must never read a real history.
+    /// The user's Messages conversations, for choosing the chats each bot may read
+    /// on its Access sheet. Nil in tests, which must never read their history.
     private let messagesChats: (any MessagesChatDirectory)?
     /// The selected bot's folders on the Mac, for Details.
     public let botWorkspaceModel: BotWorkspaceModel?
@@ -155,7 +158,10 @@ public final class DurableWorkspaceModel: ObservableObject {
             completed: { [weak self] id in self?.agenticJobCompleted(conversationID: id) })
     }()
     fileprivate lazy var textReplyCoordinator: ClaudeTextReplyCoordinator? = textReplyService.map {
-        let coordinator = ClaudeTextReplyCoordinator(service: $0) { [weak self] in self?.refreshTextReplyPhase() }
+        let coordinator = ClaudeTextReplyCoordinator(service: $0, authenticationEpoch: claudeAuthenticationEpoch,
+            authenticationRequired: claudeAuthenticationRequired) {
+            [weak self] in self?.refreshTextReplyPhase()
+        }
         // Deferred: whoever ended the turn goes first (a lead's report, the
         // next brief), and a worker's result waits for the room.
         coordinator.conversationFreed = { [weak self] _ in Task { @MainActor [weak self] in self?.drainWorkerWakes() } }
@@ -271,6 +277,35 @@ public final class DurableWorkspaceModel: ObservableObject {
     private var didFinishShutdown = false
     private var shutdownTasks: [Task<Bool, Never>] = []
 
+    /// Aggregate all conversations and transient editors, never only the
+    /// selected chat's Idle badge. No shutdown flag is changed by this query.
+    public var applicationUpdateBlocker: String? {
+        if isShuttingDown { return "OpenBots is closing." }
+        if textReplyCoordinator?.hasUpdateBlockingActivity == true
+            || agenticJobCoordinator?.hasUpdateBlockingActivity == true
+            || !agenticJobSubmissions.isEmpty || conversation.hasPendingSubmissions
+            || !runningWorkers.isEmpty || !pendingWorkerWakes.isEmpty || !wakingWorkerIDs.isEmpty
+            || !teamChainConversationIDs.isEmpty || !dispatchingHandoffIDs.isEmpty
+            || sessionStagedHandoffIDs.values.contains(where: { !$0.isEmpty }) {
+            return "Wait for your bots, approvals and team work to finish."
+        }
+        if hiringModel != nil || teamCreation != nil || teamEditor != nil || botAccess != nil || deleteRequest != nil
+            || profileDrafts.values.contains(where: { $0.hasUnsavedChanges || $0.isSaving || $0.isLoading || $0.isImportingPhoto }) {
+            return "Finish or cancel your open bot and team edits first."
+        }
+        if isCreatingTeammate || isExporting || archiveModel?.isBusy == true || botWorkspaceModel?.isBusy == true
+            || attachmentCoordinator?.hasUpdateBlockingActivity == true || unscopedAttachmentDraft.hasUpdateBlockingActivity
+            || attachmentDraftByConversationID.values.contains(where: \.hasUpdateBlockingActivity) {
+            return "Wait for the current import, export or save to finish."
+        }
+        return nil
+    }
+
+    public func saveDraftsForApplicationUpdate() async -> Bool {
+        guard !isShuttingDown else { return false }
+        return await draftCoordinator?.flushAllExplained() == .saved || draftCoordinator == nil
+    }
+
     /// Synchronous freeze. No new save/import/send is admitted after this turn.
     public func beginShutdown() {
         guard !isShuttingDown else { return }
@@ -338,6 +373,8 @@ public final class DurableWorkspaceModel: ObservableObject {
         mode: LocalChatMode = .localOnly,
         service: any DurableTeammateChatServing,
         textReplyService: (any ClaudeTextReplyServing)? = nil,
+        claudeAuthenticationEpoch: @escaping @MainActor () -> UInt64 = { 0 },
+        claudeAuthenticationRequired: @escaping @MainActor (UInt64) -> Void = { _ in },
         agenticJobService: (any AgenticJobServing)? = nil,
         agenticJobAccess: AgenticJobAccessStore? = nil,
         connectorAccess: ConnectorAccessStore? = nil,
@@ -379,6 +416,8 @@ public final class DurableWorkspaceModel: ObservableObject {
         self.mode = mode
         self.service = service
         self.textReplyService = mode == .localOnly ? textReplyService : nil
+        self.claudeAuthenticationRequired = claudeAuthenticationRequired
+        self.claudeAuthenticationEpoch = claudeAuthenticationEpoch
         self.agenticJobService = mode == .localOnly ? agenticJobService : nil
         self.agenticJobAccess = mode == .localOnly ? agenticJobAccess : nil
         self.connectorAccessStore = mode == .localOnly ? connectorAccess : nil
@@ -474,6 +513,8 @@ public final class DurableWorkspaceModel: ObservableObject {
 
     /// Loads only the current roster, selected direct chat, and its newest page.
     public func loadInitialWorkspace(messageLimit: Int = 100) async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isShuttingDown, !Task.isCancelled else { return }
         _ = sidebarOrderCoordinator
         messagePageLimit = min(max(messageLimit, 1), 500)
@@ -539,11 +580,13 @@ public final class DurableWorkspaceModel: ObservableObject {
         )
     }
 
+
     /// New Bot: click plus, a bot appears, asks what it is for, and sets itself
     /// up. The bot is made at once under a free placeholder name, its chat
     /// opens on its one question, and the user's answer sets it up. It replaces
     /// the earlier New Bot sheet. The review fixture keeps its hiring conversation.
     public func beginTeammateCreation() {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard !isShuttingDown, archiveModel?.isBusy != true, !isCreatingTeammate else { return }
         if mode == .reviewFixture {
             beginHiringFixture()
@@ -590,6 +633,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     /// a name, so the default name is numbered past the ones the roster
     /// already has: "New Bot", then "New Bot 2".
     public func createTeammateImmediately() async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard mode == .localOnly, !isShuttingDown, archiveModel?.isBusy != true, !isCreatingTeammate,
               hiringModel == nil else { return }
         searchCoordinator?.close()
@@ -743,6 +788,7 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     public func beginTeamCreation() {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard canCreateTeam, teamCreation == nil else { return }
         searchCoordinator?.close()
         let candidates = directChatsByTeammate.values.map { TeammateIdentitySnapshot($0.teammate) }
@@ -795,6 +841,7 @@ public final class DurableWorkspaceModel: ObservableObject {
     /// so a row's context menu edits the row it was opened from instead of
     /// staying inert on every row but the selected one.
     public func beginTeamEditing(teamID: UUID) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard canEditTeams, let team = teamChatsByID[teamID], teamEditor == nil, teamCreation == nil else { return }
         searchCoordinator?.close()
         // A hidden member keeps its seat, so it keeps its checkbox, checked: left out of the
@@ -850,6 +897,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         await reloadTeamChats()
     }
 
+
     /// The hidden bots that sit in a team get a live row of their own for the
     /// team surfaces, never one in the list. Their motion there is the
     /// conversation's own (`workingAvatarByConversation`), so this row only
@@ -893,6 +941,7 @@ public final class DurableWorkspaceModel: ObservableObject {
 
     /// Explicit development fixture entry; normal New Bot never enters hiring.
     public func beginHiringFixture() {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard !isShuttingDown, !isCreatingTeammate else { return }
         searchCoordinator?.close()
         guard hiringModel == nil else { return }
@@ -925,6 +974,7 @@ public final class DurableWorkspaceModel: ObservableObject {
     /// whichever conversation is open, exactly as the old app's profile sheet
     /// was about its seat.
     public func openBotAccess(id: UUID) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard !isShuttingDown, supportsBotAccess, let chat = directChatsByTeammate[id] else { return }
         botAccess?.stopObserving()
         botAccess = BotAccessModel(teammateID: chat.teammate.id, botName: chat.teammate.profile.displayName,
@@ -1013,6 +1063,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
 
+
+
     /// Where the saved order reads a bot that has just joined the list: pinned bots
     /// come first, so a new or hired bot, never
     /// pinned, leads the unpinned ones, and a restored bot, appended by the order's
@@ -1029,6 +1081,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     public func togglePinBot(id: UUID) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard let navigationService, let chat = directChatsByTeammate[id], !isShuttingDown else { return }
         do {
             let saved = try await navigationService.setPinned(
@@ -1051,6 +1105,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     public func hideBot(id: UUID) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard let navigationService, let chat = directChatsByTeammate[id], !isShuttingDown else { return }
         do {
             let saved = try await navigationService.setHidden(
@@ -1078,6 +1134,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     public func unhideBot(_ teammate: Teammate) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard let hiddenModel, !isShuttingDown else { return }
         guard let saved = await hiddenModel.setHidden(teammate, hidden: false), !saved.isHidden else { return }
         guard !isShuttingDown else { return }
@@ -1091,6 +1149,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     public func prepareDeleteBot(id: UUID) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard let deletionService, !isShuttingDown else { return }
         guard !hasWorkerWork(holderID: id) else { deleteErrorMessage = Self.workerRunningDeleteMessage; return }
         guard let chat = directChatsByTeammate[id] else {
@@ -1113,6 +1173,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     /// own copy of the request, because SwiftUI clears the dialog's binding,
     /// and with it `deleteRequest`, before the button's task runs.
     public func confirmDeleteBot(_ request: BotDeleteRequest) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         if deleteRequest == request { deleteRequest = nil }
         guard let deletionService, !isShuttingDown else { return }
         let id = request.id
@@ -1184,6 +1246,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     public func archiveSelectedBot() async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard canArchiveSelectedBot, let teammate = selectedTeammate, let archiveModel else { return }
         let generation = selectionGeneration
         let originalConversation = conversation.conversationID
@@ -1269,10 +1333,10 @@ public final class DurableWorkspaceModel: ObservableObject {
         deletedBotIDs = Set(ids.map(\.rawValue))
     }
 
-    /// A teammate a bot's reply hired: its row at the top of the
-    /// sidebar, where a bot made by hand lands, and, when it joined a team,
-    /// that team's roster, so its replies there carry its name and a handoff
-    /// card for it resolves. The selection stays where the person has it.
+    /// A teammate a bot's reply hired: its row at the top of the sidebar, where a bot made by
+    /// hand lands, and, when it joined a team, that team's roster, so its replies there carry
+    /// its name and a handoff card for it resolves. The selection stays where the person has
+    /// it.
     private func presentHiredTeammate(_ hire: TeammateHire) async {
         guard !isShuttingDown, let chats = try? await service.activeDirectChats(), !isShuttingDown,
               let chat = chats.first(where: { $0.teammate.id == hire.teammateID }) else { return }
@@ -1284,10 +1348,13 @@ public final class DurableWorkspaceModel: ObservableObject {
         sidebar.replaceTeams(teams.map(Self.teamRowSnapshot))
     }
 
+
     /// Archive Team: the team leaves the sidebar, its
     /// chat and records stay. Refused while its chat has work in progress; an
     /// open chat's draft is saved first and the chat closes.
     public func archiveTeam(id: UUID) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isShuttingDown, let archiveModel, archiveModel.supportsTeams, !archiveModel.isBusy,
               let chat = teamChatsByID[id] else { return }
         let conversationID = chat.conversation.id.rawValue
@@ -1330,6 +1397,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     public func restoreTeam(_ team: Team) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isShuttingDown, let archiveModel, await archiveModel.restoreTeam(team) != nil else { return }
         await reloadTeamChats()
     }
@@ -1337,6 +1406,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     func refreshTeams() async { await reloadTeamChats() }
 
     public func restoreBot(_ teammate: Teammate) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isShuttingDown, let archiveModel, await archiveModel.restore(teammate) != nil else { return }
         do {
             let chats = try await service.activeDirectChats()
@@ -1360,6 +1431,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     /// Settings can export an active bot without navigating away from the
     /// current team. Revalidate the selected inventory item when invoked.
     public func exportBotConversations(teammateID: UUID, into folder: URL) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard supportsConversationExport, let exportService,
               let teammate = directChatsByTeammate[teammateID]?.teammate, teammate.lifecycle == .active,
               sidebar.rowModels.contains(where: { $0.id == teammateID }) else { return }
@@ -1414,6 +1487,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         return chat.teammate
     }
 
+
     /// The conversation whose live lines and screen picture the details pane
     /// shows for its bot: its own chat when that is open, or the open team chat
     /// when the bot is one of its members (otherwise a member's pane would
@@ -1443,6 +1517,7 @@ public final class DurableWorkspaceModel: ObservableObject {
             return TeammateIdentitySnapshot(chat.teammate)
         }
     }
+
 
     /// The open team's hidden members: the header shows them by face and name, but their
     /// settings open from Hidden Bots, since the details pane, its editor and
@@ -1510,6 +1585,7 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     public func editSelectedProfile() {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         searchCoordinator?.close()
         guard canEditSelectedProfile, let id = sidebar.selection, let profileService else { return }
         let editor = profileDrafts[id] ?? TeammateProfileEditorModel(
@@ -1532,6 +1608,7 @@ public final class DurableWorkspaceModel: ObservableObject {
     /// bot's own chat that is the selection; from a team it is the member the
     /// pane was opened for, and the selection is never moved to reach it.
     public func editDetailsProfile() {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard memberDetailsTargetID != nil else {
             editSelectedProfile()
             return
@@ -1574,6 +1651,7 @@ public final class DurableWorkspaceModel: ObservableObject {
             self.presentSavedLiveMessages(conversationID: conversationID.rawValue, teammate: teammate)
         }
     }
+
 
     /// A new bot set itself up: its new name reaches the sidebar, the chat
     /// title and the team pickers. An edit by the user that is open stays
@@ -1673,6 +1751,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     }
 
     private func selectionChanged(to teammateUUID: UUID?, generation: UInt64) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isShuttingDown, generation == selectionGeneration,
               sidebar.selection == teammateUUID else { return }
         searchCoordinator?.close()
@@ -1885,6 +1965,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         dispatchNextStagedHandoff(from: staged, team: team)
     }
 
+
     /// Opens the conversation's "what happened" record.
     public func openWorkRecord() {
         guard canShowWorkRecord else { return }
@@ -1907,6 +1988,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         }
     }
 
+
     // MARK: Throwaway workers
 
     /// How long a wake turned away as busy waits before it tries again.
@@ -1918,6 +2000,7 @@ public final class DurableWorkspaceModel: ObservableObject {
     /// Runs each worker a saved reply started. The holder's face keeps working
     /// in that chat while one runs; its end wakes the holder.
     private func startWorkers(_ workers: [TeammateWorker], holder: Teammate) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard let workerService, !isShuttingDown, !didFinishShutdown else { return }
         for worker in workers where runningWorkers[worker.id] == nil && worker.holderID == holder.id {
             runningWorkers[worker.id] = RunningWorker(worker: worker, holderName: holder.profile.displayName)
@@ -2036,10 +2119,10 @@ public final class DurableWorkspaceModel: ObservableObject {
         if let team = teamChat(for: conversationID) { await reloadHandoffCards(team: team) }
     }
 
-    /// The user's Stop in a chat ends what its bots started there: every
-    /// running worker is cancelled, and a result still waiting for its bot is
-    /// dropped, each with a line; none of them wakes a bot. A wake already
-    /// under way is that Stop's own business (`stopPressedConversationIDs`).
+    /// The user's Stop in a chat ends what its bots started there: every running worker is cancelled,
+    /// and a result still waiting for its bot is dropped, each with a line; none of them wakes
+    /// a bot. A wake already under way is that Stop's own business
+    /// (`stopPressedConversationIDs`).
     private func stopWorkers(conversationID: UUID) {
         for running in runningWorkers.values where running.worker.conversationID.rawValue == conversationID {
             stoppedByHimWorkerIDs.insert(running.worker.id)
@@ -2115,6 +2198,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         return saved
     }
 
+
     /// The lead compiles a member's finished leg for the user: the
     /// member's reply stays on the record, and the room hears the lead once.
     private func compileHandoffReport(record: HandoffRecord, team: TeamChatSnapshot, lead: Teammate) async {
@@ -2160,6 +2244,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         await reloadHandoffCards(team: team)
     }
 
+
     /// A lead's brief to a named member of its own team sends itself. That is
     /// ordinary teaming inside the room the user is already in, not an act
     /// that leaves the product, so it is not gated. Visibility, not a
@@ -2201,6 +2286,7 @@ public final class DurableWorkspaceModel: ObservableObject {
             self?.dispatchingHandoffIDs.remove(handoffRowID)
         }
     }
+
 
     /// Stop in a team conversation ends the whole handoff chain, not only the
     /// leg or turn that is running. Every brief this workspace was going to
@@ -2322,10 +2408,8 @@ public final class DurableWorkspaceModel: ObservableObject {
         return records.first { $0.id == id }?.state
     }
 
-    /// The installed build's "Not now". No control offers it any more — the
-    /// gate the decline belonged to is gone —
-    /// but the interaction model still takes a decline action, so this stays
-    /// wired rather than handing it one that lies about what it does.
+    /// No current control offers "Not now", but the interaction model still accepts a decline
+    /// action. Keep it wired to its actual behavior.
     private func declineHandoff(id: HandoffID, team: TeamChatSnapshot) async -> Bool {
         guard let handoffService, (try? await handoffService.decline(id: id)) != nil else { return false }
         await reloadHandoffCards(team: team)
@@ -2397,6 +2481,7 @@ public final class DurableWorkspaceModel: ObservableObject {
                 )
             },
             beforeSubmission: { [weak self] messageID, conversationID, rawText, keepsAttachments in
+                guard ApplicationUpdateGate.shared.allowsWork else { return "OpenBots is preparing an update. Your draft is kept." }
                 // nil is "admitted"; only a workspace that is gone refuses here.
                 guard let self else { return Self.workspaceGoneRefusal }
                 return self.prepareMessageSubmission(messageID: messageID, conversationID: conversationID, rawText: rawText,
@@ -2429,6 +2514,8 @@ public final class DurableWorkspaceModel: ObservableObject {
         _ destination: WorkspaceSearchDestination,
         isCurrent: @escaping @MainActor () -> Bool
     ) async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+        defer { withExtendedLifetime(updateOperation) {} }
         let teammateID: TeammateID
         let conversationID: ConversationID
         let target: MessageSearchTarget?
@@ -2561,8 +2648,8 @@ public final class DurableWorkspaceModel: ObservableObject {
     static let attachmentFrozenRefusal = "The file could not be attached to this message. Your text is kept."
     static let draftNotSavedRefusal = "This message could not be saved, so it was not sent. Your text is kept."
 
-    /// Nil when the message may go; otherwise the one sentence the composer
-    /// shows for why it did not.
+    /// Nil when the message may go; otherwise the one sentence the composer shows for why it
+    /// did not.
     private func prepareMessageSubmission(messageID: UUID, conversationID: UUID, rawText: String, locally: Bool,
                                           keepsAttachments: Bool = false) -> String? {
         guard !isShuttingDown else { return Self.workspaceGoneRefusal }
@@ -2588,8 +2675,7 @@ public final class DurableWorkspaceModel: ObservableObject {
             guard team || keepsAttachments || (!conversation.hasAttachmentContent && attachmentDraft.rows.isEmpty) else {
                 return Self.attachmentFrozenRefusal
             }
-            // A second correction while the first is still being picked up is
-            // a refusal that must not be swallowed.
+            // Refuse a second correction while the first is still being picked up.
             guard textReplyCoordinator?.reserve(conversationID: conversationID, messageID: messageID) == true else {
                 return Self.correctionPendingRefusal
             }
@@ -2727,8 +2813,8 @@ public final class DurableWorkspaceModel: ObservableObject {
 
             // Both rows are already durable. This labelled, deterministic
             // presentation fixture reveals the stored reply through one stable
-            // row so a check can verify row-local streaming without implying
-            // that a model process or tool is running.
+            // row to verify row-local streaming without implying that a
+            // model process or tool is running.
             if let fixtureReply, !isShuttingDown, conversation.conversationID == conversationID {
                 setActivity(.speaking, teammateID: teammateID)
                 let finalReply = Self.messageSnapshot(
@@ -2929,16 +3015,11 @@ public final class DurableWorkspaceModel: ObservableObject {
         }
     }
 
-    /// Marks the briefs a completed turn of this session staged, which are the
-    /// only ones that dispatch themselves. The reply service anchors every
-    /// record it stages on the reply it saved in that same turn, so the turn's
-    /// briefs are exactly the staged records whose source is that reply: no
-    /// roster reasoning, and neither a record another writer inserted between
-    /// two draws nor one left behind while its member was away can be taken
-    /// for this turn's. A record staged by a session that ended is governed by
-    /// the rule that a pending handoff or saved queue is not permission to wake
-    /// work after close: it waits for a person and carries its own Send. A turn
-    /// that saved no reply staged nothing.
+    /// Only briefs staged by a completed turn of this session dispatch automatically. The reply
+    /// service ties each record to the reply saved by that turn, excluding unrelated inserts or
+    /// older pending records. Records from ended sessions wait for the user's Send action;
+    /// persisted queues do not authorize work after close. A turn saving no reply stages
+    /// nothing.
     private func noteHandoffsStagedByThisTurn(team: TeamChatSnapshot, replyMessageID: MessageID?) async {
         guard let handoffService, !didFinishShutdown, let replyMessageID,
               let records = try? await handoffService.records(conversationID: team.conversation.id) else { return }
@@ -3094,6 +3175,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         let wasBusy = conversation.textReplyPhase?.isBusy == true
         let hadApproval = conversation.textReplyApproval != nil
         conversation.setTextReplyPhase(textReplyCoordinator?.phase(for: conversation.conversationID))
+        conversation.setModelMismatchNotice(textReplyCoordinator?.modelPresentation(for: conversation.conversationID)?.mismatchNotice)
         conversation.setTextReplyContextDisclosure(textReplyCoordinator?.contextDisclosure(for: conversation.conversationID))
         conversation.setTextReplyApproval(textReplyCoordinator?.approval(for: conversation.conversationID))
         conversation.setTextReplyQuestion(textReplyCoordinator?.question(for: conversation.conversationID))
@@ -3117,6 +3199,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         }
     }
 
+
     /// The transcript shows what is for the user. Bot-to-bot traffic, saved
     /// as work-audit messages, is on the record instead.
     static func showsInTranscript(_ message: Message) -> Bool { message.outputClass != .workAudit }
@@ -3139,8 +3222,8 @@ public final class DurableWorkspaceModel: ObservableObject {
                 if case .status = part.content { return true }
                 return false
             }
-            // The line naming a reply's hires or workers is the app's own note.
-            // It is recognised by its words, so a relaunch knows it too.
+            // The line naming a reply's hires or workers is the app's own note. It is
+            // recognised by its words, so a relaunch knows it too.
             if Self.isHireNote(message) {
                 snapshot = ChatMessageSnapshot(
                     id: snapshot.id, author: .system(label: "OpenBots"), parts: snapshot.parts,
@@ -3171,9 +3254,8 @@ public final class DurableWorkspaceModel: ObservableObject {
                     id: snapshot.id, author: .system(label: "OpenBots"), parts: snapshot.parts,
                     delivery: snapshot.delivery, timestamp: snapshot.timestamp
                 )
-                // A turn the bot declined is not a turn that broke. Saying
-                // "no Claude reply received" over it sends the person after a
-                // fault that never happened.
+                // A declined turn is not a broken turn. Describe the refusal directly instead
+                // of claiming no reply was received.
                 snapshot.deliveryNotice = declinedReplyMessageIDs.contains(message.id.rawValue)
                     ? "OpenBots status · the bot declined this one"
                     : "OpenBots status · no Claude reply received"
@@ -3188,6 +3270,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         textTurnReplyMessageIDs.insert(id)
         if outcome == .failed(.declined) { declinedReplyMessageIDs.insert(id) }
     }
+
 
     /// One app-authored status line that `TeammateHireNote` or
     /// `TeammateWorkerNote` wrote.
@@ -3482,6 +3565,7 @@ public final class DurableWorkspaceModel: ObservableObject {
         composerDraftByConversationID[conversationID] = conversation.composerText
     }
 
+
     /// Attachments are direct-only for now. A team conversation must
     /// never reach the durable per-conversation draft: the attachment
     /// repository validates direct-only and always throws for a team
@@ -3661,8 +3745,8 @@ public final class DurableWorkspaceModel: ObservableObject {
         if let dmConversationID, let turn = activeTurns[dmConversationID] {
             dmActivity = turn.activity
         } else if let dmConversationID, workerIsRunning(holderID: teammateID, conversationID: dmConversationID) {
-            // A worker the bot started in its own chat keeps its face working
-            // after its one-line turn ended, so it is seen in motion.
+            // A worker the bot started in its own chat keeps its face working after its
+            // one-line turn ended.
             dmActivity = .thinkingOrWorking
         } else if activeTurns.isEmpty {
             dmActivity = fallback

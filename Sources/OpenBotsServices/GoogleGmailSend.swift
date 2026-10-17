@@ -5,6 +5,7 @@ import OpenBotsContent
 import OpenBotsDomain
 import OpenBotsRuntime
 
+
 /// One Gmail message as the send card shows it and as Google receives it.
 /// The card and the MIME writer read the same value, and
 /// everything a card could not show exactly is refused rather than stripped or
@@ -308,12 +309,11 @@ public enum ClaudeTextGoogleGmailSendApprovalPolicy {
     static let quietReads: Set<String> = ["gmail_send_account"]
     static let refusalActivity = "Asked to send a Gmail message the card could not show; refused"
 
-    /// The same count Messages uses: more lines than fit under the heading say
-    /// how many there are, in the app's words.
-    ///
-    /// The subject is the bot's words, so it stands last, on a line of its own
-    /// under a label: in the middle of the app's sentence a quote mark in it
-    /// could close the quotation and add a sentence that reads as the app's.
+    /// The same count Messages uses: more lines than fit under the heading say how many there
+    /// are, in the app's words.
+    /// The subject is the bot's words, so it stands last, on a line of its own under a label:
+    /// in the middle of the app's sentence a quote mark in it could close the quotation and add
+    /// a sentence that reads as the app's.
     static func heading(for proposal: GoogleGmailSendProposal) -> String {
         var heading = "Sends as soon as you approve, from \(proposal.from) to "
             + "\(proposal.to.joined(separator: ", "))."

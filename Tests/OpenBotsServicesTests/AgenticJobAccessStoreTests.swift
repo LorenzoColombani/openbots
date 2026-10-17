@@ -3,6 +3,7 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsServices
 
+
 /// The switch store used to forget everything at launch. The web switches
 /// now survive a relaunch, so the store
 /// restores them from a repository and writes every later change to it. These
@@ -68,6 +69,7 @@ struct AgenticJobAccessStoreTests {
         #expect(failures.messages.count == 1)
         #expect(failures.messages.first?.contains("app-wide webSearch on") == true)
         #expect(failures.messages.first?.contains("refused") == true)
+        #expect(!(await store.confirmSavedSettings()), "A logged/swallowed write error must veto an update restart")
         await repository.refuseWrites(false)
         await store.setBotEnabled(true, capability: .web(.fetch), teammateID: bot)
         await store.waitForPendingWrites()

@@ -73,6 +73,7 @@ extension SQLiteStore: TeammateDeletionRepository {
             )
             guard unresolved.isEmpty, publishing.isEmpty else { throw TeammateDeleteError.unresolvedWork }
 
+
             // A bot that took part in a team chat is deleted, and its messages
             // there stay under the name "Deleted bot", with the handoffs it was
             // part of. Its row stays, emptied and marked, because those messages and
@@ -90,10 +91,9 @@ extension SQLiteStore: TeammateDeletionRepository {
                 )
             }
 
-            // The records of the bot's own runs and proposals do not cascade, so
-            // they go first: a bot that had ever replied through Claude or run
-            // Work could not be deleted. A run
-            // a kept handoff reported through (a former lead's) stays with it.
+            // The records of the bot's own runs and proposals do not cascade, so they go first:
+            // a bot that had ever replied through Claude or run Work could not be deleted. A
+            // run a kept handoff reported through (a former lead's) stays with it.
             let ownRuns = """
                 SELECT id FROM work_runs WHERE teammate_id=?1
                 AND id NOT IN (SELECT report_run_id FROM handoffs WHERE report_run_id IS NOT NULL)
@@ -111,10 +111,9 @@ extension SQLiteStore: TeammateDeletionRepository {
             _ = try execute(sql: "DELETE FROM work_runs WHERE id IN (\(ownRuns));", bindings: [.text(tid)])
             _ = try execute(sql: "DELETE FROM approvals WHERE teammate_id=?;", bindings: [.text(tid)])
 
-            // Its own memory records point into its chat, its messages and its
-            // documents without cascading, so a bot asked what it remembers
-            // could not be deleted. The files go to
-            // the Trash with its folders (TeammateDeletionService).
+            // Its own memory records point into its chat, its messages and its documents
+            // without cascading, so a bot asked what it remembers could not be deleted. The
+            // files go to the Trash with its folders (TeammateDeletionService).
             _ = try execute(sql: """
                 DELETE FROM memory_local_correction_clarifications
                 WHERE reply_message_id IN (\(ownMessages)) OR user_message_id IN
@@ -246,6 +245,7 @@ extension SQLiteStore: TeammateDeletionRepository {
             LIMIT 1;
             """, bindings: [.text(tid)]).isEmpty
     }
+
 
     /// Every kept handoff to or from the bot that could still move ends the
     /// way Decline would end it: its card is drawn only

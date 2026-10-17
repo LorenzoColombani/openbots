@@ -244,7 +244,7 @@ extension SQLiteStore {
                         throw MemoryConversationPublicationRepositoryError.invalidSource
                     }
                 case .appObservation:
-                    // The only registered app predicate.
+                    // The only registered app predicate in this increment.
                     let id = record.authority.teammateID
                     guard source.sourceID == "teammate.saved-name:" + id.persistedValue,
                           let row = try query(sql: "SELECT display_name,profile_revision,updated_at FROM teammates WHERE id=?;",

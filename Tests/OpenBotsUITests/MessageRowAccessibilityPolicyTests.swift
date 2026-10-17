@@ -45,6 +45,7 @@ func rosterAccessibilityMetadataIncludesExistingActivityAndOptionalRecency() {
     #expect(!noHistory.contains("Last activity"))
 }
 
+
 /// A pinned row once carried nothing that said so.
 /// It now shows a pin beside the name, and the row reads "Pinned" to VoiceOver.
 @Test("A pinned row says so; an unpinned one says nothing about pins")

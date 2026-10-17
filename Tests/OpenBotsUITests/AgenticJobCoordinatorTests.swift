@@ -9,8 +9,8 @@ import Testing
 @MainActor
 struct AgenticJobCoordinatorTests {
     /// The jobs switches are moved on the store here: nothing on screen sets
-    /// them since the retired runner lost its switch, toggle and banner, and
-    /// the model only reads them for the runner's admission.
+    /// them since the retired runner lost its switch, toggle and banner,
+    /// and the model only reads them for the runner's admission.
     @Test("Both independent switches are required and a different bot gets no grant")
     func accessIntersection() async {
         let store = AgenticJobAccessStore(), first = TeammateID(UUID()), second = TeammateID(UUID())

@@ -381,14 +381,17 @@ final class TeammateProfileEditorTests: XCTestCase {
         ))
         let host = controller.view
         for width: CGFloat in [270, 640] {
-            host.frame = NSRect(x: 0, y: 0, width: width, height: 1_800)
+            // All disclosures are expanded for this width regression. Give the
+            // longer catalog explanation room so OCR does not mistake ordinary
+            // vertical scrolling for a horizontally clipped picker title.
+            host.frame = NSRect(x: 0, y: 0, width: width, height: 2_400)
             for _ in 0..<3 {
                 host.layoutSubtreeIfNeeded()
                 try await Task.sleep(for: .milliseconds(10))
             }
             // The editor is flexible, so an unconstrained fittingSize is not
             // the width it selects for a real inspector-sized proposal.
-            let measured = controller.sizeThatFits(in: CGSize(width: width, height: 1_800))
+            let measured = controller.sizeThatFits(in: CGSize(width: width, height: 2_400))
             XCTAssertTrue(measured.width.isFinite)
             XCTAssertLessThanOrEqual(measured.width, width + 0.5)
             let fields = host.profileDescendants.compactMap { $0 as? NSTextField }.filter(\.isEditable)
@@ -412,7 +415,8 @@ final class TeammateProfileEditorTests: XCTestCase {
                 for option in ClaudeModelCatalog.options {
                     XCTAssertTrue(modelMenu.itemTitles.contains(option.menuLabel), "Missing complete qualified choice: \(option.menuLabel)")
                 }
-                for menu in [modelMenu, effortMenu, contextMenu, notificationMenu] {
+                let avatarMenu = try XCTUnwrap(menus.first { $0.itemTitles.contains("Keep saved appearance") })
+                for menu in [modelMenu, effortMenu, contextMenu, notificationMenu, avatarMenu] {
                     let frame = menu.convert(menu.bounds, to: host)
                     let cell = try XCTUnwrap(menu.cell as? NSPopUpButtonCell)
                     let item = try XCTUnwrap(menu.selectedItem)
@@ -432,7 +436,7 @@ final class TeammateProfileEditorTests: XCTestCase {
                 // Each of the nine pickers (model, effort, context, notifications, avatar model
                 // and the four creature choices) must show its label and, in order, the complete
                 // selected title; a title clipped to "Model default prefe..." is not equal to it.
-                // The avatar model's own title is checked apart, below, because it is clipped.
+                // The avatar model's selected title must also fit the narrow panel.
                 let lines = try renderedProfileLines(host)
                 let expected = [
                     "Preferred model", "Sonnet · Existing preference",
@@ -451,18 +455,11 @@ final class TeammateProfileEditorTests: XCTestCase {
                     }
                     remaining = remaining[(found + 1)...]
                 }
-                // Known defect: at the narrow inspector width the
-                // avatar model picker draws "Keep saved appe...". The expected failure turns
-                // into a failing test the day it is fixed, so the fix is noticed.
+                // Regression for the 270-point inspector: the full selected title
+                // stays visible with the field label above its menu.
                 let avatarTitleIsWhole = lines.map(normalizedProfileLine)
                     .contains(normalizedProfileLine("Keep saved appearance"))
-                if width < 300 {
-                    XCTExpectFailure("The avatar model title is clipped at \(Int(width)) points") {
-                        XCTAssertTrue(avatarTitleIsWhole)
-                    }
-                } else {
-                    XCTAssertTrue(avatarTitleIsWhole, "Clipped avatar model title at \(width): \(lines)")
-                }
+                XCTAssertTrue(avatarTitleIsWhole, "Clipped avatar model title at \(width): \(lines)")
             }
             let buttons = host.profileDescendants.compactMap { $0 as? NSButton }
             // SwiftUI owns composed button labels; raw NSButton.title does
@@ -554,9 +551,9 @@ final class TeammateProfileEditorTests: XCTestCase {
         let label = try XCTUnwrap(fields.first { $0.stringValue == teammate.profile.title })
         let description = try XCTUnwrap(host.profileDescendants.compactMap { $0 as? NSTextView }
             .first { $0.string == teammate.profile.detailedInstructions })
-        // The raw backing controls can carry no label at all. SwiftUI's
-        // virtual labels are not established by this never-windowed host, so
-        // the named controls' labels in a real window are not checked here.
+        // The first integration run observed nil for all three raw backing
+        // control labels. SwiftUI's virtual labels are not established by this
+        // never-windowed host: live named-control acceptance stays AX UNVERIFIED.
         var missingLabels: [String] = []
         for (observed, expected) in [
             (name.accessibilityLabel(), "Bot name"),
@@ -570,7 +567,7 @@ final class TeammateProfileEditorTests: XCTestCase {
             }
         }
         if !missingLabels.isEmpty {
-            print("AX UNVERIFIED: never-windowed backing controls expose no label for \(missingLabels.joined(separator: ", ")). Labels in a real window are not checked here.")
+            print("AX UNVERIFIED: never-windowed backing controls expose no label for \(missingLabels.joined(separator: ", ")). Live native label acceptance remains required.")
         }
         XCTAssertTrue(description.isEditable)
 
@@ -740,6 +737,7 @@ final class TeammateProfileEditorTests: XCTestCase {
         XCTAssertNotNil(withImporter.inlineError)
     }
 
+
     /// The New Bot sheet saves its "What this
     /// bot does" as the role, and the bot's settings showed an empty box of the
     /// same name, which held the instructions, with the role folded away under
@@ -907,23 +905,40 @@ private func renderedProfileLines(_ host: NSView) throws -> [String] {
     ))
     bitmap.size = host.bounds.size
     host.cacheDisplay(in: host.bounds, to: bitmap)
-    let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-    let recognition = VNRecognizeTextRequest()
-    recognition.usesCPUOnly = true
-    recognition.recognitionLevel = .accurate
-    recognition.recognitionLanguages = ["en-US"]
-    recognition.usesLanguageCorrection = false
-    try VNImageRequestHandler(data: data, options: [:]).perform([recognition])
-    let lines = (recognition.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+    let image = try XCTUnwrap(bitmap.cgImage)
+    // Vision scales a very tall image down before recognition, undoing the 3x
+    // capture and turning intact titles into OCR errors. Read overlapping bands
+    // at native resolution; assign each line to exactly one band by its center.
+    var recognized: [(y: CGFloat, text: String)] = []
+    let bandHeight = 1_800, overlap = 120
+    for start in stride(from: 0, to: image.height, by: bandHeight) {
+        let top = max(0, start - overlap)
+        let bottom = min(image.height, start + bandHeight + overlap)
+        let band = try XCTUnwrap(image.cropping(to: CGRect(
+            x: 0, y: CGFloat(top), width: CGFloat(image.width), height: CGFloat(bottom - top))))
+        let recognition = VNRecognizeTextRequest()
+        recognition.usesCPUOnly = true
+        recognition.recognitionLevel = .accurate
+        recognition.recognitionLanguages = ["en-US"]
+        recognition.usesLanguageCorrection = false
+        try VNImageRequestHandler(cgImage: band, options: [:]).perform([recognition])
+        for observation in recognition.results ?? [] {
+            let center = CGFloat(top) + (1 - observation.boundingBox.midY) * CGFloat(band.height)
+            guard center >= CGFloat(start), center < CGFloat(start + bandHeight),
+                  let text = observation.topCandidates(1).first?.string else { continue }
+            recognized.append((center, text))
+        }
+    }
+    let lines = recognized.sorted { $0.y < $1.y }.map(\.text)
     XCTAssertFalse(lines.isEmpty, "Rendered text recognition must materialize actual pixels.")
     return lines
 }
 
-/// Vision drops or merges spaces and reads the menu's middle dot as a bullet. It
-/// also reads a picker's up-down arrows as a trailing "*" once the layout moves by
-/// a few points ("Round *" for the Eyes picker, after the
-/// role's field was added above it). A clipped title ends in an ellipsis, which
-/// this never removes.
+/// Vision drops or merges spaces and reads the menu's middle dot as a bullet or
+/// a spaced hyphen. It can also read a picker's up-down arrows as a trailing "*"
+/// after a small layout shift. A clipped title ends in an ellipsis, which this
+/// never removes.
 private func normalizedProfileLine(_ line: String) -> String {
-    line.lowercased().filter { !$0.isWhitespace && $0 != "·" && $0 != "•" && $0 != "*" }
+    line.replacingOccurrences(of: " - ", with: " · ").lowercased()
+        .filter { !$0.isWhitespace && $0 != "·" && $0 != "•" && $0 != "*" }
 }

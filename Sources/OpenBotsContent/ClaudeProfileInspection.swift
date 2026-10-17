@@ -1,6 +1,13 @@
 import Darwin
 import Foundation
 
+struct ClaudeProfileOwnershipMarker: Codable {
+    var schemaVersion = 1
+    var bundleIdentifier = OpenBotsPreviewIdentity.bundleIdentifier
+    var role = "preview"
+    var profileID: UUID? = nil
+}
+
 public enum ClaudeProfileInspectionIssue: String, Equatable, Sendable {
     case rootMismatch
     case symbolicLink
@@ -51,12 +58,14 @@ public struct ClaudeProfileInspector: Sendable {
         }
 
         do {
-            try inspectMetadata(in: applicationSupportRoot)
+            _ = try ClaudeProfileMetadataAccess(purpose: layout.claudeProfilePurpose, afterMarkerRead: afterMarkerRead)
+                .inspectMetadata(in: applicationSupportRoot)
             return .metadataVerified
-        } catch let failure as InspectionFailure {
+        } catch let failure as ClaudeProfileMetadataAccess.InspectionFailure {
             switch failure {
             case .missing: return .missing
             case .rejected(let issue): return .rejected(issue)
+            case .profileAlreadyExists: return .rejected(.invalidMarker)
             case .unavailable: return .unavailable
             }
         } catch {
@@ -64,38 +73,77 @@ public struct ClaudeProfileInspector: Sendable {
         }
     }
 
-    private func inspectMetadata(in applicationSupportRoot: VerifiedOwnedRoot) throws {
+    /// A profile replacement changes this identity and invalidates earlier compatibility receipts.
+    public func verifiedProfileIdentity(applicationSupportRoot: VerifiedOwnedRoot,
+                                        layout: PreviewStorageLayout) throws -> UUID {
+        guard layout.claudeProfilePurpose == .compatibility,
+              inspect(applicationSupportRoot: applicationSupportRoot, layout: layout) == .metadataVerified,
+              let identity = try ClaudeProfileMetadataAccess(purpose: .compatibility)
+                .inspectMetadata(in: applicationSupportRoot).profileID else {
+            throw ClaudeProfileProvisioningError.rejected(.invalidMarker)
+        }
+        return identity
+    }
+}
+
+public enum ClaudeProfileProvisioningError: Error, Equatable, Sendable {
+    case existingProfileIncomplete
+    case rejected(ClaudeProfileInspectionIssue)
+    case unavailable
+}
+
+/// Upgrades an existing installation that never received its private Claude profile.
+/// It publishes only a wholly absent profile; existing Claude state is never repaired or adopted.
+public struct ClaudeProfileProvisioner: Sendable {
+    private let beforePublication: (@Sendable () throws -> Void)?
+
+    public init() { beforePublication = nil }
+
+    init(beforePublication: @escaping @Sendable () throws -> Void) {
+        self.beforePublication = beforePublication
+    }
+
+    public func ensureExists(
+        applicationSupportRoot: VerifiedOwnedRoot,
+        layout: PreviewStorageLayout
+    ) throws {
+        switch ClaudeProfileInspector().inspect(applicationSupportRoot: applicationSupportRoot, layout: layout) {
+        case .metadataVerified: return
+        case .rejected(let issue): throw ClaudeProfileProvisioningError.rejected(issue)
+        case .unavailable: throw ClaudeProfileProvisioningError.unavailable
+        case .missing: break
+        }
+        do {
+            try ClaudeProfileMetadataAccess(purpose: layout.claudeProfilePurpose).provisionMissing(
+                in: applicationSupportRoot, beforePublication: beforePublication
+            )
+        } catch let failure as ClaudeProfileMetadataAccess.InspectionFailure {
+            switch failure {
+            case .profileAlreadyExists: throw ClaudeProfileProvisioningError.existingProfileIncomplete
+            case .rejected(let issue): throw ClaudeProfileProvisioningError.rejected(issue)
+            case .missing, .unavailable: throw ClaudeProfileProvisioningError.unavailable
+            }
+        }
+        guard ClaudeProfileInspector().inspect(applicationSupportRoot: applicationSupportRoot, layout: layout)
+            == .metadataVerified else {
+            throw ClaudeProfileProvisioningError.rejected(.changedIdentity)
+        }
+    }
+}
+
+private struct ClaudeProfileMetadataAccess {
+    private static let markerFilename = ClaudeProfileInspector.markerFilename
+    private static let maximumMarkerBytes = ClaudeProfileInspector.maximumMarkerBytes
+    var purpose: ClaudeProfilePurpose = .primary
+    var afterMarkerRead: (@Sendable () throws -> Void)? = nil
+
+    func inspectMetadata(in applicationSupportRoot: VerifiedOwnedRoot) throws -> ClaudeProfileOwnershipMarker {
         var directories: [OpenedDirectory] = []
         defer { for directory in directories.reversed() { close(directory.fd) } }
 
-        let rootFD = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
-        guard rootFD >= 0 else { throw InspectionFailure.unavailable }
-        let rootMetadata: stat
-        do { rootMetadata = try descriptorMetadata(rootFD) }
-        catch { close(rootFD); throw error }
-        directories.append(OpenedDirectory(fd: rootFD, parentFD: nil, name: nil, metadata: rootMetadata))
-
-        let components = Array(applicationSupportRoot.url.pathComponents.dropFirst())
-        for (index, component) in components.enumerated() {
-            try appendDirectory(
-                named: component,
-                protected: index == components.count - 1,
-                to: &directories
-            )
-        }
-        guard let applicationSupportFD = directories.last?.fd else { throw InspectionFailure.unavailable }
-        let rootMarker = try openMarker(parentFD: applicationSupportFD, name: ".openbots-root.json")
+        let rootMarker = try openApplicationSupport(applicationSupportRoot, directories: &directories)
         defer { close(rootMarker.fd) }
-        let expectedRootMarker = OwnedRootMarker(
-            installationID: applicationSupportRoot.installationID,
-            rootID: applicationSupportRoot.rootID,
-            kind: .applicationSupport
-        )
-        guard let actualRootMarker = try? JSONDecoder().decode(OwnedRootMarker.self, from: rootMarker.data),
-              actualRootMarker == expectedRootMarker else {
-            throw InspectionFailure.rejected(.rootMismatch)
-        }
-        for component in ["HighChurn.noindex", "Runtime", "Claude", "CLIProfile"] {
+        for component in ["HighChurn.noindex", "Runtime", "Claude", purpose.directoryName] {
             try appendDirectory(named: component, protected: true, to: &directories)
         }
         guard let profileFD = directories.last?.fd else { throw InspectionFailure.unavailable }
@@ -114,6 +162,54 @@ public struct ClaudeProfileInspector: Sendable {
         guard sameIdentity(backups, try recheckedEntry(parentFD: profileFD, name: "backups")) else {
             throw InspectionFailure.rejected(.changedIdentity)
         }
+        try verifyDirectories(directories)
+
+        guard let marker = try? JSONDecoder().decode(ClaudeProfileOwnershipMarker.self, from: profileMarker.data),
+              marker.schemaVersion == 1,
+              marker.bundleIdentifier == OpenBotsPreviewIdentity.bundleIdentifier,
+              marker.role == (purpose == .primary ? "preview" : "compatibility"),
+              purpose == .primary || marker.profileID != nil else {
+            throw InspectionFailure.rejected(.invalidMarker)
+        }
+        return marker
+    }
+
+    private func openApplicationSupport(
+        _ applicationSupportRoot: VerifiedOwnedRoot,
+        directories: inout [OpenedDirectory]
+    ) throws -> OpenedMarker {
+
+        let rootFD = open("/", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard rootFD >= 0 else { throw InspectionFailure.unavailable }
+        let rootMetadata: stat
+        do { rootMetadata = try descriptorMetadata(rootFD) }
+        catch { close(rootFD); throw error }
+        directories.append(OpenedDirectory(fd: rootFD, parentFD: nil, name: nil, metadata: rootMetadata))
+
+        let components = Array(applicationSupportRoot.url.pathComponents.dropFirst())
+        for (index, component) in components.enumerated() {
+            try appendDirectory(
+                named: component,
+                protected: index == components.count - 1,
+                to: &directories
+            )
+        }
+        guard let applicationSupportFD = directories.last?.fd else { throw InspectionFailure.unavailable }
+        let rootMarker = try openMarker(parentFD: applicationSupportFD, name: ".openbots-root.json")
+        let expectedRootMarker = OwnedRootMarker(
+            installationID: applicationSupportRoot.installationID,
+            rootID: applicationSupportRoot.rootID,
+            kind: .applicationSupport
+        )
+        guard let actualRootMarker = try? JSONDecoder().decode(OwnedRootMarker.self, from: rootMarker.data),
+              actualRootMarker == expectedRootMarker else {
+            close(rootMarker.fd)
+            throw InspectionFailure.rejected(.rootMismatch)
+        }
+        return rootMarker
+    }
+
+    private func verifyDirectories(_ directories: [OpenedDirectory]) throws {
         for directory in directories.reversed() {
             guard sameIdentity(directory.metadata, try descriptorMetadata(directory.fd)) else {
                 throw InspectionFailure.rejected(.changedIdentity)
@@ -125,11 +221,150 @@ public struct ClaudeProfileInspector: Sendable {
             }
         }
 
-        guard let marker = try? JSONDecoder().decode(ProfileMarker.self, from: profileMarker.data),
-              marker.schemaVersion == 1,
-              marker.bundleIdentifier == OpenBotsPreviewIdentity.bundleIdentifier,
-              marker.role == "preview" else {
-            throw InspectionFailure.rejected(.invalidMarker)
+    }
+
+    func provisionMissing(
+        in applicationSupportRoot: VerifiedOwnedRoot,
+        beforePublication: (@Sendable () throws -> Void)?
+    ) throws {
+        var directories: [OpenedDirectory] = []
+        defer { for directory in directories.reversed() { close(directory.fd) } }
+        let rootMarker = try openApplicationSupport(applicationSupportRoot, directories: &directories)
+        defer { close(rootMarker.fd) }
+        // These are part of every prior installation. A missing authority ancestor
+        // is not the old Claude-profile omission and must not be reconstructed.
+        for component in ["HighChurn.noindex", "Runtime"] {
+            try appendDirectory(named: component, protected: true, to: &directories)
+        }
+        let needsClaudeDirectory: Bool
+        do {
+            try appendDirectory(named: "Claude", protected: true, to: &directories)
+            needsClaudeDirectory = false
+        } catch InspectionFailure.missing {
+            needsClaudeDirectory = true
+        }
+        guard let parentFD = directories.last?.fd else { throw InspectionFailure.unavailable }
+        let finalName = needsClaudeDirectory ? "Claude" : purpose.directoryName
+        var existing = stat()
+        if fstatat(parentFD, finalName, &existing, AT_SYMLINK_NOFOLLOW) == 0 {
+            if let issue = ClaudeProfileMetadataPolicy.directoryIssue(existing) {
+                throw InspectionFailure.rejected(issue)
+            }
+            // In particular, an existing profile lacking a marker or backups is
+            // not an empty destination. Never turn it into an admitted profile.
+            throw InspectionFailure.profileAlreadyExists
+        }
+        guard errno == ENOENT else { throw failureForOpen(errno) }
+        try verifyUnchanged(rootMarker)
+        try verifyDirectories(directories)
+
+        let ancestorCount = directories.count
+        let stagingName = ".openbots-claude-profile-\(UUID().uuidString).noindex"
+        var published = false
+        var profileMarker: OpenedMarker?
+        defer {
+            if !published {
+                // Cleanup touches only our recorded, unchanged stage entries;
+                // unexpected children or identity changes leave evidence in place.
+                try? discardStage(Array(directories.dropFirst(ancestorCount)), marker: profileMarker)
+            }
+            if let profileMarker { close(profileMarker.fd) }
+        }
+        try createDirectory(named: stagingName, to: &directories)
+        let staging = directories[ancestorCount]
+        if needsClaudeDirectory {
+            try createDirectory(named: purpose.directoryName, to: &directories)
+        }
+        guard let profileFD = directories.last?.fd else { throw InspectionFailure.unavailable }
+        try createDirectory(named: "backups", to: &directories)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        var marker = ClaudeProfileOwnershipMarker()
+        if purpose == .compatibility { marker.role = "compatibility"; marker.profileID = UUID() }
+        let markerData = try encoder.encode(marker)
+        let markerFD = openat(
+            profileFD, Self.markerFilename,
+            O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0o600
+        )
+        guard markerFD >= 0 else { throw failureForOpen(errno) }
+        do {
+            guard fchmod(markerFD, 0o600) == 0 else { throw InspectionFailure.unavailable }
+            try writeMarker(markerData, to: markerFD)
+            guard fsync(markerFD) == 0 else { throw InspectionFailure.unavailable }
+            close(markerFD)
+        } catch {
+            close(markerFD)
+            throw error
+        }
+        profileMarker = try openMarker(parentFD: profileFD, name: Self.markerFilename)
+        guard profileMarker?.data == markerData else { throw InspectionFailure.rejected(.changedIdentity) }
+        try beforePublication?()
+        try verifyUnchanged(rootMarker)
+        if let profileMarker { try verifyUnchanged(profileMarker) }
+        try verifyDirectories(directories)
+        for directory in directories.dropFirst(ancestorCount) {
+            guard fsync(directory.fd) == 0 else { throw InspectionFailure.unavailable }
+        }
+        // The complete subtree becomes visible in one operation. RENAME_EXCL
+        // refuses a concurrently created directory, file or symlink.
+        guard renameatx_np(parentFD, stagingName, parentFD, finalName, UInt32(RENAME_EXCL)) == 0 else {
+            if errno == EEXIST { throw InspectionFailure.rejected(.changedIdentity) }
+            throw failureForOpen(errno)
+        }
+        published = true
+        guard sameIdentity(staging.metadata, try recheckedEntry(parentFD: parentFD, name: finalName)),
+              fsync(parentFD) == 0 else { throw InspectionFailure.rejected(.changedIdentity) }
+        try verifyUnchanged(rootMarker)
+        try verifyDirectories(Array(directories.prefix(ancestorCount)))
+    }
+
+    private func createDirectory(named name: String, to directories: inout [OpenedDirectory]) throws {
+        guard let parentFD = directories.last?.fd else { throw InspectionFailure.unavailable }
+        guard mkdirat(parentFD, name, 0o700) == 0 else { throw failureForOpen(errno) }
+        let before = try entryMetadata(parentFD: parentFD, name: name)
+        guard before.st_mode & S_IFMT == S_IFDIR, before.st_uid == geteuid() else {
+            throw InspectionFailure.rejected(.changedIdentity)
+        }
+        let fd = openat(parentFD, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard fd >= 0 else { throw failureForOpen(errno) }
+        do {
+            guard sameIdentity(before, try descriptorMetadata(fd)), fchmod(fd, 0o700) == 0 else {
+                throw InspectionFailure.rejected(.changedIdentity)
+            }
+            let metadata = try descriptorMetadata(fd)
+            guard sameIdentity(metadata, try recheckedEntry(parentFD: parentFD, name: name)),
+                  ClaudeProfileMetadataPolicy.directoryIssue(metadata) == nil else {
+                throw InspectionFailure.rejected(.changedIdentity)
+            }
+            directories.append(OpenedDirectory(fd: fd, parentFD: parentFD, name: name, metadata: metadata))
+        } catch {
+            close(fd)
+            throw error
+        }
+    }
+
+    private func discardStage(_ directories: [OpenedDirectory], marker: OpenedMarker?) throws {
+        try verifyDirectories(directories)
+        if let marker {
+            try verifyUnchanged(marker)
+            guard unlinkat(marker.parentFD, marker.name, 0) == 0 else { throw InspectionFailure.unavailable }
+        }
+        for directory in directories.reversed() {
+            guard let parentFD = directory.parentFD, let name = directory.name,
+                  sameIdentity(directory.metadata, try recheckedEntry(parentFD: parentFD, name: name)),
+                  unlinkat(parentFD, name, AT_REMOVEDIR) == 0 else { throw InspectionFailure.unavailable }
+        }
+    }
+
+    private func writeMarker(_ data: Data, to fd: Int32) throws {
+        var offset = 0
+        while offset < data.count {
+            let count = data.withUnsafeBytes {
+                Darwin.write(fd, $0.baseAddress!.advanced(by: offset), data.count - offset)
+            }
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else { throw InspectionFailure.unavailable }
+            offset += count
         }
     }
 
@@ -249,12 +484,6 @@ public struct ClaudeProfileInspector: Sendable {
             && lhs.st_ctimespec.tv_nsec == rhs.st_ctimespec.tv_nsec
     }
 
-    private struct ProfileMarker: Decodable {
-        let schemaVersion: Int
-        let bundleIdentifier: String
-        let role: String
-    }
-
     private struct OpenedDirectory {
         let fd: Int32
         let parentFD: Int32?
@@ -270,8 +499,9 @@ public struct ClaudeProfileInspector: Sendable {
         let data: Data
     }
 
-    private enum InspectionFailure: Error {
+    enum InspectionFailure: Error {
         case missing
+        case profileAlreadyExists
         case rejected(ClaudeProfileInspectionIssue)
         case unavailable
     }

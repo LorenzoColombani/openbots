@@ -1,14 +1,14 @@
 {
- "shape": "work",
- "claude_code_version": "2.1.283",
- "captured": "2026-09-26",
- "model": "claude-opus-5",
- "effort": "high",
- "session_id": "5012e502-1753-4b2f-8f71-97355ba370c2",
- "message_id": "0f8f14e2-6743-4cb1-86cc-71e421280c6e",
- "control_id": "09e551f2-7469-4e0d-999a-32e9a794ce78",
- "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
- "prompt": "Do these steps in order, each tool call on its own, with one short sentence of progress before each call. 1) Run: python3 -c 'import no_such_module_xyz' (it will fail; that is expected). 2) Run: touch Outbox/probe-marker (it may be refused; that is fine). 3) With the Write tool, create Outbox/checklist.html: a complete, polished, self-contained HTML design-review checklist page with inline CSS, at least 40 checklist items in 6 sections, each item with a one-sentence explanation (aim for roughly 25 KB of HTML). 4) Reply with one sentence saying what you made.",
- "environment_note": "captured with the app's work launch, effort high, python3 commands allowed, long context (no CLAUDE_CODE_DISABLE_1M_CONTEXT)",
- "trimmed": "the Write's 29,940-byte HTML is cut to its first 800 characters and its closing lines in every frame that carries it; its argument deltas are re-split at seven characters around the three stall pings, which stay where the CLI sent them; the bot folder, home folder and account are replaced"
+  "shape": "work",
+  "claude_code_version": "2.1.283",
+  "captured": "2000-01-01",
+  "model": "claude-opus-5",
+  "effort": "high",
+  "session_id": "02d87875-c787-5e0b-9def-1885c3ca0e4a",
+  "message_id": "c80eb6fe-30b9-5e2e-8ce0-412b44e554dd",
+  "control_id": "6c0f6b20-749c-59a5-82bf-3d3b0ba2bedd",
+  "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+  "prompt": "Do these steps in order, each tool call on its own, with one short sentence of progress before each call. 1) Run: python3 -c 'import no_such_module_xyz' (it will fail; that is expected). 2) Run: touch Outbox/probe-marker (it may be refused; that is fine). 3) With the Write tool, create Outbox/checklist.html: a complete, polished, self-contained HTML design-review checklist page with inline CSS, at least 40 checklist items in 6 sections, each item with a one-sentence explanation (aim for roughly 25 KB of HTML). 4) Reply with one sentence saying what you made.",
+  "environment_note": "Synthetic work protocol fixture with high effort and long context. A deliberately failing command and refused write precede a streamed HTML response.",
+  "trimmed": "the Write's 29,940-byte HTML is cut to its first 800 characters and its closing lines in every frame that carries it; its argument deltas are re-split at seven characters around the three stall pings, which stay where the CLI sent them; the bot folder, home folder and account are replaced"
 }

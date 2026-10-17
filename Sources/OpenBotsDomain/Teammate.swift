@@ -5,9 +5,9 @@ public struct TeammateProfile: Codable, Equatable, Sendable {
     public let title: String?
     public let role: String
     public let detailedInstructions: String?
-    /// What work is theirs, what they hand off, who they work with and what
-    /// they escalate. Nil when none is written; an empty seat is
-    /// held as none. Absent from profiles saved before seats existed.
+    /// What work is theirs, what they hand off, who they work with and what they escalate. Nil
+    /// when none is written; an empty seat is held as none. Absent from profiles saved before
+    /// seats existed.
     public let seat: TeammateSeat?
     public let revision: UInt64
 
@@ -238,10 +238,9 @@ public struct Teammate: Codable, Equatable, Sendable, Identifiable {
     public var claudeEffort: String?
     /// Nil keeps the model's normal context behavior; explicit default resets it.
     public var claudeContextWindow: String?
-    /// The bot whose hire wrote this bot's role, instructions and seat, named
-    /// as it was at the hire: another bot's reply wrote them, so
-    /// nothing may present them as the person's. Nil for a bot the person
-    /// made, and cleared the first time the person saves the profile.
+    /// The bot whose hire wrote this bot's role, instructions and seat, named as it was at the
+    /// hire: another bot's reply wrote them, so nothing may present them as the person's. Nil
+    /// for a bot the person made, and cleared the first time the person saves the profile.
     public var profileWrittenByHirer: String?
     public let createdAt: Date
     public var updatedAt: Date
@@ -292,49 +291,22 @@ public struct Teammate: Codable, Equatable, Sendable, Identifiable {
 /// "default" is an app selection that omits the CLI flag, not an effort value.
 public enum ClaudeEffortPolicy {
     public static func supportedValues(for model: String) -> [String] {
-        switch model {
-        case "sonnet", "claude-fable-5-1", "claude-opus-5-5", "claude-fable-5", "claude-opus-5", "claude-sonnet-5",
-             "claude-opus-4-8", "claude-opus-4-7":
-            ["low", "medium", "high", "xhigh", "max"]
-        case "claude-opus-4-6", "claude-sonnet-4-6":
-            ["low", "medium", "high", "max"]
-        default:
-            []
-        }
+        ClaudeModelPolicy.current.model(model)?.efforts ?? []
     }
 
     public static func defaultValue(for model: String) -> String? {
-        if model == "claude-opus-4-7" { return "xhigh" }
-        if model == "claude-opus-5-5" { return "medium" }
-        return supportedValues(for: model).isEmpty ? nil : "high"
+        ClaudeModelPolicy.current.model(model)?.defaultEffort
     }
 }
 
 /// Context selections describe CLI budgeting, never a physical model variant.
 public enum ClaudeContextWindowPolicy {
     public static func supportedValues(for model: String) -> [String] {
-        switch model {
-        case "sonnet", "claude-fable-5-1", "claude-opus-5-5", "claude-fable-5", "claude-sonnet-5", "claude-opus-5",
-             "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6":
-            ["default", "standard", "long"]
-        case "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001":
-            // A saved standard cap remains compatible, though redundant at 200K.
-            ["default", "standard"]
-        default:
-            ["default"]
-        }
+        ClaudeModelPolicy.current.model(model)?.contextWindows ?? ["default"]
     }
 
     public static func defaultTokenLimit(for model: String) -> Int? {
-        switch model {
-        case "sonnet", "claude-fable-5-1", "claude-opus-5-5", "claude-fable-5", "claude-sonnet-5", "claude-opus-5",
-             "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6":
-            1_000_000
-        case "claude-sonnet-4-6", "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001":
-            200_000
-        default:
-            nil
-        }
+        ClaudeModelPolicy.current.model(model)?.contextTokens
     }
 }
 

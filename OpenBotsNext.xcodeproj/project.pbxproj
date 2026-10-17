@@ -27,10 +27,10 @@
 		0B48B4145F22B69041C19531 /* OwnedPublication.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6416FF74FDE4F84D3EB9126 /* OwnedPublication.swift */; };
 		0C41299C915DC8C529D5F905 /* ClaudeTextMacControlApprovalPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692559557DF771D22EE36643 /* ClaudeTextMacControlApprovalPolicy.swift */; };
 		0C9789A141F1CE8AB41D04EC /* OpenBotsGoogleHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30D052A87D5C6A10FCB01CD7 /* OpenBotsGoogleHelper.swift */; };
+		0CABE939AE5509200D7FBADA /* AppUpdateModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C224A2542220AD410865B0 /* AppUpdateModel.swift */; };
 		0CF7234EC1356668BC87658C /* TrustAuthorizationFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D4C3F7ADE25B7F7FB5479F /* TrustAuthorizationFixture.swift */; };
 		0D1A64B41247463DE50C54E7 /* SoleInstanceTextTurnProcessAbsence.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB4BF5EE1E40A5C23213A31F /* SoleInstanceTextTurnProcessAbsence.swift */; };
 		0D65D5F6C196D5E1F3D61784 /* SQLiteConversationOutcomeHistoryRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 009AA6D6548F8E88236C59A5 /* SQLiteConversationOutcomeHistoryRepository.swift */; };
-		0E2EA47D939CCF58E97A6918 /* PreviewCardFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C37A48DA3DFE0A7A4DA5C20 /* PreviewCardFixture.swift */; };
 		0ED39E0ADECFA92E2EB40A9D /* ProfilePhotoAsset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 410C20B978B37D7FB8992654 /* ProfilePhotoAsset.swift */; };
 		1065771038FB2430B0F111C5 /* TrustAuthorizationWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C908A359AB231F171E0AB714 /* TrustAuthorizationWorkspaceView.swift */; };
 		10969F7B7F74371C320C87DE /* OpenBotsPersistence.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CEFE1858C5E43C97356614B0 /* OpenBotsPersistence.framework */; };
@@ -46,13 +46,14 @@
 		1599A3F53E2E682B45BB8F1D /* ClaudeExtensionConnectorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BDB3486B734176D4ACE4B2D /* ClaudeExtensionConnectorCatalog.swift */; };
 		15E07CF20C501B48025C07BB /* MemoryLocalConversationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A04C89B78F71939BAA5D2CFA /* MemoryLocalConversationService.swift */; };
 		1601AAD5F4DE13F714313FDA /* TranscriptSearchFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB6534F6E6111F2CD9A09DDB /* TranscriptSearchFocus.swift */; };
-		175544762D1A8A329E4074D9 /* PreviewWorkspaceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1439BA16BFE6B3631545F8D /* PreviewWorkspaceFixture.swift */; };
 		17926289F59BC35DDFE4E1DB /* CollaborationReviewFixtureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F8A3C7F5DE2184D2BBE218 /* CollaborationReviewFixtureService.swift */; };
+		17F8CA620499D0437A627DD9 /* ClaudeModelCatalogDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E788F8D9AAC86F4697954B /* ClaudeModelCatalogDiscovery.swift */; };
 		190052A917E57A8748D3A9C7 /* ConversationCardFixtureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A270035320B5E497AB89DE2D /* ConversationCardFixtureService.swift */; };
 		1A5D4605AD39F27E4FD27051 /* OpenBotsContent.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E678E8B1E9DF2E161802AFE8 /* OpenBotsContent.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		1C49CBBB421EF526979536CB /* SQLiteMemoryLocalCorrectionAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 681771CE60E40AA909597A2B /* SQLiteMemoryLocalCorrectionAnchor.swift */; };
 		1D80BA61F0C5751B09212835 /* MemoryKnowledgeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B4ACB34166A994AC1E6CC77 /* MemoryKnowledgeService.swift */; };
 		1FC59F6CC46AAC3A76B3BBA5 /* AgenticJobAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A4A47BB151DD3D0F49ED4E /* AgenticJobAccess.swift */; };
+		21312F01F013CBD3C0B3AC80 /* SQLiteGoogleWorkspacePublicConfigurationRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4DED6B31B7EDC28D934FBF2 /* SQLiteGoogleWorkspacePublicConfigurationRepository.swift */; };
 		21B8DCC770A14AD915E05475 /* UtilityOwningWindowClose.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76E84818662158C8DD68EE62 /* UtilityOwningWindowClose.swift */; };
 		22A3DAE1923F411F864B765D /* SQLiteBotSelfSetupRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5211FA3254BD4712E93109C /* SQLiteBotSelfSetupRepository.swift */; };
 		22DA0F07272FBC196B89327B /* ProfilePhotoPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B436245A397E7B8BB4670E57 /* ProfilePhotoPresentation.swift */; };
@@ -60,10 +61,12 @@
 		2322BE97CF1DD033E8B65984 /* RuntimeFoundation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4C062F69F764E95D6062FF9 /* RuntimeFoundation.swift */; };
 		25A01DC55B13AACC7C7A6A68 /* OpenBotsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1A2645482BF83C4AF18EC51C /* OpenBotsUI.framework */; };
 		25CB1B8450DBEE0D635DFD39 /* ControlledMemoryTextTurnRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6A06B59F24CE40418D9F31E /* ControlledMemoryTextTurnRepository.swift */; };
+		2637C90D6A141DE98FE53A4C /* ClaudeManagedRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7293E2A3BB895C6762C569A /* ClaudeManagedRuntime.swift */; };
 		2738EBDAABD76BEBB1839ADE /* OpenBotsRuntime.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D22F48C76CEBA82009E69168 /* OpenBotsRuntime.framework */; };
 		29AE324378200947295EBCA1 /* SQLiteTeammateDeletionRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21E81E89F0689B49D5E2536A /* SQLiteTeammateDeletionRepository.swift */; };
 		2B3A4FA14257449A6EF1BD9E /* MemoryContextSelectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553DFDEEC48DF75BB1018608 /* MemoryContextSelectionService.swift */; };
 		2BF7BDA7E8444949FBFB658B /* TrustAuthorizationPresentationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF36F3E32F0E4B84B5EA772 /* TrustAuthorizationPresentationModels.swift */; };
+		2C184B2A124BA7F4ECF39A65 /* GoogleWorkspaceConfigurationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6793DE296C711F83C2077DC /* GoogleWorkspaceConfigurationService.swift */; };
 		2C32D65D2EA7DBB4F0F36B62 /* SQLiteMemoryConversationPublicationRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89202E6A08E09197EDEA6078 /* SQLiteMemoryConversationPublicationRepository.swift */; };
 		2C4E8B5F409A7A27DF8590C6 /* ClaudeTextChromeControlApprovalPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2394FE26B8565013033151B /* ClaudeTextChromeControlApprovalPolicy.swift */; };
 		2C7298669216098520C9C2B9 /* MemoryLocalOperationRecoveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A6F5755003795AE210717F /* MemoryLocalOperationRecoveryService.swift */; };
@@ -79,6 +82,7 @@
 		30380C28E4C9438BD33EDE54 /* AppleCalendarConnectorPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A34923762376820FE8F6D857 /* AppleCalendarConnectorPreparation.swift */; };
 		305AF00D7A1CD6BE5D1E2988 /* ConversationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = E434ABFA67C45C39958661CD /* ConversationContext.swift */; };
 		3060D81C44B724C6E1700B9C /* NativeClaudeConnectionPreparation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC38D49946BF974D7F1272A6 /* NativeClaudeConnectionPreparation.swift */; };
+		3182155C772EA71597EF7EF7 /* ClaudeRuntimeCompatibilityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDA71889797AE292E1ACE1E8 /* ClaudeRuntimeCompatibilityService.swift */; };
 		3199ABEC2EAE0F1E049A80B6 /* OpenBotsDomain.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 319159794155341D97F85021 /* OpenBotsDomain.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		321671204A1A810BF658DE64 /* OpenBotsExecutionRules.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1DBD953DE1C9B971A1469A34 /* OpenBotsExecutionRules.framework */; };
 		324C7C43ED87000C43B9F5C3 /* ClaudePluginConnectorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5BB991536FE48013BE4FB7A /* ClaudePluginConnectorCatalog.swift */; };
@@ -111,6 +115,7 @@
 		43BC29E3FD0538A54E1B41FC /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 900CED18998C8F13154C2DC8 /* Support.swift */; };
 		43CDA629B198CE27222D7F16 /* ClaudeSetupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1720E6317D729999114166B /* ClaudeSetupService.swift */; };
 		4400EC05C489429E6BC83B30 /* ClaudeTextPolicyInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3292F189133CB70BFC0C2374 /* ClaudeTextPolicyInspector.swift */; };
+		4426D61BC5EC7724DA197E87 /* ManagedClaudeRuntimeSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE13539557392B35329E66EF /* ManagedClaudeRuntimeSelector.swift */; };
 		44577FBDEC30971E8F4648E2 /* FirstToolJobAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 015C4EA0DE820730EE301656 /* FirstToolJobAdmission.swift */; };
 		44F2DF83CA444EB6A5DC9D26 /* SQLiteConversationContextRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61B3ED98D652882825B900D8 /* SQLiteConversationContextRepository.swift */; };
 		45DC87BD603C8465D13B8CD9 /* SQLiteC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 250B9463DA0776935C7D8697 /* SQLiteC.swift */; };
@@ -130,20 +135,24 @@
 		511859CCE6DE05C69ECC7DC6 /* OpenBotsDomain.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 319159794155341D97F85021 /* OpenBotsDomain.framework */; };
 		519E420B2235D75A9F96AF85 /* TrustModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BF492323B1D0B7250717251 /* TrustModel.swift */; };
 		51D6C076C2755D82CC52F31B /* MemoryLocalCorrectionMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2310100BEA586D8CC7B4DD2A /* MemoryLocalCorrectionMigration.swift */; };
+		5256AF35F9A12A24F874C896 /* source-app-update.py in Resources */ = {isa = PBXBuildFile; fileRef = F60B2F53851039B20DF04A76 /* source-app-update.py */; };
 		52B2369A5F2BAF8AD03AEAB7 /* MemoryLocalConversationComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65358D6C5BB6463FA008346 /* MemoryLocalConversationComposition.swift */; };
 		53A38159B4B3C3AB7CE049D7 /* MemoryConversationPublicationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED55FD79F301737A120CE6F9 /* MemoryConversationPublicationService.swift */; };
 		54244C545E245458C4AC891A /* SQLiteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E03B695C8A8D5314AB6C44 /* SQLiteStore.swift */; };
 		54937C5B0A62803578EBF11F /* AttachmentPreviewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7CFB3BE0B1B1A482DB3FFEC /* AttachmentPreviewModel.swift */; };
 		55722606B02E0F2BA7F5AA78 /* SQLiteHandoffRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE1E260439A1709574191E2D /* SQLiteHandoffRepository.swift */; };
 		55CEEC1809747064BDF6A406 /* Hiring.swift in Sources */ = {isa = PBXBuildFile; fileRef = F539AFF5CCB1D5A578A1C8FA /* Hiring.swift */; };
+		56E1EFE3D5E3EB25762852DE /* SourceAppUpdateManifest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FCF705FF92A5A360F2F791E /* SourceAppUpdateManifest.swift */; };
 		56FA1A8F5BA7E1AB8FCAA850 /* ClaudeTextInterpreterCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF13CE702521821A78BDC533 /* ClaudeTextInterpreterCatalog.swift */; };
 		573E188DCC82A6570BAE7D5E /* BackupExclusion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222DCC44F99D67C82EF1BB70 /* BackupExclusion.swift */; };
 		5787D38172C90D19753381AE /* ClaudeTextConnectorConfigurationFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 470D8331B4EFD3AA5DEE0066 /* ClaudeTextConnectorConfigurationFile.swift */; };
 		5921798082E6D4A075941CA4 /* MemoryLocalCorrectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5A4C71F3E4425CAB4CA0A1 /* MemoryLocalCorrectionService.swift */; };
+		5991C3CFA2CA28135D383427 /* AnonymousApplicationUpdateDownload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FE09E86A05E8A5A83FB6684 /* AnonymousApplicationUpdateDownload.swift */; };
 		59FAF89C93B9BDFCADE120D9 /* MemoryLocalCorrectionAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 042494B87E1BF62711264D43 /* MemoryLocalCorrectionAnchor.swift */; };
 		5A0ACC515CC4A5BFCA4A4933 /* BrokerPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AE72F9AC38D516F51488EB0 /* BrokerPolicy.swift */; };
 		5B46EDC683D5C87B5001C966 /* SQLiteBackupContainmentService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04172662913A89C63E14830A /* SQLiteBackupContainmentService.swift */; };
 		5C2B8A2B6DDFFAD425713904 /* ConversationOutcomeHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FB94D4CC4479BF2C4BC5EC1 /* ConversationOutcomeHistory.swift */; };
+		5C6AB62B6D4C1B38BCF5F174 /* ApplicationUpdateGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19D1CE2D353FB5F10AA3662A /* ApplicationUpdateGate.swift */; };
 		5C7562572DC59A5727EA5AAA /* SQLiteControlledMemoryTextTurnRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51B193703C22E427DFBAA655 /* SQLiteControlledMemoryTextTurnRepository.swift */; };
 		5E898D29A00F3A46DB6C9A11 /* BotWorkspaceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E6B1AE79692250DDAF5AFE4 /* BotWorkspaceModel.swift */; };
 		5EC8169DBC2D70BDF71B82B5 /* MemoryPublicationIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F22921C32A474B5A29CAF89 /* MemoryPublicationIntent.swift */; };
@@ -159,6 +168,7 @@
 		6400EE46783982AEDD71AE69 /* OpenBotsExecutionRules.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1DBD953DE1C9B971A1469A34 /* OpenBotsExecutionRules.framework */; };
 		641B1669A8008F0977F1C957 /* KnowledgeWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDC2CB4C3A1A324E74E163B5 /* KnowledgeWorkspaceView.swift */; };
 		65FB0996DD31AC09E17B59B4 /* TeamArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FE85E3C6AA10C37F41A72AF /* TeamArchive.swift */; };
+		6714413B4F60B2FAE9B08C8B /* GoogleWorkspacePublicConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA7A3C7297A474D6B47B4CB1 /* GoogleWorkspacePublicConfiguration.swift */; };
 		6847320622810C12374674FE /* ClaudeTextOnlyStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83D63055D414BED60C426AE7 /* ClaudeTextOnlyStream.swift */; };
 		69350E9602FC5CC2D677EF47 /* HiringConversationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F855D7DC1F4E7CD332E3D947 /* HiringConversationView.swift */; };
 		6949B73DE19C2DDE7C803358 /* openbots-calendar-read in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 73D3516CC7BF2271431CB864 /* openbots-calendar-read */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -194,6 +204,7 @@
 		79B6F63CBDD13F949237B05D /* TrustAuthorizationFixtureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CF1462C9CF32BA2B2727878 /* TrustAuthorizationFixtureService.swift */; };
 		79D68E5A678C432CB0E9571D /* ConversationExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C55D7F17DDE8BF40BD5C3AF /* ConversationExportService.swift */; };
 		7C1F438AAE76D4AA1563F4D4 /* SQLiteRunJournalRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10345AC6B48E782DF63A2CEC /* SQLiteRunJournalRepository.swift */; };
+		7C4870FD5F9C09B8BD69940C /* ClaudeRuntimeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A588A65C54C9FA887C5F1E /* ClaudeRuntimeModel.swift */; };
 		7C8EB1EE4E29E91A0D522EF5 /* ConnectorAccessStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11EB48A4B8AE78B8DFBC67C5 /* ConnectorAccessStore.swift */; };
 		7CD53EB8349A5FC2B58355E9 /* ConversationContextService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530E7A6315B5973C775F808B /* ConversationContextService.swift */; };
 		7D9F41A7765E5CFE2C2E7EA5 /* OfficialClaudeConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07B2C9B460F444CEEB0D287 /* OfficialClaudeConnectionService.swift */; };
@@ -205,12 +216,16 @@
 		813558CA15B049104C46FFE1 /* Memory.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC6CDECB66AEC6C45228B273 /* Memory.swift */; };
 		819615A36547FBEC8DCD2869 /* apple-mail-send.js in Resources */ = {isa = PBXBuildFile; fileRef = 054FDDD6B33454199C5D8524 /* apple-mail-send.js */; };
 		81B32D710C2AC86DE2F0D367 /* ClaudeTextOnlyCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE45CD97D94C55F4E199DFC0 /* ClaudeTextOnlyCommand.swift */; };
+		82471CF7735AC52D7A5EBB4E /* ClaudeRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5425644F1441C0FF5441E7D3 /* ClaudeRuntimeSettings.swift */; };
+		8294F9C1318EF45836289BE3 /* claude-runtime-compatibility.js in Resources */ = {isa = PBXBuildFile; fileRef = BC649B0BCF3B1CA912E317E2 /* claude-runtime-compatibility.js */; };
 		82F56C997A1E36F606F173B1 /* OpenBotsSecurity.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = BB8EFDF3D26D4767C803F773 /* OpenBotsSecurity.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		833495CF9520EA82353C1828 /* TeammateCreationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 367C7AFA625127FF861C7145 /* TeammateCreationView.swift */; };
 		833672ABEA7A8242B54DB0C1 /* AttachmentOpenPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62A5B49C7E0CA2EE02F63984 /* AttachmentOpenPolicy.swift */; };
 		837A52BAEF3257D74E5C5951 /* MemoryLocalCorrectionAnchorResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 471755877524F7EB270181D5 /* MemoryLocalCorrectionAnchorResolver.swift */; };
 		83A93E4FFB6F8585AD254C84 /* ClaudeTextOnlyProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513198C30202DB61FD61C014 /* ClaudeTextOnlyProcess.swift */; };
 		8476C2844F9C3AB6E3EEFFFB /* TeammateWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF1428020C96157FA862E15F /* TeammateWorker.swift */; };
+		85ECFA7FAC4217AF57187BBF /* source-app-update-processes.py in Resources */ = {isa = PBXBuildFile; fileRef = 8F513CC91A46711F3F6081CA /* source-app-update-processes.py */; };
+		8694AC4F9DA096258D07FD23 /* ClaudeRuntimeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FDB442EB3D1775D024581AB /* ClaudeRuntimeStore.swift */; };
 		86F2DD03DFB93F1C88D863A6 /* Teammate.swift in Sources */ = {isa = PBXBuildFile; fileRef = D462547394C525B1AC8E1744 /* Teammate.swift */; };
 		8762E190DAB13A3132F29263 /* OpenBotsDomain.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 319159794155341D97F85021 /* OpenBotsDomain.framework */; };
 		88A3725A85CAB25A33FBCD9B /* OpenBotsContent.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E678E8B1E9DF2E161802AFE8 /* OpenBotsContent.framework */; };
@@ -231,6 +246,7 @@
 		914A895214360ADE4E8C0856 /* ConnectorLaunchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8148A26B8DBD02556461C296 /* ConnectorLaunchService.swift */; };
 		916066EFA5861A652B9FF6CB /* KnowledgePresentationModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0BC0E637E61BA3067099C1 /* KnowledgePresentationModels.swift */; };
 		916AD29D5E86C85A1D33E286 /* SQLiteTextTurnRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 639601A953AB5B0AD2208C29 /* SQLiteTextTurnRepository.swift */; };
+		916D6AA77B98133E6AC9C538 /* AppUpdateSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079C3E96FCF30BD68F2E1148 /* AppUpdateSettings.swift */; };
 		91D72FD852921AB8EF42AC87 /* ClaudeTextConnectorApprovalPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF84AD5D7710F08BE1D2C524 /* ClaudeTextConnectorApprovalPolicy.swift */; };
 		922CD05DD023B1C0D3C852A6 /* ConversationDraftService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FD1D8570581495044214006 /* ConversationDraftService.swift */; };
 		92690203C0E013ECFAB88601 /* HandoffFence.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFFEB13497AC7CD3E7926F7 /* HandoffFence.swift */; };
@@ -301,6 +317,7 @@
 		B67750FC15D4C14FF0B68444 /* SQLiteClaudeExecutionEvidenceRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 037CF416DA9C63D4B1006962 /* SQLiteClaudeExecutionEvidenceRepository.swift */; };
 		B6B744D5A57E234BA2C7BAD8 /* ConversationWorkRecordService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A87916B54CEA38BA1B111ED /* ConversationWorkRecordService.swift */; };
 		B6E4DB4E8E49922027DF44E4 /* TeammateDeletionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B224902BB0DFE854A8EB9305 /* TeammateDeletionService.swift */; };
+		B6EA4BC34B4A877A9891347F /* ClaudeModelPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7571266CA549B0E07B04473D /* ClaudeModelPolicy.swift */; };
 		B6FA57A539BAAC608DCAACAC /* Diagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF81E02192B830BD42894CA6 /* Diagnostics.swift */; };
 		B793A348D5762C940D4AE446 /* MemoryConversationResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6494A71A41A9AC4EA9BFF6C7 /* MemoryConversationResolver.swift */; };
 		B8820787048D24B4B700AF78 /* AppOwnedConnectorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B223403BDDC86699B6A0464 /* AppOwnedConnectorCatalog.swift */; };
@@ -314,14 +331,19 @@
 		BEB3CADBD39DCAB727EF4022 /* OpenBotsServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A9750108D5D26889D8894DCF /* OpenBotsServices.framework */; };
 		C01B1720C221A6B59044BE66 /* BotSelfSetup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 119256389BB25F492932A8AF /* BotSelfSetup.swift */; };
 		C21733FAC9F5050659360BE2 /* ActionProposalFixtureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365B2ADCEAF1D5F87ECD0956 /* ActionProposalFixtureService.swift */; };
+		C2B8AC16F3FBB1EEC8E9BA65 /* InMemoryWorkspaceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 946FA61683DB8930DA0306A3 /* InMemoryWorkspaceFixture.swift */; };
+		C2EE80E1531964C2CE4D4A3B /* ManagedClaudeRuntimeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 156CBB947B5F204642B4B576 /* ManagedClaudeRuntimeService.swift */; };
 		C3A2F2835787A1E167D04A5E /* ChromeTabDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD1C74C76E7E20578C965AD7 /* ChromeTabDirectory.swift */; };
 		C4FE1C6A10ADC17A2E146D6C /* ClaudeTextConnectorAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 676FDF6A6C70ED4D30E95CBB /* ClaudeTextConnectorAccess.swift */; };
 		C54601E06647EF4F094F0E0E /* SQLiteMemoryLocalCorrectionRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37DE1EE5B01544BB649F9E48 /* SQLiteMemoryLocalCorrectionRepository.swift */; };
 		C54D5CFCC883A2DDD797B66F /* RunRecoveryWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C71EB7078FF94DB70F9BB46 /* RunRecoveryWorkspaceView.swift */; };
+		C585A5CAA2E5BFB7761F5CD4 /* SourceAppUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C3328A6B81CF991B9B09C6A /* SourceAppUpdater.swift */; };
 		C5CCE9DFD2F47428B2BE35CC /* NativeClaudeTerminalSignInOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA40F63635AFBB2E5CDA71FA /* NativeClaudeTerminalSignInOpener.swift */; };
 		C5D9BC014B9F666B5F9B25CA /* fin-face-transparent.png in Resources */ = {isa = PBXBuildFile; fileRef = 81A6CA38A310A0868B95039C /* fin-face-transparent.png */; };
 		C645DCC7CE96C32A89339B58 /* SQLiteActionProposalRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A44989D4BC1F17E236DACC4 /* SQLiteActionProposalRepository.swift */; };
+		C70325AEC8E3BA99F4F2C9E1 /* SourceAppUpdateService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F082B5BDC3548B1F443FB64C /* SourceAppUpdateService.swift */; };
 		C703F0C6C16AF02DD6D75A1C /* google-workspace.js in Resources */ = {isa = PBXBuildFile; fileRef = E85287C6A2E23F8242A73B48 /* google-workspace.js */; };
+		C72E9192143469F4D32A9764 /* OpenBotsDomain.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 319159794155341D97F85021 /* OpenBotsDomain.framework */; };
 		C77B7D4A27C7907B20F3A591 /* WorkspaceAppearanceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5737DF0964796326E948E8DB /* WorkspaceAppearanceModel.swift */; };
 		C85021DA5D2136ABC2BDAB25 /* OpenBotsContent.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E678E8B1E9DF2E161802AFE8 /* OpenBotsContent.framework */; };
 		C87A02B1624D0DFC2DFF1840 /* OpenBotsServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A9750108D5D26889D8894DCF /* OpenBotsServices.framework */; };
@@ -346,6 +368,7 @@
 		D3651FA05F4D05D0B0EE7563 /* UntrustedMaterial.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C322CFED79D0E8B0667368A /* UntrustedMaterial.swift */; };
 		D3A8637FE632374523D6922B /* BotWorkspaceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53513FD8756F58B37D7D66A9 /* BotWorkspaceService.swift */; };
 		D3E214CDC01340CBD8A6EC3E /* MemorySnapshotSharingComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BD84F9BA1E007AF9B33668 /* MemorySnapshotSharingComposition.swift */; };
+		D608828010CC28C72A2750B0 /* ConversationCardsFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DB4BCA87CC111C11497E20D /* ConversationCardsFixture.swift */; };
 		D69BCEB4F5FB454C7EFD8C85 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = E7095D36BC689568965A7A06 /* libsqlite3.tbd */; };
 		D6A5AFA649FB2F19165C2F4F /* EventKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 95393430BEF80920758B54C6 /* EventKit.framework */; };
 		D78079CF06C4599EBF1CC1A0 /* OpenBotsExecutionRules.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1DBD953DE1C9B971A1469A34 /* OpenBotsExecutionRules.framework */; };
@@ -412,6 +435,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		0D585E50CE8C7C175D9FFE7F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4B18B29709B8C4B4ACEA22AA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DFC7FC62C505457EC1869D40;
+			remoteInfo = OpenBotsDomain;
+		};
 		0F85ABB581C21C2633E4A2F5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 4B18B29709B8C4B4ACEA22AA /* Project object */;
@@ -669,6 +699,7 @@
 		054FDDD6B33454199C5D8524 /* apple-mail-send.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "apple-mail-send.js"; sourceTree = "<group>"; };
 		05598AE72945B19465A52E88 /* SQLiteMemoryPublicationIntentRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteMemoryPublicationIntentRepository.swift; sourceTree = "<group>"; };
 		06CA5670501741A3224EBD96 /* MemoryConversationPublicationRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryConversationPublicationRepository.swift; sourceTree = "<group>"; };
+		079C3E96FCF30BD68F2E1148 /* AppUpdateSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateSettings.swift; sourceTree = "<group>"; };
 		07C27D34713447DA4C72545D /* ActionProposal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionProposal.swift; sourceTree = "<group>"; };
 		087854CFD6D8A6A03F7FFB26 /* AttachmentPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentPreview.swift; sourceTree = "<group>"; };
 		0ACE20D363F9CAA8EA38CB09 /* BotArchiveModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotArchiveModel.swift; sourceTree = "<group>"; };
@@ -686,6 +717,7 @@
 		12C505E9AF3ACA2C22FE811D /* DatabaseProtectionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseProtectionBridge.swift; sourceTree = "<group>"; };
 		139DFF35848752C641247A13 /* MacControlScreenshotSweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacControlScreenshotSweep.swift; sourceTree = "<group>"; };
 		14D6CE43743C0FEA51F400B5 /* AgenticWebCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgenticWebCopy.swift; sourceTree = "<group>"; };
+		156CBB947B5F204642B4B576 /* ManagedClaudeRuntimeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedClaudeRuntimeService.swift; sourceTree = "<group>"; };
 		157F39EE726E79C7A6F14389 /* ConversationSearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSearchModel.swift; sourceTree = "<group>"; };
 		162B8A394150B820E2CD7EC6 /* OutcomeSummaryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutcomeSummaryPresentation.swift; sourceTree = "<group>"; };
 		16B98924E4D1CB69E12904C0 /* MessagesChatPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesChatPicker.swift; sourceTree = "<group>"; };
@@ -694,6 +726,7 @@
 		173E2B2293B758D750F56438 /* AttachmentIngestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentIngestion.swift; sourceTree = "<group>"; };
 		17BFC193150F86E4EEAE3991 /* CollaborationWorkspaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollaborationWorkspaceModel.swift; sourceTree = "<group>"; };
 		19599E5D746FA816E826D637 /* ConnectorCatalogComposite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorCatalogComposite.swift; sourceTree = "<group>"; };
+		19D1CE2D353FB5F10AA3662A /* ApplicationUpdateGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationUpdateGate.swift; sourceTree = "<group>"; };
 		1A2645482BF83C4AF18EC51C /* OpenBotsUI.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = OpenBotsUI.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A6D474E125C318D034D034D /* AttachmentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentPresentation.swift; sourceTree = "<group>"; };
 		1A776EDB5BB2183B03B03A7C /* OpenBotsPreviewApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenBotsPreviewApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -702,6 +735,7 @@
 		1D894D31BE99B31B97764582 /* BotHiddenModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotHiddenModel.swift; sourceTree = "<group>"; };
 		1DBD953DE1C9B971A1469A34 /* OpenBotsExecutionRules.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = OpenBotsExecutionRules.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		1DC55457F32942717426C9D6 /* ContainedBoundaryPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContainedBoundaryPolicy.swift; sourceTree = "<group>"; };
+		1FDB442EB3D1775D024581AB /* ClaudeRuntimeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeStore.swift; sourceTree = "<group>"; };
 		203CA18C1ADB6C067598DB4C /* PendingExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingExecutor.swift; sourceTree = "<group>"; };
 		20E03B695C8A8D5314AB6C44 /* SQLiteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteStore.swift; sourceTree = "<group>"; };
 		215BD26D19E61D46A17EA102 /* BudgetedWait.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BudgetedWait.swift; sourceTree = "<group>"; };
@@ -723,10 +757,12 @@
 		2AFBD8CB5112CBE4324D3E14 /* HiringConversationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiringConversationService.swift; sourceTree = "<group>"; };
 		2B7AE108C18F48D3CF5A09CD /* TranscriptScrollObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptScrollObserver.swift; sourceTree = "<group>"; };
 		2B98262525DA97BD908CC76D /* AppleMailSendPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMailSendPreparation.swift; sourceTree = "<group>"; };
+		2C3328A6B81CF991B9B09C6A /* SourceAppUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAppUpdater.swift; sourceTree = "<group>"; };
 		2C9761AA16CF8CB9E9E2B43A /* AppleMessagesConnectorPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMessagesConnectorPreparation.swift; sourceTree = "<group>"; };
 		2CE24D59DE5E7360D8D55F7B /* TeammateDeletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeammateDeletion.swift; sourceTree = "<group>"; };
 		2E6EB338D811AAA926D7E515 /* MessagesHistoryReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesHistoryReader.swift; sourceTree = "<group>"; };
 		2E9B7CE152583DBBD3435901 /* DraftQuitGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftQuitGuard.swift; sourceTree = "<group>"; };
+		2FE09E86A05E8A5A83FB6684 /* AnonymousApplicationUpdateDownload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnonymousApplicationUpdateDownload.swift; sourceTree = "<group>"; };
 		30D052A87D5C6A10FCB01CD7 /* OpenBotsGoogleHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenBotsGoogleHelper.swift; sourceTree = "<group>"; };
 		319159794155341D97F85021 /* OpenBotsDomain.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = OpenBotsDomain.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		323C70EE3353CF3A1DEF9E26 /* ReadContextRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadContextRepository.swift; sourceTree = "<group>"; };
@@ -748,6 +784,7 @@
 		3E113F67941BBED18CFAB340 /* BotNotificationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotNotificationModel.swift; sourceTree = "<group>"; };
 		3F035AD8A1610A0581DB55F9 /* StableSelectableText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StableSelectableText.swift; sourceTree = "<group>"; };
 		3F511F754E4090B9154B4543 /* DatabaseKeyPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DatabaseKeyPolicy.swift; sourceTree = "<group>"; };
+		3FCF705FF92A5A360F2F791E /* SourceAppUpdateManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAppUpdateManifest.swift; sourceTree = "<group>"; };
 		4066DD37A666F476D5C2CCFC /* OpenBotsPreviewApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenBotsPreviewApp.swift; sourceTree = "<group>"; };
 		410C20B978B37D7FB8992654 /* ProfilePhotoAsset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilePhotoAsset.swift; sourceTree = "<group>"; };
 		41757AE8E62753A4BD75213A /* FirstToolJobProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirstToolJobProcess.swift; sourceTree = "<group>"; };
@@ -778,6 +815,7 @@
 		530CE695479912F7A082E305 /* SQLiteConversationRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteConversationRepository.swift; sourceTree = "<group>"; };
 		530E7A6315B5973C775F808B /* ConversationContextService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationContextService.swift; sourceTree = "<group>"; };
 		53513FD8756F58B37D7D66A9 /* BotWorkspaceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotWorkspaceService.swift; sourceTree = "<group>"; };
+		5425644F1441C0FF5441E7D3 /* ClaudeRuntimeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeSettings.swift; sourceTree = "<group>"; };
 		54E1FA2898CDC11159B750AA /* WorkExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkExecution.swift; sourceTree = "<group>"; };
 		553DFDEEC48DF75BB1018608 /* MemoryContextSelectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryContextSelectionService.swift; sourceTree = "<group>"; };
 		55D2DBBD1A4BA1EFF15C7EE3 /* AttachmentPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentPreviewView.swift; sourceTree = "<group>"; };
@@ -825,10 +863,12 @@
 		747C4A031CEB4368C55BE2C8 /* ProbeToolControlSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProbeToolControlSession.swift; sourceTree = "<group>"; };
 		7512083B0CF53B6BEE3CC3FC /* ClaudeTextConnectorReaper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTextConnectorReaper.swift; sourceTree = "<group>"; };
 		7561380D5F15A295E97F1708 /* AgenticJobCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgenticJobCoordinator.swift; sourceTree = "<group>"; };
+		7571266CA549B0E07B04473D /* ClaudeModelPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeModelPolicy.swift; sourceTree = "<group>"; };
 		7618E8B692F2D4C5A42999EE /* FenceProxyResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FenceProxyResource.swift; sourceTree = "<group>"; };
 		761B932BD6F2A85FF3AFA5B1 /* AttachmentContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentContent.swift; sourceTree = "<group>"; };
 		76796CE79DFD22E14016B5BC /* ClaudeTextReplyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTextReplyService.swift; sourceTree = "<group>"; };
 		76E84818662158C8DD68EE62 /* UtilityOwningWindowClose.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UtilityOwningWindowClose.swift; sourceTree = "<group>"; };
+		77FC4576B62ABD4FF248ED4C /* ReleaseBuild.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = ReleaseBuild.xcconfig; sourceTree = "<group>"; };
 		7A2249F6C8CFD5BC123E8C5A /* ComposerDraftStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerDraftStatusView.swift; sourceTree = "<group>"; };
 		7A87916B54CEA38BA1B111ED /* ConversationWorkRecordService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationWorkRecordService.swift; sourceTree = "<group>"; };
 		7B5A4C71F3E4425CAB4CA0A1 /* MemoryLocalCorrectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryLocalCorrectionService.swift; sourceTree = "<group>"; };
@@ -843,6 +883,7 @@
 		81315C03CDE14348698FB7C0 /* SQLiteClaudeSessionRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteClaudeSessionRepository.swift; sourceTree = "<group>"; };
 		8148A26B8DBD02556461C296 /* ConnectorLaunchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorLaunchService.swift; sourceTree = "<group>"; };
 		81A6CA38A310A0868B95039C /* fin-face-transparent.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "fin-face-transparent.png"; sourceTree = "<group>"; };
+		81E788F8D9AAC86F4697954B /* ClaudeModelCatalogDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeModelCatalogDiscovery.swift; sourceTree = "<group>"; };
 		821B19B2FB6D6C5438C4CC74 /* SQLiteConversationDraftRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteConversationDraftRepository.swift; sourceTree = "<group>"; };
 		8224DC31C9AD91742831F55F /* SQLiteConversationSearchRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteConversationSearchRepository.swift; sourceTree = "<group>"; };
 		829690947C5E5664A72246F3 /* ConnectorAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorAccess.swift; sourceTree = "<group>"; };
@@ -860,11 +901,11 @@
 		89CA25972BAEA5C47B83684D /* MessagesChatDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesChatDirectory.swift; sourceTree = "<group>"; };
 		8B4ACB34166A994AC1E6CC77 /* MemoryKnowledgeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryKnowledgeService.swift; sourceTree = "<group>"; };
 		8B6285E4FD3D3EAF0765E3A6 /* NativeAgenticJobPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAgenticJobPreparation.swift; sourceTree = "<group>"; };
-		8C37A48DA3DFE0A7A4DA5C20 /* PreviewCardFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewCardFixture.swift; sourceTree = "<group>"; };
 		8C8518F7BC4E863BDAA5A815 /* SQLiteJournalRowSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteJournalRowSource.swift; sourceTree = "<group>"; };
 		8CF1462C9CF32BA2B2727878 /* TrustAuthorizationFixtureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustAuthorizationFixtureService.swift; sourceTree = "<group>"; };
 		8DC4B1190FBE7D2AB49B3587 /* DurableWorkspaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurableWorkspaceModel.swift; sourceTree = "<group>"; };
 		8E24D404818E8579FFED4F50 /* TrustAuthorizationWorkspaceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustAuthorizationWorkspaceModel.swift; sourceTree = "<group>"; };
+		8F513CC91A46711F3F6081CA /* source-app-update-processes.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "source-app-update-processes.py"; sourceTree = "<group>"; };
 		8FB94D4CC4479BF2C4BC5EC1 /* ConversationOutcomeHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationOutcomeHistory.swift; sourceTree = "<group>"; };
 		900CED18998C8F13154C2DC8 /* Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support.swift; sourceTree = "<group>"; };
 		90357F7D7DE62FBD7E6526D3 /* MemoryConversationPublicationWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryConversationPublicationWire.swift; sourceTree = "<group>"; };
@@ -874,6 +915,7 @@
 		9302C46881D3182465C00CD3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		93236E1311BD8B7CFDAF8E85 /* FileURLNormalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileURLNormalization.swift; sourceTree = "<group>"; };
 		944CE521A688FAC2FA9566E9 /* GoogleWorkspaceAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleWorkspaceAPI.swift; sourceTree = "<group>"; };
+		946FA61683DB8930DA0306A3 /* InMemoryWorkspaceFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InMemoryWorkspaceFixture.swift; sourceTree = "<group>"; };
 		94AE87ED7132E9DA0A9E0EC0 /* CharacterMotionVisibility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterMotionVisibility.swift; sourceTree = "<group>"; };
 		95393430BEF80920758B54C6 /* EventKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = EventKit.framework; path = System/Library/Frameworks/EventKit.framework; sourceTree = SDKROOT; };
 		95C38E2EA48EBE7E416DC7D6 /* ConversationSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSearchService.swift; sourceTree = "<group>"; };
@@ -888,6 +930,7 @@
 		9AFC607BBC059713C01F546C /* TranscriptMessagePartsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptMessagePartsView.swift; sourceTree = "<group>"; };
 		9B7FBD535193A6A4C0111B1E /* SQLiteTeamArchiveRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteTeamArchiveRepository.swift; sourceTree = "<group>"; };
 		9CF45162068DAB63CF4FCE52 /* MemoryContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryContext.swift; sourceTree = "<group>"; };
+		9DB4BCA87CC111C11497E20D /* ConversationCardsFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationCardsFixture.swift; sourceTree = "<group>"; };
 		9ED211A735943D6625053947 /* TeamArchiveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamArchiveService.swift; sourceTree = "<group>"; };
 		9EF2EFCE79B3FA3D711C1068 /* ComposerReturnKeyHandling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComposerReturnKeyHandling.swift; sourceTree = "<group>"; };
 		9F2D628C86717C7C0E4983E8 /* LayoutStormCounters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutStormCounters.swift; sourceTree = "<group>"; };
@@ -901,6 +944,8 @@
 		A3602B09B05EA4C2EB88911F /* ConnectorCatalogNaming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorCatalogNaming.swift; sourceTree = "<group>"; };
 		A496F29ADDE82501FCD509B9 /* SQLiteTeammateRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteTeammateRepository.swift; sourceTree = "<group>"; };
 		A4C062F69F764E95D6062FF9 /* RuntimeFoundation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeFoundation.swift; sourceTree = "<group>"; };
+		A4C224A2542220AD410865B0 /* AppUpdateModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdateModel.swift; sourceTree = "<group>"; };
+		A4DED6B31B7EDC28D934FBF2 /* SQLiteGoogleWorkspacePublicConfigurationRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteGoogleWorkspacePublicConfigurationRepository.swift; sourceTree = "<group>"; };
 		A5069D0C730433B2F13288B0 /* InlineConversationCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlineConversationCards.swift; sourceTree = "<group>"; };
 		A5211FA3254BD4712E93109C /* SQLiteBotSelfSetupRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteBotSelfSetupRepository.swift; sourceTree = "<group>"; };
 		A66DF7FB1E6D8DB6012F3DFD /* CredentialPreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialPreflight.swift; sourceTree = "<group>"; };
@@ -908,6 +953,7 @@
 		A87337EBDBBE1255E34107C5 /* Identifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Identifiers.swift; sourceTree = "<group>"; };
 		A93B6B996E288A417CB8A5D4 /* ConnectorSettingsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorSettingsModel.swift; sourceTree = "<group>"; };
 		A9750108D5D26889D8894DCF /* OpenBotsServices.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = OpenBotsServices.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA7A3C7297A474D6B47B4CB1 /* GoogleWorkspacePublicConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleWorkspacePublicConfiguration.swift; sourceTree = "<group>"; };
 		AB6534F6E6111F2CD9A09DDB /* TranscriptSearchFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptSearchFocus.swift; sourceTree = "<group>"; };
 		ABAB4CF333F6EDD2204C14F9 /* MemoryClaimAdmissionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryClaimAdmissionService.swift; sourceTree = "<group>"; };
 		AC305D775C8E28D5713E0838 /* KeychainClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainClient.swift; sourceTree = "<group>"; };
@@ -941,6 +987,7 @@
 		BBE20332CE1EB57ECCDFB93D /* SQLiteAgenticWebSwitchRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteAgenticWebSwitchRepository.swift; sourceTree = "<group>"; };
 		BBF36F3E32F0E4B84B5EA772 /* TrustAuthorizationPresentationModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustAuthorizationPresentationModels.swift; sourceTree = "<group>"; };
 		BC38D49946BF974D7F1272A6 /* NativeClaudeConnectionPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeClaudeConnectionPreparation.swift; sourceTree = "<group>"; };
+		BC649B0BCF3B1CA912E317E2 /* claude-runtime-compatibility.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "claude-runtime-compatibility.js"; sourceTree = "<group>"; };
 		BC6CDECB66AEC6C45228B273 /* Memory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Memory.swift; sourceTree = "<group>"; };
 		BDC02A41BAC1ECB2D1824AF5 /* DurableTeammateChatService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DurableTeammateChatService.swift; sourceTree = "<group>"; };
 		BE1E260439A1709574191E2D /* SQLiteHandoffRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteHandoffRepository.swift; sourceTree = "<group>"; };
@@ -951,11 +998,14 @@
 		C1720E6317D729999114166B /* ClaudeSetupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeSetupService.swift; sourceTree = "<group>"; };
 		C1A6F5755003795AE210717F /* MemoryLocalOperationRecoveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryLocalOperationRecoveryService.swift; sourceTree = "<group>"; };
 		C22FF4F2FC4A3C46E4A2002C /* AuthoritativeMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthoritativeMarkdown.swift; sourceTree = "<group>"; };
+		C2A588A65C54C9FA887C5F1E /* ClaudeRuntimeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeModel.swift; sourceTree = "<group>"; };
 		C463ED950E542DEF8C990BEF /* LaunchStatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchStatusView.swift; sourceTree = "<group>"; };
 		C48958AF9AE399F5C53CB466 /* GoogleWorkspaceConnectorPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleWorkspaceConnectorPreparation.swift; sourceTree = "<group>"; };
 		C491E0BC9D1D8ADBEFEDE9BD /* ClaudeExtensionConnectorPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeExtensionConnectorPreparation.swift; sourceTree = "<group>"; };
 		C5B69CACAEA9174A2FDC8DBC /* BotSidebarOrderService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotSidebarOrderService.swift; sourceTree = "<group>"; };
+		C6793DE296C711F83C2077DC /* GoogleWorkspaceConfigurationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleWorkspaceConfigurationService.swift; sourceTree = "<group>"; };
 		C6A06B59F24CE40418D9F31E /* ControlledMemoryTextTurnRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlledMemoryTextTurnRepository.swift; sourceTree = "<group>"; };
+		C7293E2A3BB895C6762C569A /* ClaudeManagedRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeManagedRuntime.swift; sourceTree = "<group>"; };
 		C908A359AB231F171E0AB714 /* TrustAuthorizationWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustAuthorizationWorkspaceView.swift; sourceTree = "<group>"; };
 		CA8B8A2E5F4C0C40C018E9EA /* ServicesResourceBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServicesResourceBundle.swift; sourceTree = "<group>"; };
 		CC50729FC843D17DB6A41F61 /* SQLiteProfilePhotoRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteProfilePhotoRepository.swift; sourceTree = "<group>"; };
@@ -965,7 +1015,6 @@
 		CE45CD97D94C55F4E199DFC0 /* ClaudeTextOnlyCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTextOnlyCommand.swift; sourceTree = "<group>"; };
 		CEFE1858C5E43C97356614B0 /* OpenBotsPersistence.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = OpenBotsPersistence.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		D0A7E2CBBCA6DB0349AEDA95 /* SavedOutcomeHistoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedOutcomeHistoryModel.swift; sourceTree = "<group>"; };
-		D1439BA16BFE6B3631545F8D /* PreviewWorkspaceFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewWorkspaceFixture.swift; sourceTree = "<group>"; };
 		D22F48C76CEBA82009E69168 /* OpenBotsRuntime.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = OpenBotsRuntime.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		D462547394C525B1AC8E1744 /* Teammate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Teammate.swift; sourceTree = "<group>"; };
 		D538A6A3346021DE3383EB03 /* ClaudeTextOnlyPromptFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTextOnlyPromptFile.swift; sourceTree = "<group>"; };
@@ -983,6 +1032,7 @@
 		DABA5489AFC2DCF3CFD7664E /* HiringConversationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiringConversationModel.swift; sourceTree = "<group>"; };
 		DB80B7D454601A1529E70378 /* StoragePolicyInventory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoragePolicyInventory.swift; sourceTree = "<group>"; };
 		DCA0D494272CAA23C6D07871 /* BotAccessSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotAccessSheet.swift; sourceTree = "<group>"; };
+		DE13539557392B35329E66EF /* ManagedClaudeRuntimeSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManagedClaudeRuntimeSelector.swift; sourceTree = "<group>"; };
 		DF1428020C96157FA862E15F /* TeammateWorker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeammateWorker.swift; sourceTree = "<group>"; };
 		E1C17C6DA05D1F93AF933260 /* KnowledgeSnapshotDeliveryBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeSnapshotDeliveryBroker.swift; sourceTree = "<group>"; };
 		E3621B07CC3CC6D85D73C1A3 /* NativeClaudeTextPreparation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeClaudeTextPreparation.swift; sourceTree = "<group>"; };
@@ -1007,6 +1057,7 @@
 		EDC2CB4C3A1A324E74E163B5 /* KnowledgeWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KnowledgeWorkspaceView.swift; sourceTree = "<group>"; };
 		EE7F3CF730AE3CDF18572813 /* SQLiteTeamChatRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteTeamChatRepository.swift; sourceTree = "<group>"; };
 		EF81E02192B830BD42894CA6 /* Diagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Diagnostics.swift; sourceTree = "<group>"; };
+		F082B5BDC3548B1F443FB64C /* SourceAppUpdateService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceAppUpdateService.swift; sourceTree = "<group>"; };
 		F12E4A4BD07BDF32898794F6 /* AttachmentRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentRepository.swift; sourceTree = "<group>"; };
 		F2394FE26B8565013033151B /* ClaudeTextChromeControlApprovalPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeTextChromeControlApprovalPolicy.swift; sourceTree = "<group>"; };
 		F2FE4FE4A669E660D056A84C /* AgenticJobService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgenticJobService.swift; sourceTree = "<group>"; };
@@ -1016,6 +1067,7 @@
 		F539AFF5CCB1D5A578A1C8FA /* Hiring.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hiring.swift; sourceTree = "<group>"; };
 		F5AF4DCB5200EBFEDA904ABA /* TeammateHire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeammateHire.swift; sourceTree = "<group>"; };
 		F5ED49538CC94C4C9B93F65E /* ProbeReferenceJobSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProbeReferenceJobSession.swift; sourceTree = "<group>"; };
+		F60B2F53851039B20DF04A76 /* source-app-update.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = "source-app-update.py"; sourceTree = "<group>"; };
 		F61F8DA29CC4A03EF810E1CF /* SQLiteTeamAuthorizationRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteTeamAuthorizationRepository.swift; sourceTree = "<group>"; };
 		F855D7DC1F4E7CD332E3D947 /* HiringConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiringConversationView.swift; sourceTree = "<group>"; };
 		F8A3D77346F77346A02DFB85 /* CharacterIdentityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CharacterIdentityView.swift; sourceTree = "<group>"; };
@@ -1024,6 +1076,7 @@
 		FAF0B14E1A51F54724E2FD2A /* MemoryClaimAssessmentTransition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryClaimAssessmentTransition.swift; sourceTree = "<group>"; };
 		FAFA2BC5AEFD6BFF3F1DCC81 /* SQLiteLocalSessionRecoveryRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SQLiteLocalSessionRecoveryRepository.swift; sourceTree = "<group>"; };
 		FB4BF5EE1E40A5C23213A31F /* SoleInstanceTextTurnProcessAbsence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoleInstanceTextTurnProcessAbsence.swift; sourceTree = "<group>"; };
+		FDA71889797AE292E1ACE1E8 /* ClaudeRuntimeCompatibilityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeRuntimeCompatibilityService.swift; sourceTree = "<group>"; };
 		FE386A99478037B0E7BBE1CB /* ConnectorLaunchPreparing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectorLaunchPreparing.swift; sourceTree = "<group>"; };
 		FE5D31BF227834E4947AF779 /* AttachmentDraftModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentDraftModel.swift; sourceTree = "<group>"; };
 		FEEEE338680C668642D599E6 /* ReplyBubbleSplitter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReplyBubbleSplitter.swift; sourceTree = "<group>"; };
@@ -1120,6 +1173,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C72E9192143469F4D32A9764 /* OpenBotsDomain.framework in Frameworks */,
 				321671204A1A810BF658DE64 /* OpenBotsExecutionRules.framework in Frameworks */,
 				88A3725A85CAB25A33FBCD9B /* OpenBotsContent.framework in Frameworks */,
 				B5286FB80FA04D06E992EED4 /* OpenBotsSecurity.framework in Frameworks */,
@@ -1169,11 +1223,14 @@
 		38C1DD85CD7915A0D8F29170 /* OpenBotsPreviewApp */ = {
 			isa = PBXGroup;
 			children = (
+				079C3E96FCF30BD68F2E1148 /* AppUpdateSettings.swift */,
+				5425644F1441C0FF5441E7D3 /* ClaudeRuntimeSettings.swift */,
+				9DB4BCA87CC111C11497E20D /* ConversationCardsFixture.swift */,
 				9302C46881D3182465C00CD3 /* Info.plist */,
+				946FA61683DB8930DA0306A3 /* InMemoryWorkspaceFixture.swift */,
 				D8734640D975B250B50F2693 /* OpenBotsPreviewApp.entitlements */,
 				4066DD37A666F476D5C2CCFC /* OpenBotsPreviewApp.swift */,
-				8C37A48DA3DFE0A7A4DA5C20 /* PreviewCardFixture.swift */,
-				D1439BA16BFE6B3631545F8D /* PreviewWorkspaceFixture.swift */,
+				2C3328A6B81CF991B9B09C6A /* SourceAppUpdater.swift */,
 				9055AB2365C1341F6280F083 /* Resources */,
 			);
 			path = OpenBotsPreviewApp;
@@ -1224,6 +1281,7 @@
 				C22FF4F2FC4A3C46E4A2002C /* AuthoritativeMarkdown.swift */,
 				222DCC44F99D67C82EF1BB70 /* BackupExclusion.swift */,
 				BF0EA17AD5EF73106159129C /* ClaudeProfileInspection.swift */,
+				1FDB442EB3D1775D024581AB /* ClaudeRuntimeStore.swift */,
 				B71F52E4E6080046A66F8F19 /* ClaudeSignInCommandFile.swift */,
 				73F4A125878F1B79A468B9E8 /* ClaudeTextRunDirectory.swift */,
 				338B0DF477750B47F01676ED /* ExternalCapabilities.swift */,
@@ -1259,6 +1317,7 @@
 				6167AE4F7E3B58BE0EFB071A /* ClaudeConnectionCommand.swift */,
 				B533143FF66C8EA751F552CB /* ClaudeConnectionStatus.swift */,
 				01B81ED0AECE2D83181A2A8A /* ClaudeConnectionStatusProcess.swift */,
+				81E788F8D9AAC86F4697954B /* ClaudeModelCatalogDiscovery.swift */,
 				676FDF6A6C70ED4D30E95CBB /* ClaudeTextConnectorAccess.swift */,
 				470D8331B4EFD3AA5DEE0066 /* ClaudeTextConnectorConfigurationFile.swift */,
 				7512083B0CF53B6BEE3CC3FC /* ClaudeTextConnectorReaper.swift */,
@@ -1283,11 +1342,13 @@
 				4B2A69B0ABDF511F3F787A69 /* AgenticDiagnosticsLog.swift */,
 				22A4A47BB151DD3D0F49ED4E /* AgenticJobAccess.swift */,
 				F2FE4FE4A669E660D056A84C /* AgenticJobService.swift */,
+				2FE09E86A05E8A5A83FB6684 /* AnonymousApplicationUpdateDownload.swift */,
 				A34923762376820FE8F6D857 /* AppleCalendarConnectorPreparation.swift */,
 				50569326C6D8DFCB6B0CAF2E /* AppleContactsConnectorPreparation.swift */,
 				E6895139FFB34E48063D6B51 /* AppleMailConnectorPreparation.swift */,
 				2B98262525DA97BD908CC76D /* AppleMailSendPreparation.swift */,
 				2C9761AA16CF8CB9E9E2B43A /* AppleMessagesConnectorPreparation.swift */,
+				19D1CE2D353FB5F10AA3662A /* ApplicationUpdateGate.swift */,
 				4B223403BDDC86699B6A0464 /* AppOwnedConnectorCatalog.swift */,
 				048FB5723248E387C3244347 /* BotSelfSetupService.swift */,
 				C5B69CACAEA9174A2FDC8DBC /* BotSidebarOrderService.swift */,
@@ -1301,6 +1362,7 @@
 				4BDB3486B734176D4ACE4B2D /* ClaudeExtensionConnectorCatalog.swift */,
 				C491E0BC9D1D8ADBEFEDE9BD /* ClaudeExtensionConnectorPreparation.swift */,
 				E5BB991536FE48013BE4FB7A /* ClaudePluginConnectorCatalog.swift */,
+				FDA71889797AE292E1ACE1E8 /* ClaudeRuntimeCompatibilityService.swift */,
 				7273006B3337511943DDBFF0 /* ClaudeSessionRetentionService.swift */,
 				FF99AA59B8213CF438E25E61 /* ClaudeSessionTranscriptLocator.swift */,
 				C1720E6317D729999114166B /* ClaudeSetupService.swift */,
@@ -1337,6 +1399,7 @@
 				7618E8B692F2D4C5A42999EE /* FenceProxyResource.swift */,
 				4CF054042029A53194B33B81 /* GoogleGmailSend.swift */,
 				944CE521A688FAC2FA9566E9 /* GoogleWorkspaceAPI.swift */,
+				C6793DE296C711F83C2077DC /* GoogleWorkspaceConfigurationService.swift */,
 				C48958AF9AE399F5C53CB466 /* GoogleWorkspaceConnectorPreparation.swift */,
 				1C25496956214F22193C1825 /* GoogleWorkspaceHelperCapability.swift */,
 				EAFFEB13497AC7CD3E7926F7 /* HandoffFence.swift */,
@@ -1349,6 +1412,8 @@
 				91920E8F45B0DB0AE86CAE5E /* LocalSessionRecoveryService.swift */,
 				4C0228BC2EB80B4A5D477DAD /* MacControlConnectorPreparation.swift */,
 				73CDD2061D586202435C21EC /* MacOSLocationAdmission.swift */,
+				DE13539557392B35329E66EF /* ManagedClaudeRuntimeSelector.swift */,
+				156CBB947B5F204642B4B576 /* ManagedClaudeRuntimeService.swift */,
 				ABAB4CF333F6EDD2204C14F9 /* MemoryClaimAdmissionService.swift */,
 				11BF194C7342E4937199A7FB /* MemoryClaimSnapshotSharingService.swift */,
 				553DFDEEC48DF75BB1018608 /* MemoryContextSelectionService.swift */,
@@ -1381,6 +1446,8 @@
 				D707D4FC0F0EA11179EDA5F2 /* RunRecoveryFixtureService.swift */,
 				CA8B8A2E5F4C0C40C018E9EA /* ServicesResourceBundle.swift */,
 				FB4BF5EE1E40A5C23213A31F /* SoleInstanceTextTurnProcessAbsence.swift */,
+				3FCF705FF92A5A360F2F791E /* SourceAppUpdateManifest.swift */,
+				F082B5BDC3548B1F443FB64C /* SourceAppUpdateService.swift */,
 				04172662913A89C63E14830A /* SQLiteBackupContainmentService.swift */,
 				4338D0FA5B749C653C9D0AAC /* StorageBootstrapService.swift */,
 				2AFAFBF5074CC8DB72B95228 /* StorageInstallationReceipt.swift */,
@@ -1422,6 +1489,8 @@
 				86A4A476515DD02F1AA2200E /* BotSidebarOrder.swift */,
 				8128B2A4C125727D3254252C /* ClaudeExecutionEvidence.swift */,
 				812C34BA351DBA32AB4FBE59 /* ClaudeExecutionEvidenceRepository.swift */,
+				C7293E2A3BB895C6762C569A /* ClaudeManagedRuntime.swift */,
+				7571266CA549B0E07B04473D /* ClaudeModelPolicy.swift */,
 				5B318BEB2A7FADD6A2322BB5 /* Collaboration.swift */,
 				829690947C5E5664A72246F3 /* ConnectorAccess.swift */,
 				C6A06B59F24CE40418D9F31E /* ControlledMemoryTextTurnRepository.swift */,
@@ -1431,6 +1500,7 @@
 				FADD92269CB4D234D7102B15 /* ConversationDraft.swift */,
 				8FB94D4CC4479BF2C4BC5EC1 /* ConversationOutcomeHistory.swift */,
 				62BC80FD5100CEE7BF51C6A3 /* ConversationSearch.swift */,
+				AA7A3C7297A474D6B47B4CB1 /* GoogleWorkspacePublicConfiguration.swift */,
 				5B373937119A19BB5E0C9C78 /* Handoff.swift */,
 				B6DAEC25044551CE75F3883C /* HandoffRecord.swift */,
 				F539AFF5CCB1D5A578A1C8FA /* Hiring.swift */,
@@ -1473,6 +1543,7 @@
 				00976794D157C045D8063902 /* ActionProposalWorkspaceView.swift */,
 				7561380D5F15A295E97F1708 /* AgenticJobCoordinator.swift */,
 				14D6CE43743C0FEA51F400B5 /* AgenticWebCopy.swift */,
+				A4C224A2542220AD410865B0 /* AppUpdateModel.swift */,
 				FE5D31BF227834E4947AF779 /* AttachmentDraftModel.swift */,
 				62A5B49C7E0CA2EE02F63984 /* AttachmentOpenPolicy.swift */,
 				1A6D474E125C318D034D034D /* AttachmentPresentation.swift */,
@@ -1489,6 +1560,7 @@
 				F8A3D77346F77346A02DFB85 /* CharacterIdentityView.swift */,
 				D69D0803691CDC59DBF8F647 /* CharacterIdleMotionHost.swift */,
 				94AE87ED7132E9DA0A9E0EC0 /* CharacterMotionVisibility.swift */,
+				C2A588A65C54C9FA887C5F1E /* ClaudeRuntimeModel.swift */,
 				65857E6D1C20EA260D1EBD05 /* ClaudeSetupModel.swift */,
 				26511B15015F9DA93DB2648A /* ClaudeSetupView.swift */,
 				6423B11D572E1FE026FBA3D7 /* ClaudeSetupWording.swift */,
@@ -1593,6 +1665,14 @@
 			path = OpenBotsSecurity;
 			sourceTree = "<group>";
 		};
+		C7AEED4600BEEA27EAC2ACD6 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				77FC4576B62ABD4FF248ED4C /* ReleaseBuild.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 		CEB93CA1C3F23EDF994D0FBC /* Resources */ = {
 			isa = PBXGroup;
 			children = (
@@ -1600,8 +1680,11 @@
 				50FE302FAD2E4E5868B2E6EB /* apple-contacts.js */,
 				054FDDD6B33454199C5D8524 /* apple-mail-send.js */,
 				6892C0821F374A8C2574577D /* apple-messages.js */,
+				BC649B0BCF3B1CA912E317E2 /* claude-runtime-compatibility.js */,
 				B306471A08236A3B0FFDE59F /* fence-proxy.js */,
 				E85287C6A2E23F8242A73B48 /* google-workspace.js */,
+				8F513CC91A46711F3F6081CA /* source-app-update-processes.py */,
+				F60B2F53851039B20DF04A76 /* source-app-update.py */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -1610,6 +1693,7 @@
 			isa = PBXGroup;
 			children = (
 				1EF5A76DC4B7EF2FA1EB60C1 /* Apps */,
+				C7AEED4600BEEA27EAC2ACD6 /* Config */,
 				653A8AFDEB72386770603647 /* Packages */,
 				E8F02284E39589BD5CBC2CDA /* Sources */,
 				544095929FE598F0999CC3F8 /* Frameworks */,
@@ -1662,6 +1746,7 @@
 				530CE695479912F7A082E305 /* SQLiteConversationRepository.swift */,
 				8224DC31C9AD91742831F55F /* SQLiteConversationSearchRepository.swift */,
 				25E7533B8B55A4D4BD014765 /* SQLiteDirectChatRepository.swift */,
+				A4DED6B31B7EDC28D934FBF2 /* SQLiteGoogleWorkspacePublicConfigurationRepository.swift */,
 				BE1E260439A1709574191E2D /* SQLiteHandoffRepository.swift */,
 				B0652982CE44003068D9FBF8 /* SQLiteHiringRepository.swift */,
 				8C8518F7BC4E863BDAA5A815 /* SQLiteJournalRowSource.swift */,
@@ -1878,6 +1963,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				6D0261ACA9C49B95D913DAF4 /* PBXTargetDependency */,
 				99F745CD145D237B93D99CB8 /* PBXTargetDependency */,
 				6E7B6C9F2A9740300D63A075 /* PBXTargetDependency */,
 				B0CCF20B9092A1F4E26A899D /* PBXTargetDependency */,
@@ -2007,8 +2093,11 @@
 				D0DEB855EE9883F94465322B /* apple-contacts.js in Resources */,
 				819615A36547FBEC8DCD2869 /* apple-mail-send.js in Resources */,
 				023A87EF1D5BCB15E34A5855 /* apple-messages.js in Resources */,
+				8294F9C1318EF45836289BE3 /* claude-runtime-compatibility.js in Resources */,
 				CF8C8F68E1C40AE70D3769AF /* fence-proxy.js in Resources */,
 				C703F0C6C16AF02DD6D75A1C /* google-workspace.js in Resources */,
+				85ECFA7FAC4217AF57187BBF /* source-app-update-processes.py in Resources */,
+				5256AF35F9A12A24F874C896 /* source-app-update.py in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2028,9 +2117,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				916D6AA77B98133E6AC9C538 /* AppUpdateSettings.swift in Sources */,
+				82471CF7735AC52D7A5EBB4E /* ClaudeRuntimeSettings.swift in Sources */,
+				D608828010CC28C72A2750B0 /* ConversationCardsFixture.swift in Sources */,
+				C2B8AC16F3FBB1EEC8E9BA65 /* InMemoryWorkspaceFixture.swift in Sources */,
 				A8FA9B5D4E0D475DF6BA230B /* OpenBotsPreviewApp.swift in Sources */,
-				0E2EA47D939CCF58E97A6918 /* PreviewCardFixture.swift in Sources */,
-				175544762D1A8A329E4074D9 /* PreviewWorkspaceFixture.swift in Sources */,
+				C585A5CAA2E5BFB7761F5CD4 /* SourceAppUpdater.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2074,6 +2166,7 @@
 				FFA75BF7804BC6EADAB68B03 /* ActionProposalWorkspaceView.swift in Sources */,
 				F8B2809478C1098CC8EDF609 /* AgenticJobCoordinator.swift in Sources */,
 				725AF4686564AD2E5C6BADC6 /* AgenticWebCopy.swift in Sources */,
+				0CABE939AE5509200D7FBADA /* AppUpdateModel.swift in Sources */,
 				1155F67E38748DDDEC6203E6 /* AttachmentDraftModel.swift in Sources */,
 				833672ABEA7A8242B54DB0C1 /* AttachmentOpenPolicy.swift in Sources */,
 				89DF5143F8ABFFAB5AB55BF2 /* AttachmentPresentation.swift in Sources */,
@@ -2090,6 +2183,7 @@
 				78603792D5D629189488E327 /* CharacterIdentityView.swift in Sources */,
 				2FA4161FBB22ADC3C1F4B78B /* CharacterIdleMotionHost.swift in Sources */,
 				73A937624C8D9D206FA2ABD7 /* CharacterMotionVisibility.swift in Sources */,
+				7C4870FD5F9C09B8BD69940C /* ClaudeRuntimeModel.swift in Sources */,
 				9641D0F0488CCA7A5D2B057C /* ClaudeSetupModel.swift in Sources */,
 				F79BCE03AE632233FFD14A4D /* ClaudeSetupView.swift in Sources */,
 				A754EF59E900708C69200A5C /* ClaudeSetupWording.swift in Sources */,
@@ -2178,6 +2272,7 @@
 				B4A7E361C7B3855C0CBC1ABF /* SQLiteConversationRepository.swift in Sources */,
 				CC6B59D03D7147BEE85EBF96 /* SQLiteConversationSearchRepository.swift in Sources */,
 				B524397BBE0D6F9E89F186C5 /* SQLiteDirectChatRepository.swift in Sources */,
+				21312F01F013CBD3C0B3AC80 /* SQLiteGoogleWorkspacePublicConfigurationRepository.swift in Sources */,
 				55722606B02E0F2BA7F5AA78 /* SQLiteHandoffRepository.swift in Sources */,
 				018919EE1E6208CEF1962CF2 /* SQLiteHiringRepository.swift in Sources */,
 				34EAA0B81818644C78EABB95 /* SQLiteJournalRowSource.swift in Sources */,
@@ -2215,12 +2310,14 @@
 				9A394BC83266EE4465333EF4 /* AgenticDiagnosticsLog.swift in Sources */,
 				1FC59F6CC46AAC3A76B3BBA5 /* AgenticJobAccess.swift in Sources */,
 				61AAB46871054A20974F89A2 /* AgenticJobService.swift in Sources */,
+				5991C3CFA2CA28135D383427 /* AnonymousApplicationUpdateDownload.swift in Sources */,
 				B8820787048D24B4B700AF78 /* AppOwnedConnectorCatalog.swift in Sources */,
 				30380C28E4C9438BD33EDE54 /* AppleCalendarConnectorPreparation.swift in Sources */,
 				3B6142F9724C7DE11AF42EDC /* AppleContactsConnectorPreparation.swift in Sources */,
 				3A0BC13ABA17508DD77F6AA8 /* AppleMailConnectorPreparation.swift in Sources */,
 				3757BD870CAC828EBFD9B05A /* AppleMailSendPreparation.swift in Sources */,
 				78090A188D64BE3AD3F98308 /* AppleMessagesConnectorPreparation.swift in Sources */,
+				5C6AB62B6D4C1B38BCF5F174 /* ApplicationUpdateGate.swift in Sources */,
 				F65AE28DDE8C6E0313783F74 /* BotSelfSetupService.swift in Sources */,
 				FB1DE2DCD5BF4290A37FCF89 /* BotSidebarOrderService.swift in Sources */,
 				D3A8637FE632374523D6922B /* BotWorkspaceService.swift in Sources */,
@@ -2233,6 +2330,7 @@
 				1599A3F53E2E682B45BB8F1D /* ClaudeExtensionConnectorCatalog.swift in Sources */,
 				E458198C9B13B09915E0FDA4 /* ClaudeExtensionConnectorPreparation.swift in Sources */,
 				324C7C43ED87000C43B9F5C3 /* ClaudePluginConnectorCatalog.swift in Sources */,
+				3182155C772EA71597EF7EF7 /* ClaudeRuntimeCompatibilityService.swift in Sources */,
 				AFC5D4AACCC032DA86507904 /* ClaudeSessionRetentionService.swift in Sources */,
 				ADB7B9F482AE7AF7F383A12C /* ClaudeSessionTranscriptLocator.swift in Sources */,
 				43CDA629B198CE27222D7F16 /* ClaudeSetupService.swift in Sources */,
@@ -2269,6 +2367,7 @@
 				88DBD942B1517BBE00DAAC5B /* FenceProxyResource.swift in Sources */,
 				117934F39F200AB5EB33E502 /* GoogleGmailSend.swift in Sources */,
 				AD1FC3B7351BBC8DF5963078 /* GoogleWorkspaceAPI.swift in Sources */,
+				2C184B2A124BA7F4ECF39A65 /* GoogleWorkspaceConfigurationService.swift in Sources */,
 				7DCE60EC72D1C82CE2F293DE /* GoogleWorkspaceConnectorPreparation.swift in Sources */,
 				984C2DB1645B582D9DAA90BF /* GoogleWorkspaceHelperCapability.swift in Sources */,
 				92690203C0E013ECFAB88601 /* HandoffFence.swift in Sources */,
@@ -2281,6 +2380,8 @@
 				E0FEA9B7F97349EE837B8008 /* LocalSessionRecoveryService.swift in Sources */,
 				8A1E86FD26AE17A5D8302A93 /* MacControlConnectorPreparation.swift in Sources */,
 				CDEA2DCDA8DE5AA0130F4851 /* MacOSLocationAdmission.swift in Sources */,
+				4426D61BC5EC7724DA197E87 /* ManagedClaudeRuntimeSelector.swift in Sources */,
+				C2EE80E1531964C2CE4D4A3B /* ManagedClaudeRuntimeService.swift in Sources */,
 				4C41021E1F3181CDB1A07BB6 /* MemoryClaimAdmissionService.swift in Sources */,
 				DF3B156E565713E8F1890492 /* MemoryClaimSnapshotSharingService.swift in Sources */,
 				2B3A4FA14257449A6EF1BD9E /* MemoryContextSelectionService.swift in Sources */,
@@ -2314,6 +2415,8 @@
 				5B46EDC683D5C87B5001C966 /* SQLiteBackupContainmentService.swift in Sources */,
 				F045EDA51E30652BEF3A7DA7 /* ServicesResourceBundle.swift in Sources */,
 				0D1A64B41247463DE50C54E7 /* SoleInstanceTextTurnProcessAbsence.swift in Sources */,
+				56E1EFE3D5E3EB25762852DE /* SourceAppUpdateManifest.swift in Sources */,
+				C70325AEC8E3BA99F4F2C9E1 /* SourceAppUpdateService.swift in Sources */,
 				E7CCE4CF43C7F3D8BB35AC82 /* StorageBootstrapService.swift in Sources */,
 				34FA48284297B813F8592F55 /* StorageInstallationReceipt.swift in Sources */,
 				6F12BEF1EC0F6D31BA948FA2 /* StoragePersistenceCompositionService.swift in Sources */,
@@ -2345,6 +2448,8 @@
 				083B7F2457BF1E20952EB2DE /* BotSidebarOrder.swift in Sources */,
 				04B09FFE8AB1BFE0D76318CF /* ClaudeExecutionEvidence.swift in Sources */,
 				F6C3CD814C21A20004D563E3 /* ClaudeExecutionEvidenceRepository.swift in Sources */,
+				2637C90D6A141DE98FE53A4C /* ClaudeManagedRuntime.swift in Sources */,
+				B6EA4BC34B4A877A9891347F /* ClaudeModelPolicy.swift in Sources */,
 				B9D2C1062014282AFD0F5156 /* Collaboration.swift in Sources */,
 				9FD448F120ABA3882168C322 /* ConnectorAccess.swift in Sources */,
 				25CB1B8450DBEE0D635DFD39 /* ControlledMemoryTextTurnRepository.swift in Sources */,
@@ -2354,6 +2459,7 @@
 				940E80840CEA01A7F8D11D4F /* ConversationDraft.swift in Sources */,
 				5C2B8A2B6DDFFAD425713904 /* ConversationOutcomeHistory.swift in Sources */,
 				50F40A11F6C18374DE717889 /* ConversationSearch.swift in Sources */,
+				6714413B4F60B2FAE9B08C8B /* GoogleWorkspacePublicConfiguration.swift in Sources */,
 				04ACA2692BF1B00C628A8556 /* Handoff.swift in Sources */,
 				BA3F278A38D4F152DB72CE91 /* HandoffRecord.swift in Sources */,
 				55CEEC1809747064BDF6A406 /* Hiring.swift in Sources */,
@@ -2395,6 +2501,7 @@
 				46D5336C6EA57D24C3F9EFED /* ClaudeConnectionCommand.swift in Sources */,
 				62B474E239F9F7A9EA7A60FE /* ClaudeConnectionStatus.swift in Sources */,
 				339115A7DC91C68220EA668D /* ClaudeConnectionStatusProcess.swift in Sources */,
+				17F8CA620499D0437A627DD9 /* ClaudeModelCatalogDiscovery.swift in Sources */,
 				C4FE1C6A10ADC17A2E146D6C /* ClaudeTextConnectorAccess.swift in Sources */,
 				5787D38172C90D19753381AE /* ClaudeTextConnectorConfigurationFile.swift in Sources */,
 				E19B9CADA00FB3F2D69A739A /* ClaudeTextConnectorReaper.swift in Sources */,
@@ -2441,6 +2548,7 @@
 				98C178F202CC48CA4D35CE37 /* AuthoritativeMarkdown.swift in Sources */,
 				573E188DCC82A6570BAE7D5E /* BackupExclusion.swift in Sources */,
 				F1E21CF394E09E873D086195 /* ClaudeProfileInspection.swift in Sources */,
+				8694AC4F9DA096258D07FD23 /* ClaudeRuntimeStore.swift in Sources */,
 				CC8E68D8E6F8E56BA16E47AA /* ClaudeSignInCommandFile.swift in Sources */,
 				E3134201711807FC6B5F9555 /* ClaudeTextRunDirectory.swift in Sources */,
 				979C3D230E6A902360C8D0A3 /* ExternalCapabilities.swift in Sources */,
@@ -2504,6 +2612,11 @@
 			isa = PBXTargetDependency;
 			target = DB29D0C80808141690AA2679 /* OpenBotsExecutionRules */;
 			targetProxy = E6C43C8BCDAFA2386353515C /* PBXContainerItemProxy */;
+		};
+		6D0261ACA9C49B95D913DAF4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DFC7FC62C505457EC1869D40 /* OpenBotsDomain */;
+			targetProxy = 0D585E50CE8C7C175D9FFE7F /* PBXContainerItemProxy */;
 		};
 		6E7B6C9F2A9740300D63A075 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -2758,12 +2871,12 @@
 		};
 		31FC013CFC8AF18010E47D31 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 77FC4576B62ABD4FF248ED4C /* ReleaseBuild.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Apps/OpenBotsPreviewApp/OpenBotsPreviewApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/OpenBotsPreviewApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "OpenBots Next";
@@ -2774,7 +2887,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.2;
+				MARKETING_VERSION = 1.1.0;
 				OPENBOTS_GOOGLE_OAUTH_CLIENT_ID = "";
 				OPENBOTS_SOURCE_COMMIT = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.lorenzocolombani.openbotsnext.preview;
@@ -2807,12 +2920,12 @@
 		};
 		458CF5B0CE2BEF93B616986F /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 77FC4576B62ABD4FF248ED4C /* ReleaseBuild.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Apps/OpenBotsPreviewApp/OpenBotsPreviewApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Apps/OpenBotsPreviewApp/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "OpenBots Next";
@@ -2823,7 +2936,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.0.2;
+				MARKETING_VERSION = 1.1.0;
 				OPENBOTS_GOOGLE_OAUTH_CLIENT_ID = "";
 				OPENBOTS_SOURCE_COMMIT = "";
 				PRODUCT_BUNDLE_IDENTIFIER = com.lorenzocolombani.openbotsnext.preview;

@@ -88,6 +88,170 @@ func claudeSetupPaneIsInert() async throws {
     #expect(await service.calls.isEmpty)
 }
 
+@Test("Startup checks status once without signing in, retrying, or presenting explicit-check feedback")
+@MainActor
+func claudeSetupStartupCheckRunsOnce() async throws {
+    let outcomes: [ClaudeSetupOutcome] = [
+        .needsSignIn, .verified(try setupSubscriptionEvidence()),
+        .problem(.connectionCheckInconclusive), .cancelled
+    ]
+    for outcome in outcomes {
+        let service = SetupServiceSpy(reports: [.subscription: .init(outcome: outcome)])
+        let model = ClaudeSetupModel(service: service)
+        #expect(await service.calls.isEmpty)
+        model.checkOnStartupOnce()
+        model.checkOnStartupOnce()
+        await model.actionTask?.value
+        model.checkOnStartupOnce()
+        model.appBecameActive()
+        #expect(await service.calls == [.subscription])
+        #expect(model.subscriptionFeedback == nil)
+        #expect(model.actionTask == nil)
+    }
+}
+
+@Test("A stopped startup check cannot publish late evidence or retry automatically")
+@MainActor
+func claudeSetupStartupCancellationStaysStopped() async throws {
+    let service = SetupServiceSpy(suspended: [.subscription])
+    let model = ClaudeSetupModel(service: service)
+    model.checkOnStartupOnce()
+    let task = try #require(model.actionTask)
+    await service.waitForCall(.subscription)
+    #expect(!model.offersSignIn)
+    model.beginOfficialSignIn()
+    model.cancelCurrentAction()
+    model.checkOnStartupOnce()
+    await service.resolve(.subscription, report: .init(outcome: .verified(try setupSubscriptionEvidence())))
+    await task.value
+    #expect(model.state == .cancelled)
+    #expect(model.subscriptionFeedback == nil)
+    #expect(await service.calls == [.subscription])
+}
+
+@Test("Startup never replaces a sign-in already requested from Settings")
+@MainActor
+func claudeSetupStartupPreservesAnExplicitAction() async throws {
+    let service = SetupServiceSpy(suspended: [.signIn])
+    let model = ClaudeSetupModel(service: service)
+    #expect(model.offersSignIn)
+    model.beginOfficialSignIn()
+    let task = try #require(model.actionTask)
+    await service.waitForCall(.signIn)
+    model.checkOnStartupOnce()
+    #expect(model.state == .signingIn)
+    await service.resolve(.signIn, report: .init(outcome: .handedOffNeedsVerification))
+    await task.value
+    model.checkOnStartupOnce()
+    #expect(model.state == .handedOffNeedsVerification)
+    #expect(await service.calls == [.signIn])
+}
+
+@Test("A stale sign-in action cannot sign in an already verified profile")
+@MainActor
+func claudeSetupVerifiedStateRejectsStaleSignIn() async throws {
+    let evidence = try setupSubscriptionEvidence()
+    let service = SetupServiceSpy(reports: [.subscription: .init(outcome: .verified(evidence))])
+    let model = ClaudeSetupModel(service: service)
+    #expect(model.offersSignIn)
+    model.checkSubscription()
+    await model.actionTask?.value
+    #expect(!model.offersSignIn)
+    model.beginOfficialSignIn()
+    #expect(model.state == .verified(evidence))
+    #expect(await service.calls == [.subscription])
+}
+
+@Test("A terminal authentication failure invalidates pending status and offers explicit sign-in")
+@MainActor
+func claudeSetupAuthenticationFailureInvalidatesPendingStatus() async throws {
+    for operation in [SetupOperation.local, .subscription] {
+        let service = SetupServiceSpy(suspended: [operation])
+        let model = ClaudeSetupModel(service: service)
+        if operation == .local { model.connectClaude() } else { model.checkSubscription() }
+        let pending = try #require(model.actionTask)
+        await service.waitForCall(operation)
+        model.requireSignInAfterTurnFailure(observedEpoch: model.authenticationEpoch)
+        #expect(model.state == .needsSignIn)
+        #expect(model.offersSignIn)
+        #expect(model.actionTask == nil)
+        await service.resolve(operation, report: .init(local: checkedSetupMetadata,
+            outcome: .verified(try setupSubscriptionEvidence())))
+        await pending.value
+        model.checkOnStartupOnce()
+        model.appBecameActive()
+        #expect(model.state == .needsSignIn)
+        #expect(model.localFindings == nil)
+        #expect(model.subscriptionFeedback == nil)
+        #expect(await service.calls == [operation])
+    }
+}
+
+@Test("A turn's auth failure never replaces an explicit sign-in, its handoff, or its verification")
+@MainActor
+func claudeSetupAuthenticationFailurePreservesSignIn() async throws {
+    for outcome in [ClaudeSetupOutcome.handedOffNeedsVerification, .signedInNeedsVerification] {
+        let service = SetupServiceSpy(suspended: [.signIn, .subscription])
+        let model = ClaudeSetupModel(service: service)
+        let oldEpoch = model.authenticationEpoch
+        model.beginOfficialSignIn()
+        let signIn = try #require(model.actionTask)
+        await service.waitForCall(.signIn)
+        model.requireSignInAfterTurnFailure(observedEpoch: oldEpoch)
+        #expect(model.state == .signingIn)
+        await service.resolve(.signIn, report: .init(outcome: outcome))
+        await signIn.value
+        let handoffState = model.state
+        model.requireSignInAfterTurnFailure(observedEpoch: oldEpoch)
+        #expect(model.state == handoffState)
+        model.appBecameActive()
+        let verification = try #require(model.actionTask)
+        await service.waitForCall(.subscription)
+        model.requireSignInAfterTurnFailure(observedEpoch: oldEpoch)
+        #expect(model.state == .checkingSubscription)
+        let evidence = try setupSubscriptionEvidence()
+        await service.resolve(.subscription, report: .init(outcome: .verified(evidence)))
+        await verification.value
+        #expect(model.state == .verified(evidence))
+        #expect(model.authenticationEpoch == oldEpoch + 1)
+        // An older turn may still be saving its failure after verification.
+        model.requireSignInAfterTurnFailure(observedEpoch: oldEpoch)
+        #expect(model.state == .verified(evidence))
+        model.requireSignInAfterTurnFailure(observedEpoch: model.authenticationEpoch)
+        #expect(model.state == .needsSignIn)
+        #expect(model.subscriptionFeedback == nil)
+        #expect(await service.calls == [.signIn, .subscription])
+    }
+}
+
+@Test("A terminal authentication failure cannot revive setup during shutdown")
+@MainActor
+func claudeSetupAuthenticationFailureRespectsShutdown() async {
+    let service = SetupServiceSpy()
+    let model = ClaudeSetupModel(service: service)
+    model.beginShutdown()
+    let state = model.state
+    model.requireSignInAfterTurnFailure(observedEpoch: model.authenticationEpoch)
+    #expect(model.state == state)
+    #expect(!model.offersSignIn)
+    #expect(await service.calls.isEmpty)
+}
+
+@Test("An ordinary successful status check cannot suppress a turn's authentication failure")
+@MainActor
+func claudeSetupAuthenticationFailureAfterOrdinaryStatusStillReports() async throws {
+    let evidence = try setupSubscriptionEvidence()
+    let service = SetupServiceSpy(reports: [.subscription: .init(outcome: .verified(evidence))])
+    let model = ClaudeSetupModel(service: service)
+    let turnEpoch = model.authenticationEpoch
+    model.checkSubscription()
+    await model.actionTask?.value
+    #expect(model.state == .verified(evidence))
+    #expect(model.authenticationEpoch == turnEpoch)
+    model.requireSignInAfterTurnFailure(observedEpoch: turnEpoch)
+    #expect(model.state == .needsSignIn)
+}
+
 @Test("Check Installation publishes local readiness without inferring authentication or starting sign-in")
 @MainActor
 func claudeSetupConnectChecksOnlyThisMac() async throws {
@@ -392,16 +556,17 @@ func claudeSetupProductionGuardDoesNotLaunchOrInferAuthentication() async {
     #expect(model.state == .actionRequired(.correctedStatusCheckApproval))
     model.beginOfficialSignIn()
     await model.actionTask?.value
-    #expect(model.state == .actionRequired(.tracedOfficialSignIn))
+    #expect(model.state == .actionRequired(.correctedStatusCheckApproval), "An unavailable action stays guarded")
     #expect(model.localFindings == checkedSetupMetadata)
+    let signInModel = ClaudeSetupModel(service: GuardedClaudeSetupService(inspector: inspector))
+    signInModel.beginOfficialSignIn()
+    await signInModel.actionTask?.value
+    #expect(signInModel.state == .actionRequired(.tracedOfficialSignIn))
     #expect(await inspector.calls == 1)
 }
 
-// The setup screen once spoke build vocabulary
-// ("the Preview-owned Claude profile is missing", "the earlier one-shot status
-// exception is spent and inconclusive") and a "not installed" state that named
-// no route. The words are the app's own now, and the not-installed state offers
-// the command and the page.
+// Setup describes problems in user-facing terms. The not-installed state
+// offers the installation command and page.
 @Test("Setup wording carries no build vocabulary and each problem names what did not happen")
 func setupWordingCarriesNoBuildVocabulary() {
     for problem in ClaudeSetupProblem.allCases {
@@ -421,6 +586,7 @@ func setupWordingCarriesNoBuildVocabulary() {
     }
     #expect(ClaudeSetupWording.explanation(.installationMissing).hasPrefix("Claude Code is not on this Mac."))
 }
+
 
 // The rest of the setup screen once still said "Preview", "official CLI",
 // "metadata" and "teammates": those sentences sat in the view, where the sweep above could not reach them.
@@ -461,7 +627,7 @@ func everySetupScreenSentenceCarriesNoBuildVocabulary() throws {
     #expect(ClaudeSetupWording.localWorkNote.contains("choose bots"))
 }
 
-// Sign-in finishes in Terminal and the browser, and nothing noticed it.
+// L6-3: sign-in finishes in Terminal and the browser, and nothing noticed it.
 // Coming back to the app now runs the same check Check Claude runs, and only
 // while the screen is waiting on a sign-in.
 @Test("Coming back to the app checks Claude only while a sign-in waits to be checked")
@@ -508,4 +674,128 @@ func comingBackToTheAppChecksAWaitingSignIn() async throws {
     for state in [ClaudeSetupState.problem(.profileMissing), .problem(.installationRejected), .needsSignIn, .notChecked, .checking] {
         #expect(!ClaudeSetupView.offersInstall(for: state), "\(state)")
     }
+}
+
+// A first install signs in twice, and the screen
+// said "Connected" after the first and "may have expired" before the second.
+@Test("Each setup step speaks in the app's own words and only the bots' sign-in says Connected")
+@MainActor
+func setupStepsSayWhatIsTrue() throws {
+    let evidence = try setupSubscriptionEvidence()
+    let stages: [ClaudeRuntimeTestProgress.Stage] = [.running, .waiting, .failed]
+    let progress = stages.map { ClaudeRuntimeTestProgress(stage: $0, version: "2.1.300") }
+        + [ClaudeRuntimeTestProgress(stage: .running, version: nil)]
+    let steps: [ClaudeSetupStep] = [.bots, .signInForTesting, .noVersionToTest, .signInForBots]
+        + progress.map { .testing($0) }
+    let states: [ClaudeSetupState] = [.notChecked, .checking, .readyToConnect, .needsSignIn, .signingIn,
+        .signedInNeedsVerification, .handedOffNeedsVerification, .checkingSubscription, .verified(evidence),
+        .cancelled, .actionRequired(.correctedStatusCheckApproval), .actionRequired(.tracedOfficialSignIn)]
+        + ClaudeSetupProblem.allCases.map { .problem($0) }
+    for step in steps {
+        for state in states {
+            let title = ClaudeSetupWording.title(for: state, step: step, localInstallationChecked: true)
+            for sentence in [title, ClaudeSetupWording.status(for: state, step: step),
+                             ClaudeSetupWording.status(for: state, step: step, previouslyVerified: true)] {
+                #expect(!sentence.isEmpty)
+                for word in ClaudeSetupWording.bannedWords {
+                    #expect(!sentence.localizedCaseInsensitiveContains(word), "\(word): \(sentence)")
+                }
+            }
+            if !step.isForBots {
+                #expect(title != "Connected to Claude", "\(step) \(state)")
+            }
+        }
+    }
+    #expect(ClaudeSetupWording.title(for: .verified(evidence), step: .bots, localInstallationChecked: true)
+        == "Connected to Claude")
+    #expect(ClaudeSetupWording.title(for: .verified(evidence), step: .signInForBots, localInstallationChecked: true)
+        == "Connected to Claude")
+    // Problems keep their own explanation on every step: a missing Claude Code
+    // still names the install, whichever sign-in it blocked.
+    for step in steps {
+        #expect(ClaudeSetupWording.status(for: .problem(.installationMissing), step: step)
+            == ClaudeSetupWording.explanation(.installationMissing))
+    }
+    #expect(!ClaudeSetupWording.status(for: .needsSignIn).contains("expired"))
+    #expect(ClaudeSetupWording.status(for: .needsSignIn, previouslyVerified: true).contains("may have expired"))
+    #expect(ClaudeSetupWording.title(for: .notChecked, step: .signInForTesting, localInstallationChecked: false)
+        .hasPrefix("Step 1 of 2"))
+    #expect(ClaudeSetupWording.title(for: .needsSignIn, step: .signInForBots, localInstallationChecked: true)
+        .hasPrefix("Step 2 of 2"))
+    #expect(ClaudeSetupWording.status(for: .verified(evidence), step: .testing(progress[0])).contains("Claude plan"))
+}
+
+@Test("While a version is tested the banner stays up, and sign-in is offered only for a lost test sign-in")
+@MainActor
+func testingStepHoldsTheBannerAndOffersOnlyALostSignIn() async throws {
+    let evidence = try setupSubscriptionEvidence()
+    let service = SetupServiceSpy(reports: [.subscription: .init(outcome: .verified(evidence))])
+    let model = ClaudeSetupModel(service: service)
+    model.step = .testing(.init(stage: .failed, version: "2.1.300"))
+    #expect(!model.offersSignIn, "A failed test is retried from the runtime settings, not by signing in")
+    model.checkSubscription()
+    await model.actionTask?.value
+    #expect(model.state == .verified(evidence))
+    #expect(ClaudeConnectionBanner(model: model, openSetup: {}).isVisible)
+    model.step = .signInForTesting
+    #expect(ClaudeConnectionBanner(model: model, openSetup: {}).isVisible, "A test sign-in is never a connection")
+    model.step = .bots
+    #expect(!ClaudeConnectionBanner(model: model, openSetup: {}).isVisible)
+    model.requireSignInAfterTurnFailure(observedEpoch: model.authenticationEpoch)
+    model.step = .testing(.init(stage: .waiting, version: nil))
+    #expect(model.offersSignIn)
+    #expect(model.hasBeenVerified)
+}
+
+@Test("A new working version checks the bots' sign-in without replacing one under way")
+@MainActor
+func newRuntimeCheckLeavesASignInAlone() async throws {
+    let service = SetupServiceSpy(reports: [.signIn: .init(outcome: .handedOffNeedsVerification),
+                                            .subscription: .init(outcome: .needsSignIn)])
+    let model = ClaudeSetupModel(service: service)
+    #expect(model.checkForNewRuntime())
+    await model.actionTask?.value
+    #expect(await service.calls == [.subscription])
+    #expect(model.subscriptionFeedback == nil, "Not a check the user asked for")
+    model.beginOfficialSignIn()
+    await model.actionTask?.value
+    #expect(model.state == .handedOffNeedsVerification)
+    #expect(model.checkForNewRuntime(), "Its own check follows the sign-in")
+    #expect(await service.calls == [.subscription, .signIn])
+    model.beginShutdown()
+    #expect(!model.checkForNewRuntime())
+}
+
+// A new working version replaced a running Inspect Installation.
+@Test("A new working version's check waits for a running Inspect Installation and then runs")
+@MainActor
+func newRuntimeCheckFollowsARunningLocalCheck() async throws {
+    let service = SetupServiceSpy(reports: [.subscription: .init(outcome: .needsSignIn)], suspended: [.local])
+    let model = ClaudeSetupModel(service: service)
+    model.connectClaude()
+    let local = try #require(model.actionTask)
+    await service.waitForCall(.local)
+    #expect(model.checkForNewRuntime())
+    #expect(model.state == .checking, "The running check is not replaced")
+    #expect(await service.calls == [.local])
+    await service.resolve(.local, report: .init(local: checkedSetupMetadata, outcome: .readyToConnect))
+    await local.value
+    await model.actionTask?.value
+    #expect(await service.calls == [.local, .subscription])
+    #expect(model.localFindings == checkedSetupMetadata)
+    #expect(model.state == .needsSignIn)
+    #expect(model.subscriptionFeedback == nil)
+
+    let stoppedService = SetupServiceSpy(suspended: [.local])
+    let stopped = ClaudeSetupModel(service: stoppedService)
+    stopped.connectClaude()
+    let stoppedLocal = try #require(stopped.actionTask)
+    await stoppedService.waitForCall(.local)
+    #expect(stopped.checkForNewRuntime())
+    stopped.cancelCurrentAction()
+    await stoppedService.resolve(.local, report: .init(local: checkedSetupMetadata, outcome: .readyToConnect))
+    await stoppedLocal.value
+    #expect(stopped.state == .cancelled)
+    #expect(stopped.actionTask == nil, "Stopping the wait drops the queued check too")
+    #expect(await stoppedService.calls == [.local])
 }

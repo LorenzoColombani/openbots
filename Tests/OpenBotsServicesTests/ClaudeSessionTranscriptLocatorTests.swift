@@ -3,6 +3,7 @@ import OpenBotsDomain
 @testable import OpenBotsServices
 import Testing
 
+
 /// What the CLI keeps of a kept session under the app profile, and
 /// how the app removes it when the session is dropped. The shapes follow the
 /// real files: a transcript line carries `type`, `sessionId` and `cwd`; a
@@ -15,8 +16,8 @@ struct ClaudeSessionTranscriptLocatorTests {
         let f = try ProfileFixture(); defer { f.remove() }
         let session = UUID(), other = UUID()
         // The CLI names the folder after the turn's cwd, so one session can sit under two.
-        let work = try f.project("-Users-someone-Bots-Pillow-Work-noindex")
-        let desk = try f.project("-Users-someone-Bots-Pillow")
+        let work = try f.project("-Users-fixture-Bots-Pillow-Work-noindex")
+        let desk = try f.project("-Users-fixture-Bots-Pillow")
         let inWork = try f.transcript(session, in: work)
         let inDesk = try f.transcript(session, in: desk)
         let otherTranscript = try f.transcript(other, in: desk)
@@ -53,11 +54,10 @@ struct ClaudeSessionTranscriptLocatorTests {
     func aFolderLeftEmptyGoesWithTheSession() throws {
         let f = try ProfileFixture(); defer { f.remove() }
         let session = UUID(), other = UUID()
-        // One folder per turn's working folder (empty TextTurns-…-Work-noindex
-        // folders were once left after the bots went).
-        let alone = try f.project("-Users-someone-TextTurns-A-Work-noindex")
-        let shared = try f.project("-Users-someone-TextTurns-B-Work-noindex")
-        let untouched = try f.project("-Users-someone-TextTurns-C-Work-noindex")
+        // Each turn's working folder has a project folder that also needs cleanup.
+        let alone = try f.project("-Users-fixture-TextTurns-A-Work-noindex")
+        let shared = try f.project("-Users-fixture-TextTurns-B-Work-noindex")
+        let untouched = try f.project("-Users-fixture-TextTurns-C-Work-noindex")
         try f.transcript(session, in: alone)
         try f.transcript(session, in: shared)
         try f.transcript(other, in: shared)
@@ -81,7 +81,7 @@ struct ClaudeSessionTranscriptLocatorTests {
         #expect(!FileManager.default.fileExists(atPath: f.historyURL.path))
         // Another session's history and transcript: the file keeps its inode, so it was never rewritten.
         try f.writeHistory(f.historyLine(other, display: "hello") + "\n")
-        try f.transcript(other, in: f.project("-Users-someone-Bots-Zed"))
+        try f.transcript(other, in: f.project("-Users-fixture-Bots-Zed"))
         let inode = try f.inode(f.historyURL)
         let untouched = try ClaudeSessionTranscriptLocator.remove(profileURL: f.root, sessionID: session)
         #expect(!untouched.removedAnything)
@@ -99,9 +99,9 @@ struct ClaudeSessionTranscriptLocatorTests {
         let strayTranscript = try outside.transcript(session, in: outside.root)
         let strayFolder = outside.root.appendingPathComponent(session.uuidString.lowercased(), isDirectory: true)
         try FileManager.default.createDirectory(at: strayFolder, withIntermediateDirectories: false)
-        let real = try f.project("-Users-someone-Bots-Pillow")
+        let real = try f.project("-Users-fixture-Bots-Pillow")
         let inReal = try f.transcript(session, in: real)
-        let link = real.deletingLastPathComponent().appendingPathComponent("-Users-someone-Elsewhere", isDirectory: true)
+        let link = real.deletingLastPathComponent().appendingPathComponent("-Users-fixture-Elsewhere", isDirectory: true)
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside.root)
 
         let removal = try ClaudeSessionTranscriptLocator.remove(profileURL: f.root, sessionID: session)
@@ -114,7 +114,7 @@ struct ClaudeSessionTranscriptLocatorTests {
 
         // `projects` itself a link out of the profile: nothing under it is the session's.
         let linked = try ProfileFixture(); defer { linked.remove() }
-        let farProject = try outside.project("-Users-someone-Bots-Zed")
+        let farProject = try outside.project("-Users-fixture-Bots-Zed")
         let farTranscript = try outside.transcript(session, in: farProject)
         try FileManager.default.createSymbolicLink(at: linked.root.appendingPathComponent("projects", isDirectory: true),
                                                    withDestinationURL: farProject.deletingLastPathComponent())
@@ -126,10 +126,10 @@ struct ClaudeSessionTranscriptLocatorTests {
 }
 
 extension ClaudeSessionTranscriptLocatorTests {
-    /// The rewrite once read through a linked
-    /// `history.jsonl`, took the link's own mode (0755) and renamed a regular
-    /// file over the link, so the profile's history became a world-readable copy
-    /// and the linked file kept the session's lines.
+    /// A rewrite that reads through a linked
+    /// `history.jsonl`, takes the link's own mode (0755) and renames a regular
+    /// file over the link would expose a world-readable copy while leaving
+    /// the session's lines in the linked file.
     @Test("A history.jsonl that is a link is never read through or replaced: the removal says it could not, and the link and its file stay exactly as they were")
     func aLinkedHistoryIsNeverFollowedOrReplaced() throws {
         let f = try ProfileFixture(); defer { f.remove() }
@@ -158,7 +158,7 @@ extension ClaudeSessionTranscriptLocatorTests {
     func anUnreadableFolderIsNotNothingOnDisk() throws {
         let f = try ProfileFixture(); defer { f.remove() }
         let session = UUID()
-        let desk = try f.project("-Users-someone-Bots-Pillow")
+        let desk = try f.project("-Users-fixture-Bots-Pillow")
         let transcript = try f.transcript(session, in: desk)
         let projects = desk.deletingLastPathComponent()
 
@@ -181,7 +181,7 @@ extension ClaudeSessionTranscriptLocatorTests {
         #expect(removal.removedPaths == [transcript.path])
     }
 
-    /// The check for a transcript once
+    /// The check for a transcript
     /// followed a link standing in for the file itself, so a link to a
     /// transcript anywhere read as the session's own.
     @Test("A link standing in for a session's transcript is not taken for it, and removing the session removes the link, never its target")
@@ -191,7 +191,7 @@ extension ClaudeSessionTranscriptLocatorTests {
         let session = UUID()
         let target = try outside.transcript(session, in: outside.root)
         let targetBytes = try Data(contentsOf: target)
-        let desk = try f.project("-Users-someone-Bots-Pillow")
+        let desk = try f.project("-Users-fixture-Bots-Pillow")
         let link = desk.appendingPathComponent(session.uuidString.lowercased() + ".jsonl")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
 
@@ -214,7 +214,7 @@ extension ClaudeSessionTranscriptLocatorTests {
         let kept = outside.root.appendingPathComponent("keep", isDirectory: true)
         try FileManager.default.createDirectory(at: kept, withIntermediateDirectories: false)
         try Data("not the session's".utf8).write(to: kept.appendingPathComponent("notes.txt"))
-        let desk = try f.project("-Users-someone-Bots-Pillow")
+        let desk = try f.project("-Users-fixture-Bots-Pillow")
         let own = desk.appendingPathComponent(session.uuidString.lowercased(), isDirectory: true)
         let subagents = own.appendingPathComponent("subagents", isDirectory: true)
         try FileManager.default.createDirectory(at: subagents, withIntermediateDirectories: true)
@@ -277,7 +277,7 @@ private struct ProfileFixture {
     }
 
     func historyLine(_ id: UUID, display: String) -> String {
-        "{\"display\":\"\(display)\",\"pastedContents\":{},\"timestamp\":1789440900000,\"project\":\"/Users/someone/Bots/Pillow\",\"sessionId\":\"\(id.uuidString.lowercased())\"}"
+        "{\"display\":\"\(display)\",\"pastedContents\":{},\"timestamp\":1789440900000,\"project\":\"/Users/fixture/Bots/Pillow\",\"sessionId\":\"\(id.uuidString.lowercased())\"}"
     }
 
     func writeHistory(_ text: String) throws {

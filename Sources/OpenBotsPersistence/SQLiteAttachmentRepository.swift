@@ -259,6 +259,7 @@ extension SQLiteStore: AttachmentRepository {
         return try parseID(TeammateID.self, row.text("id"))
     }
 
+
     /// The user's attachments stay direct-only for now, so only an
     /// attachment-free local message may post into a team conversation and
     /// `validateAttachmentConversation` gates every draft path. What a bot makes

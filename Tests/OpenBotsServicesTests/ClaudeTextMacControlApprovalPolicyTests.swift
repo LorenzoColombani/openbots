@@ -10,6 +10,7 @@ private func macQuestion(_ tool: String, _ input: [String: Any] = [:]) throws ->
         inputJSON: try JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]))
 }
 
+
 /// A look at a named app this turn: a click on an element is judged only
 /// after one, so the cards below that click by element
 /// are decided after it.
@@ -36,9 +37,6 @@ struct ClaudeTextMacControlApprovalPolicyTests {
         #expect(typed.turnScope == card.turnScope)
     }
 
-    // The card once said "type 30 characters" and the user could not see what
-    // they approved. The words go on the card the user reads, on one line and
-    // quoted; the record keeps the count.
     @Test("A typing card shows the user the words, on one line and quoted, while its record keeps only the count")
     func aTypingCardShowsTheWords() throws {
         let cases: [(String, [String: Any], String)] = [
@@ -98,8 +96,6 @@ struct ClaudeTextMacControlApprovalPolicyTests {
         #expect(note.contains("look at that app with inspect_ui or see"))
     }
 
-    // The card that takes control, and the note the bot reads, both say a
-    // sign-in is handed to the user rather than only stopped at.
     @Test("The control card and the bot's note send a sign-in, a password, a payment or a permission dialog to the user with hand_over_screen")
     func theWordingHandsTheScreenOver() throws {
         let click = ClaudeTextMacControlApprovalPolicy.decide(try macQuestion("click", ["query": "Send"]), botName: "Zed", layout: .ansi,
@@ -116,7 +112,7 @@ struct ClaudeTextMacControlApprovalPolicyTests {
 
     @Test("A screenshot written to a path is refused without a card")
     func screenshotPathsAreRefused() throws {
-        for (tool, input) in [("see", ["path": "/Users/x/Documents/report.docx"]), ("see", ["path": "/tmp/a.png"])] {
+        for (tool, input) in [("see", ["path": "/Users/fixture/Documents/report.docx"]), ("see", ["path": "/tmp/a.png"])] {
             let decision = ClaudeTextMacControlApprovalPolicy.decide(try macQuestion(tool, input), botName: "Zed", layout: .ansi)
             guard case .denyQuietly(let reason, _) = decision else { Issue.record("\(tool) \(input) must be refused"); return }
             #expect(reason.contains("Leave out the path"), "\(reason)")
@@ -131,9 +127,9 @@ struct ClaudeTextMacControlApprovalPolicyTests {
     // folder it fills. A refusal keyed on exact spellings missed every one.
     @Test("Capture is not one of the tools, so no spelling of its file keys reaches Peekaboo")
     func captureIsRefusedWhateverTheSpelling() throws {
-        let inputs: [[String: Any]] = [["videoOut": "/Users/x/Documents/report.pdf"], ["outputDir": "/Users/x/Documents"],
-                                       ["OUTPUT_DIR": "/Users/x"], ["video__out": "/tmp/a.mp4"], ["Video_Out": "/tmp/b.mp4"],
-                                       ["source": "Video", "input": "/Users/x/movie.mov"], [:]]
+        let inputs: [[String: Any]] = [["videoOut": "/Users/fixture/Documents/report.pdf"], ["outputDir": "/Users/fixture/Documents"],
+                                       ["OUTPUT_DIR": "/Users/fixture"], ["video__out": "/tmp/a.mp4"], ["Video_Out": "/tmp/b.mp4"],
+                                       ["source": "Video", "input": "/Users/fixture/movie.mov"], [:]]
         for input in inputs {
             let decision = ClaudeTextMacControlApprovalPolicy.decide(try macQuestion("capture", input), botName: "Zed", layout: .ansi)
             guard case .denyQuietly = decision else { Issue.record("capture \(input) must be refused, got \(decision)"); continue }
@@ -210,6 +206,7 @@ struct ClaudeTextMacControlApprovalPolicyTests {
             otherProcesses: { [5151] },
             windowOwnersAt: { point in point.x < 400 ? [4242] : (point.x < 600 ? [5151] : [999]) })
     }
+
 
     /// A click-through overlay of another app (process 999)
     /// lies over OpenBots Next's window at x 0–400, so the front window under
@@ -397,8 +394,8 @@ struct ClaudeTextMacControlApprovalPolicyTests {
         #expect(long.detail.hasSuffix("stop and ask before a deletion."), "\(long.detail.suffix(120))")
     }
 
-    /// Peekaboo sends a call that names no app to whatever is in front, and
-    /// that is OpenBots Next while the user reads a reply or
+    /// Peekaboo sends a call that names no app to whatever is in front,
+    /// which can be OpenBots Next while the user reads a reply or
     /// answers a card. Such a call could type into its composer or press its
     /// buttons under an allowance the user gave for something else.
     @Test("A call that names no app is refused while OpenBots Next is the app in front, and asks when it is not")
@@ -443,13 +440,11 @@ struct ClaudeTextMacControlApprovalPolicyTests {
         }
     }
 
-    /// Only launch and open with `openTargets` were once
-    /// sent to the Open card, so launching an app by its path rode an allowance
-    /// the user gave for something else, though the row promises Peekaboo's own open
-    /// asks every time.
+    /// Launching an app by its path must reach the Open card, just like an open
+    /// with `openTargets`, because Peekaboo's own open asks every time.
     @Test("Launching an app by path or bundle file asks every time, like opening a link or a file")
     func launchingByPathAsksEveryTime() throws {
-        for input in [["action": "launch", "name": "/Users/x/Downloads/Other.app"],
+        for input in [["action": "launch", "name": "/Users/fixture/Downloads/Other.app"],
                       ["action": "launch", "name": "~/Downloads/Other.app"],
                       ["action": "launch", "name": " Other.app "],
                       ["action": "open", "name": "/Applications/Mail.app"]] as [[String: Any]] {
@@ -516,7 +511,7 @@ struct ClaudeTextMacControlApprovalPolicyTests {
     // a name and a button (DialogTool.swift): saving or opening a file by panel.
     @Test("The dialog tool's file action is refused, with or without a path")
     func dialogFileActionIsRefused() throws {
-        for input in [["action": "file", "path": "/Users/x/Documents", "name": "report.pdf", "foreground": true],
+        for input in [["action": "file", "path": "/Users/fixture/Documents", "name": "report.pdf", "foreground": true],
                       ["action": "file", "foreground": true], ["action": " File ", "foreground": true]] as [[String: Any]] {
             let decision = ClaudeTextMacControlApprovalPolicy.decide(try macQuestion("dialog", input), botName: "Zed", layout: .ansi)
             guard case .denyQuietly = decision else { Issue.record("dialog \(input) must be refused, got \(decision)"); continue }
@@ -641,7 +636,7 @@ struct ClaudeTextMacControlApprovalPolicyTests {
             #expect(!card.offersTurnAllowance && card.turnScope == ClaudeTextMacControlApprovalPolicy.turnScope, "\(tool) \(input)")
         }
         for (tool, input) in [("see", [:]), ("dock", ["action": "hide"]), ("window", ["action": "focus", "app": "Mail"]),
-                              // A state check that ends in a screenshot does see the user's screen.
+                              // A state check that ends in a screenshot reads the screen.
                               ("verify_state", ["app": "Mail", "final_screenshot": true,
                                                 "predicates": [["kind": "window_exists", "expected": true]]])] as [(String, [String: Any])] {
             guard case .ask(let card) = ClaudeTextMacControlApprovalPolicy.decide(try macQuestion(tool, input), botName: "Zed", layout: .ansi) else {
@@ -678,7 +673,7 @@ struct ClaudeTextMacControlApprovalPolicyTests {
     }
 }
 
-/// An ABC-AZERTY layout, read from key events:
+/// With ABC-AZERTY,
 /// the positions Peekaboo presses for a, q, z, w and m type q, a, w, z and a
 /// comma there, and the digit row types symbols.
 private let azerty = MacKeyboardLayout { code in
@@ -762,8 +757,6 @@ struct MacControlKeyboardLayoutTests {
     }
 }
 
-// After a look at the user's screen, what could carry the words it saw into
-// another app asks every time; clicks keep Allow for this turn.
 @Suite("After a look at the user's screen, typing, pasting and dragging ask every time; clicks keep the allowance")
 struct MacControlTypingAfterALookTests {
     @Test("What carries words: typing, a dialog's input, set value, a character key (cmd+v too), Paste and a drag")
@@ -780,7 +773,7 @@ struct MacControlTypingAfterALookTests {
         #expect(carries("menu", ["action": "click", "app": "Safari", "item": "Paste and Match Style"]))
         #expect(!carries("menu", ["action": "click", "app": "Safari", "path": "File > New Window"]))
         #expect(carries("drag", ["from": "T1", "to": "T2"]))
-        // Copy then a click on Paste once moved words with no card.
+        // Copy followed by a click on Paste must not move text without a card.
         #expect(carries("menu", ["action": "click", "app": "Mail", "item": "Copy"]))
         #expect(carries("menu", ["action": "click", "app": "Mail", "path": "Edit > Cut"]))
         #expect(carries("click", ["query": "Paste", "app": "Safari"]) && carries("click", ["query": "copy link"]))

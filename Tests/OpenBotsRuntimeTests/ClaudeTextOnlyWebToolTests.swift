@@ -46,7 +46,7 @@ func claudeTextGrantedCommandContract() throws {
     // builder under test, so a drift in the settings JSON, the deny list or
     // the turn cap is a failure, not a redefinition of what is expected.
     let deniedJSON: String = grantedDeniedTools.split(separator: ",").map { "\"\($0)\"" }.joined(separator: ",")
-    let settings: String = "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,\"enabledPlugins\":{\"agents-md@builtin\":false},"
+    let settings: String = "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,\"enabledPlugins\":{\"agents-md@builtin\":false,\"cc-plugin-plugin-authoring@builtin\":false,\"telemetry@builtin\":false},"
         + "\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,"
         + "\"permissions\":{\"defaultMode\":\"dontAsk\",\"allow\":[\"WebSearch\",\"WebFetch\"],\"deny\":[" + deniedJSON + "]}}"
     let promptFile: String = request.target.temporaryDirectoryURL
@@ -317,11 +317,9 @@ func claudeTextStreamReportsTheTurnCapAsItsOwnFailure() throws {
     #expect(stream.finish(exitCode: 0) == .failed(.invalidStream))
 }
 
-/// Seen live: a member's research leg ended as an invalid
-/// stream (`responseMismatch`) at its seventeenth tool call, because the budget
-/// for distinct calls was sixteen and one round can carry several calls. A
-/// five-language research captured from the CLI made seventeen
-/// calls in fifty-nine seconds: five searches in one message, then fetches.
+/// A research turn can make more than sixteen distinct calls because one
+/// round can carry several calls. The call budget must not be confused with
+/// the round budget.
 @Test("A research that makes more than sixteen calls in a few rounds completes")
 func claudeTextStreamAdmitsAResearchOfSeventeenCalls() throws {
     let request = try textOnlyTestRequest(allowedTools: [.webSearch, .webFetch])

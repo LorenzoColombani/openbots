@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import Darwin
 import Foundation
 import OpenBotsDomain
@@ -7,6 +8,7 @@ import SwiftUI
 import XCTest
 @testable import OpenBotsUI
 
+/// Replaces the withdrawn pane requirements, not their historical failures.
 /// These injected, non-key windows are native composition/render evidence;
 /// they do not establish physical keyboard, VoiceOver, or helper behavior.
 @MainActor
@@ -21,7 +23,7 @@ final class ChatOnlyWorkspacePresentationTests: XCTestCase {
         }
         for mode in [LocalChatMode.localOnly, .reviewFixture] {
             let fixture = try await ChatOnlyFixture.make(mode: mode)
-            let harness = ChatOnlyWindowHarness(model: fixture.model, scheme: .light)
+            let harness = try ChatOnlyWindowHarness(model: fixture.model, scheme: .light)
             defer { harness.close(); fixture.model.finishShutdown() }
             try await harness.requireChat(transcript: fixture.firstText, draft: fixture.firstDraft)
             let initialIDs = fixture.model.conversation.messageRows.map(\.id)
@@ -90,7 +92,7 @@ final class ChatOnlyWorkspacePresentationTests: XCTestCase {
             let fixture = try await ChatOnlyFixture.make(mode: .localOnly)
             fixture.collaboration.beginCreation(.team)
             fixture.collaboration.draftName = ChatOnlyFixture.dormantDraft
-            let harness = ChatOnlyWindowHarness(model: fixture.model, scheme: scheme)
+            let harness = try ChatOnlyWindowHarness(model: fixture.model, scheme: scheme)
             defer { harness.close(); fixture.model.finishShutdown() }
             try await harness.requireChat(transcript: fixture.firstText, draft: fixture.firstDraft)
             harness.assertNoWorkContext()
@@ -112,7 +114,7 @@ final class ChatOnlyWorkspacePresentationTests: XCTestCase {
             Bundle(for: Self.self).bundleURL.path]
         let inherited = ProcessInfo.processInfo.environment
         var environment: [String: String] = [:]
-        for key in ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR", "SDKROOT"] {
+        for key in ["PATH", "HOME", "TMPDIR", "DEVELOPER_DIR", "SDKROOT", "OPENBOTS_TEST_EXTERNAL_DISPLAY_ONLY"] {
             if let value = inherited[key] { environment[key] = value }
         }
         environment[Self.childFlag] = "1"
@@ -152,9 +154,19 @@ private final class ChatOnlyWindowHarness {
     private let containerController: NSViewController
     private let window: ChatOnlyTestWindow
     private let appearance: NSAppearance
+    private let externalScreen: NSScreen?
 
-    init(model: DurableWorkspaceModel, scheme: ColorScheme) {
+    init(model: DurableWorkspaceModel, scheme: ColorScheme) throws {
         _ = NSApplication.shared
+        if ProcessInfo.processInfo.environment["OPENBOTS_TEST_EXTERNAL_DISPLAY_ONLY"] == "1" {
+            externalScreen = try XCTUnwrap(NSScreen.screens.first { screen in
+                guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
+                return CGDisplayIsBuiltin(number.uint32Value) == 0 &&
+                    CGDisplayIsInMirrorSet(number.uint32Value) == 0
+            }, "An unmirrored external display is required; no window will open on the built-in display.")
+        } else {
+            externalScreen = nil
+        }
         appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)!
         let rect = NSRect(x: 0, y: 0, width: 1_080, height: 720)
         background = ChatOnlyBackgroundView(frame: rect)
@@ -175,6 +187,18 @@ private final class ChatOnlyWindowHarness {
         window.appearance = appearance
         window.contentMinSize = rect.size
         window.contentMaxSize = rect.size
+        if let externalScreen {
+            let area = externalScreen.visibleFrame
+            guard area.width >= window.frame.width, area.height >= window.frame.height else {
+                throw ChatOnlyFixtureError.missingNativeControl("external display cannot fit the test window")
+            }
+            window.setFrameOrigin(NSPoint(x: area.midX - window.frame.width / 2,
+                                          y: area.midY - window.frame.height / 2))
+            guard area.contains(window.frame), window.screen === externalScreen else {
+                throw ChatOnlyFixtureError.missingNativeControl("external display placement failed before presentation")
+            }
+            chatOnlyPhase("External display placement verified before presentation.")
+        }
         appearance.performAsCurrentDrawingAppearance {
             controller.view.appearance = appearance
             controller.view.frame = background.bounds
@@ -233,6 +257,10 @@ private final class ChatOnlyWindowHarness {
         XCTAssertTrue(window.isVisible)
         XCTAssertFalse(window.isKeyWindow)
         XCTAssertFalse(window.isMainWindow)
+        if let externalScreen {
+            XCTAssertTrue(window.screen === externalScreen)
+            XCTAssertTrue(externalScreen.visibleFrame.contains(window.frame))
+        }
         XCTAssertEqual(window.contentLayoutRect.width, 1_080, accuracy: 1)
         XCTAssertEqual(window.contentLayoutRect.height, 720, accuracy: 1)
         assertNoWorkContext()

@@ -1,10 +1,9 @@
 import Foundation
 
-// Throwaway workers. A bot with Work or web, plus the
-// background-workers grant, may ask the app to run a one-shot blank helper.
-// The app starts it; the bot only asks. The worker has no chat, no roster, no
-// memory and no saved session (a cold one-shot run). Its result wakes the
-// holder as untrusted material. Visible in motion and Details, never a seat.
+// Throwaway workers. A bot with Work or web, plus the background-workers grant, may ask the app
+// to run a one-shot blank helper. The app starts it; the bot only asks. The worker has no chat,
+// no roster, no memory and no saved session (a cold one-shot run). Its result wakes the holder
+// as untrusted material. Visible in motion and Details, never a seat.
 
 /// Why one spawn_worker call was refused. Each is said to the model as the
 /// tool's result and to the person in the note when useful.
@@ -13,8 +12,8 @@ public enum TeammateWorkerRefusal: Error, Equatable, Sendable {
     case switchedOff
     /// Holder has neither Work on this Mac nor web (search or fetch).
     case noWorkOrWeb
-    /// Asked for a web worker, and the holder has no web of its own: a worker
-    /// never gets more than the bot that fired it.
+    /// Asked for a web worker, and the holder has no web of its own: a worker never gets more
+    /// than the bot that fired it.
     case holderHasNoWeb
     /// Asked for a fetcher (web) but the fetcher-workers grant is off.
     case fetchersOff
@@ -147,8 +146,8 @@ public enum TeammateWorkerOutcome: Equatable, Sendable {
     }
 }
 
-/// At most three worker spawns per reply (same bound as hire: deliberate, and a
-/// ceiling on a confused reply); three matches hire.
+/// At most three worker spawns per reply, matching the hire limit and bounding a confused
+/// reply.
 public struct TeammateWorkerLedger: Equatable, Sendable {
     public static let maximumCallsPerReply = 3
 
@@ -234,8 +233,7 @@ public enum TeammateWorkerResult: Equatable, Sendable {
     case stopped
 }
 
-/// How a worker's result reaches the holder (the old app's WorkerReport,
-/// re-expressed): the input of the holder's wake turn, written by the app,
+/// A worker's result becomes the input of the holder's wake turn, written by the app,
 /// never a bubble of its own.
 public enum WorkerReport {
     /// A result longer than this is clipped, with a note saying so. Kept so

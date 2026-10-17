@@ -62,7 +62,8 @@ public struct NativeClaudeTextLaunchPreparer: ClaudeTextLaunchPreparing {
 
     public func prepareTextLaunch(runID: UUID, model: String) async -> ClaudeTextLaunchPreparation {
         await prepareTextLaunch(runID: runID,
-            selection: ClaudeExecutionSelection(model: model, effort: "default", contextWindow: "default"))
+            selection: ClaudeExecutionSelection(model: model, effort: "default", contextWindow: "default",
+                                                 resolvedModel: ClaudeModelPolicy.resolvedModel(model)))
     }
 
     public func prepareTextLaunch(runID: UUID, selection: ClaudeExecutionSelection) async -> ClaudeTextLaunchPreparation {
@@ -80,7 +81,7 @@ public struct NativeClaudeTextLaunchPreparer: ClaudeTextLaunchPreparing {
         }
         // Max covers these Opus choices. This is tier admission only, never a
         // statement about remaining allowance or independently verified billing.
-        guard !ClaudeTextModelTierPolicy.requiresMax(selection.model) || tier == .max else {
+        guard !ClaudeTextModelTierPolicy.requiresMax(selection.resolvedModel ?? selection.model) || tier == .max else {
             return .refused(.modelUnavailable)
         }
         guard let root = await supportRoot(), !Task.isCancelled else { return .refused(.setupRequired) }
@@ -107,7 +108,8 @@ public struct NativeClaudeTextLaunchPreparer: ClaudeTextLaunchPreparing {
 
 private enum ClaudeTextModelTierPolicy {
     static func selectionProblem(_ selection: ClaudeExecutionSelection) -> ClaudeTextTurnProblem? {
-        guard ClaudeTextOnlyRequest.supportedModels.contains(selection.model) else { return .modelUnavailable }
+        guard let descriptor = ClaudeModelPolicy.current.model(selection.model),
+              selection.resolvedModel == nil || selection.resolvedModel == descriptor.id else { return .modelUnavailable }
         guard selection.effort == "default" || ClaudeEffortPolicy.supportedValues(for: selection.model).contains(selection.effort) else {
             return .effortUnavailable
         }
@@ -125,7 +127,6 @@ private enum ClaudeTextModelTierPolicy {
     }
 
     static func requiresMax(_ model: String) -> Bool {
-        ["claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5",
-         "claude-fable-5", "claude-fable-5-1"].contains(model)
+        ClaudeModelPolicy.requiresMax(model)
     }
 }

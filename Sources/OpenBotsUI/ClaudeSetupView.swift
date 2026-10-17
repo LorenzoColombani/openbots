@@ -8,14 +8,17 @@ public struct ClaudeSetupView: View {
     @ObservedObject private var model: ClaudeSetupModel
     private let usesReviewFixtures: Bool
     private let textRepliesEnabled: Bool
+    private let runtimeContent: AnyView?
     /// Set when Claude Code is newer than the last version the app was tested
     /// with: read from a link, nothing is run.
     @State private var claudeCodeWarning: String?
 
-    public init(model: ClaudeSetupModel, usesReviewFixtures: Bool = false, textRepliesEnabled: Bool = false) {
+    public init(model: ClaudeSetupModel, usesReviewFixtures: Bool = false, textRepliesEnabled: Bool = false,
+                runtimeContent: AnyView? = nil) {
         self.model = model
         self.usesReviewFixtures = usesReviewFixtures
         self.textRepliesEnabled = textRepliesEnabled
+        self.runtimeContent = runtimeContent
     }
 
     /// Compatibility for isolated previews/tests. App composition supplies the
@@ -31,6 +34,9 @@ public struct ClaudeSetupView: View {
 
     public var body: some View {
         Form {
+            if let runtimeContent {
+                Section("Claude runtime") { runtimeContent }
+            }
             Section("Claude") {
                 Label(statusTitle, systemImage: statusSymbol)
                     .font(.headline)
@@ -44,7 +50,7 @@ public struct ClaudeSetupView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("settings.claudeCodeNewerThanTested")
                 }
-                if case .verified(let evidence) = model.state {
+                if case .verified(let evidence) = model.state, model.step.isForBots {
                     LabeledContent("Plan", value: "Claude.ai \(evidence.tier.rawValue.capitalized)")
                     LabeledContent("Last checked") {
                         Text(evidence.checkedAt, format: .dateTime.year().month().day().hour().minute())
@@ -102,7 +108,7 @@ public struct ClaudeSetupView: View {
         .padding()
         .frame(minWidth: 460, idealWidth: 520, minHeight: 500)
         .task {
-            guard !usesReviewFixtures else { return }
+            guard !usesReviewFixtures, runtimeContent == nil else { return }
             claudeCodeWarning = ClaudeCodeTestedVersion.warning(installed: ClaudeCodeTestedVersion.installedVersion())
         }
         // Sign-in finishes in Terminal and the browser, so coming back to the
@@ -113,7 +119,6 @@ public struct ClaudeSetupView: View {
             model.appBecameActive()
         }
         .onDisappear {
-            model.cancelCurrentAction()
             model.dismissSubscriptionFeedback()
         }
     }
@@ -165,7 +170,7 @@ public struct ClaudeSetupView: View {
         if case .verified = model.state { "Check again" } else { "Check Claude" }
     }
 
-    var offersSignIn: Bool { model.state == .needsSignIn }
+    var offersSignIn: Bool { model.offersSignIn }
 
     /// The same explicit action is used on first check and subsequent rechecks.
     func checkClaude() { model.checkSubscription() }
@@ -178,11 +183,19 @@ public struct ClaudeSetupView: View {
     }
 
     private var statusTitle: String {
-        ClaudeSetupWording.title(for: model.state, localInstallationChecked: model.localInstallationChecked)
+        ClaudeSetupWording.title(for: model.state, step: model.step,
+                                 localInstallationChecked: model.localInstallationChecked)
     }
 
     private var statusSymbol: String {
-        switch model.state {
+        if case .testing(let progress) = model.step, model.state != .needsSignIn,
+           ClaudeSetupWording.stepWording(for: model.state, step: model.step) != nil {
+            return progress.stage == .failed ? "exclamationmark.circle" : "hourglass"
+        }
+        if case .verified = model.state, !model.step.isForBots {
+            return model.step == .noVersionToTest ? "exclamationmark.circle" : "hourglass"
+        }
+        return switch model.state {
         case .verified: "checkmark.shield"
         case .checking, .checkingSubscription, .signingIn: "magnifyingglass"
         case .problem, .actionRequired: "exclamationmark.circle"
@@ -191,9 +204,96 @@ public struct ClaudeSetupView: View {
         }
     }
 
-    private var statusExplanation: String { ClaudeSetupWording.status(for: model.state) }
+    private var statusExplanation: String {
+        ClaudeSetupWording.status(for: model.state, step: model.step, previouslyVerified: model.hasBeenVerified)
+    }
 
     private var setupDetails: String { ClaudeSetupWording.details(for: model.state) }
+}
+
+/// The shared setup state stays visible where a new user first tries to chat.
+/// Rendering this view performs no check or sign-in; composition owns startup.
+public struct ClaudeConnectionBanner: View {
+    @ObservedObject private var model: ClaudeSetupModel
+    private let openSetup: @MainActor () -> Void
+
+    public init(model: ClaudeSetupModel, openSetup: @escaping @MainActor () -> Void) {
+        self.model = model
+        self.openSetup = openSetup
+    }
+
+    /// Hidden only once the bots' own sign-in is verified: a verified test
+    /// sign-in while no version works yet is not a connection.
+    var isVisible: Bool {
+        if case .verified = model.state, model.step.isForBots { return false }
+        return true
+    }
+
+    private var isTestRunning: Bool {
+        if case .testing(let progress) = model.step { return progress.stage == .running }
+        return false
+    }
+
+    public var body: some View {
+        Group {
+            if isVisible {
+                HStack(alignment: .top, spacing: 12) {
+                    if model.isBusy || isTestRunning {
+                        ProgressView().controlSize(.small)
+                            .accessibilityLabel("Waiting for Claude")
+                    } else {
+                        Image(systemName: "person.crop.circle.badge.questionmark")
+                            .font(.title3)
+                            .accessibilityHidden(true)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(ClaudeSetupWording.title(for: model.state, step: model.step,
+                                                    localInstallationChecked: model.localInstallationChecked))
+                            .font(.headline)
+                            .accessibilityIdentifier("claude.connectionBanner.status")
+                        Text(ClaudeSetupWording.status(for: model.state, step: model.step,
+                                                     previouslyVerified: model.hasBeenVerified))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if model.isBusy {
+                            Button("Stop Waiting", action: model.cancelCurrentAction)
+                                .accessibilityIdentifier("claude.connectionBanner.stopWaiting")
+                        } else {
+                            if model.offersSignIn {
+                                Button("Sign in with Claude", action: model.beginOfficialSignIn)
+                                    .buttonStyle(.borderedProminent)
+                                    .accessibilityIdentifier("claude.connectionBanner.signIn")
+                                    .help(ClaudeSetupWording.signInHelp)
+                            }
+                            Button("Check Claude", action: model.checkSubscription)
+                                .accessibilityIdentifier("claude.connectionBanner.check")
+                                .help(ClaudeSetupWording.checkHelp)
+                            if !model.offersSignIn {
+                                Button("Claude setup", action: openSetup)
+                                    .buttonStyle(.link)
+                                    .accessibilityIdentifier("claude.connectionBanner.setup")
+                            }
+                        }
+                    }
+                    .fixedSize()
+                    .disabled(model.isShuttingDown)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(.bar)
+                .overlay(alignment: .bottom) { Divider() }
+                .accessibilityIdentifier("claude.connectionBanner")
+                .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.appBecameActive()
+        }
+    }
 }
 
 private struct UnconfiguredClaudeSetupInspector: ClaudeOfflineSetupInspecting {

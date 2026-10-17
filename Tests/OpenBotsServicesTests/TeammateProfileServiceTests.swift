@@ -174,10 +174,8 @@ func keepingItsOwnNameIsNeverRefused() async throws {
     #expect(shouted.profile.displayName == "ADA", "Its own name in another case is still its own")
 }
 
-/// A save must not clear the mark when only the model changed: the editor's
-/// first fields are the model and the notifications while the role and the
-/// instructions sit inside Advanced, collapsed, so picking a model for a new
-/// hire would take the hirer's name off words the person had never seen.
+/// Changing a model or notification setting must retain the hirer's attribution.
+/// Only editing the profile's words makes the person their author.
 @Test("Saving a hired bot's model leaves its hirer named as the author; saving its words takes the name off")
 func savingOnlyAModelKeepsTheHirerAsAuthor() async throws {
     let repository = TeammateRepositorySpy()
@@ -195,6 +193,6 @@ func savingOnlyAModelKeepsTheHirerAsAuthor() async throws {
 
     let reworded = try await service.saveProfile(
         teammateID: hired.id, expectedRevision: model.profile.revision,
-        draft: TeammateProfileEditDraft(displayName: hired.profile.displayName, role: "Keeps the team's receipts, reworded"))
+        draft: TeammateProfileEditDraft(displayName: hired.profile.displayName, role: "Keeps the team's receipts, his words"))
     #expect(reworded.profileWrittenByHirer == nil, "the person saved the words, so they are theirs")
 }

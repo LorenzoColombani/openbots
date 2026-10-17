@@ -66,6 +66,7 @@ private actor DurableWorkspaceFakeService: DurableTeammateChatServing {
 
     func clearSelection() async throws { selected = nil }
 
+
     /// New Bot's own path: the placeholder name, the question, selected.
     private(set) var selfSettingCreations: [(TeammateID, String)] = []
     func createSelfSettingTeammateAndDirectChat(
@@ -1199,6 +1200,65 @@ func durableWorkspaceComposerDraftsDoNotCrossSelection() async throws {
     #expect(model.conversation.composerText == "Rook-only unsent draft")
 }
 
+@Test("An update saves exact drafts from every visited chat, waits for storage, and keeps the workspace usable after success or failure", arguments: [false, true])
+@MainActor
+func durableWorkspaceApplicationUpdateSavesAllDrafts(failingSave: Bool) async throws {
+    let (first, _) = try durableWorkspaceFixture(suffix: "a0", name: "Update Ada", seed: 801)
+    let (second, _) = try durableWorkspaceFixture(suffix: "b0", name: "Update Rook", seed: 802)
+    let store = DurableWorkspaceFakeService(chats: [first, second],
+        selected: .init(teammate: first.teammate, conversation: first.conversation))
+    let drafts = WorkspaceApplicationUpdateDraftStore(failingConversation: failingSave ? second.id : nil)
+    let model = DurableWorkspaceModel(service: store, hiringService: try durableHiringFixture().0, draftService: drafts)
+    defer {
+        model.finishShutdown()
+        Task { await drafts.release() }
+    }
+    try await model.loadInitialWorkspace()
+    try await waitWorkspaceAttachment { model.conversation.draftSubmissionAllowed }
+    let firstText = "  Caf\u{00e9}\0Ada \u{1f419}\n"
+    let secondText = "Rook: Cafe\u{0301}\n  Unsent text\n"
+    model.conversation.composerText = firstText
+    try await select(second, in: model)
+    try await waitWorkspaceAttachment { model.conversation.draftSubmissionAllowed }
+    model.conversation.composerText = secondText
+
+    var updateSaveFinished = false
+    let saving = Task {
+        let result = await model.saveDraftsForApplicationUpdate()
+        updateSaveFinished = true
+        return result
+    }
+    try await waitWorkspaceAttachment { await drafts.hasSuspendedSave }
+    #expect(!updateSaveFinished, "Update admission must wait for the actual draft receipt.")
+    #expect(!model.isShuttingDown, "Saving for an update must not enter the irreversible Quit path.")
+    await drafts.release()
+    #expect(await saving.value == !failingSave,
+            "One failed conversation save must refuse the update, even if another draft was saved.")
+    #expect(!model.isShuttingDown)
+
+    let firstSaved = try #require(await drafts.load(conversationID: first.id))
+    #expect(firstSaved.text.utf8.elementsEqual(firstText.utf8))
+    if failingSave {
+        #expect(await drafts.load(conversationID: second.id) == nil)
+    } else {
+        let secondSaved = try #require(await drafts.load(conversationID: second.id))
+        #expect(secondSaved.text.utf8.elementsEqual(secondText.utf8))
+    }
+    #expect(model.conversation.composerText.utf8.elementsEqual(secondText.utf8))
+    try await select(first, in: model)
+    #expect(model.conversation.composerText.utf8.elementsEqual(firstText.utf8))
+
+    // A cancelled/failed update leaves both navigation and draft editing live.
+    await drafts.allowAllSaves()
+    model.conversation.composerText = firstText + "Still editable"
+    try await select(second, in: model)
+    model.conversation.composerText = secondText + "Still editable"
+    #expect(await model.saveDraftsForApplicationUpdate())
+    #expect(await drafts.load(conversationID: first.id)?.text == firstText + "Still editable")
+    #expect(await drafts.load(conversationID: second.id)?.text == secondText + "Still editable")
+    #expect(!model.isShuttingDown)
+}
+
 @Test("A ready attachment draft remains visible only in its originating conversation")
 @MainActor
 func durableWorkspaceReadyAttachmentDoesNotCrossSelection() async throws {
@@ -1293,6 +1353,8 @@ func durableWorkspacePendingAttachmentCompletionDoesNotCrossSelection() async th
     #expect(secondDraft !== firstDraft)
     #expect(secondDraft.rows.isEmpty)
 
+    #expect(model.applicationUpdateBlocker != nil,
+            "A hidden conversation's suspended import must still block an app update.")
     await gate.release(
         AttachmentDraftPresentationReceipt(
             displayName: "pending-ada-only.txt",
@@ -1304,6 +1366,8 @@ func durableWorkspacePendingAttachmentCompletionDoesNotCrossSelection() async th
 
     #expect(model.attachmentDraft === secondDraft)
     #expect(model.attachmentDraft.rows.isEmpty)
+    #expect(model.applicationUpdateBlocker == nil,
+            "A completed import must stop blocking the update while its conversation stays hidden.")
     try await select(first, in: model)
     #expect(model.attachmentDraft === firstDraft)
     #expect(model.attachmentDraft.rows.first?.id == operationID)
@@ -1709,6 +1773,34 @@ private actor WorkspaceAttachmentTextDraftStore: ConversationDraftServing {
         drafts[conversationID] = next
         return next
     }
+}
+
+private actor WorkspaceApplicationUpdateDraftStore: ConversationDraftServing {
+    private var drafts: [ConversationID: ConversationDraftSnapshot] = [:]
+    private var failingConversation: ConversationID?
+    private var released = false
+    private var suspended: [CheckedContinuation<Void, Never>] = []
+    var hasSuspendedSave: Bool { !suspended.isEmpty }
+
+    init(failingConversation: ConversationID?) { self.failingConversation = failingConversation }
+    func load(conversationID: ConversationID) -> ConversationDraftSnapshot? { drafts[conversationID] }
+    func save(conversationID: ConversationID, text: String, expectedRevision: UInt64) async throws -> ConversationDraftSnapshot {
+        if !released { await withCheckedContinuation { suspended.append($0) } }
+        if conversationID == failingConversation { throw SaveFailure.unavailable }
+        guard (drafts[conversationID]?.revision ?? 0) == expectedRevision else { throw ConversationDraftError.staleRevision }
+        let saved = try ConversationDraftSnapshot(conversationID: conversationID, text: text,
+            revision: expectedRevision + 1, updatedAt: Date(timeIntervalSince1970: 9_300))
+        drafts[conversationID] = saved
+        return saved
+    }
+    func release() {
+        released = true
+        let waiting = suspended
+        suspended.removeAll()
+        waiting.forEach { $0.resume() }
+    }
+    func allowAllSaves() { failingConversation = nil }
+    private enum SaveFailure: Error { case unavailable }
 }
 
 @MainActor
@@ -2233,6 +2325,7 @@ func durableWorkspaceTextReplyPaintsCommittedBubblesOnly() async throws {
     #expect(model.conversation.messages.allSatisfy { $0.isFromUser })
     #expect(await live.submissions.count == 1)
 
+
     // A saved partial reply is a checkpoint, not something to show
     // (committed bubbles, never streamed text).
     await live.releaseFirstReply()
@@ -2290,6 +2383,10 @@ func durableWorkspaceTextReplyRoutingAndReopenProvenance() async throws {
     model.conversation.composerText = "Newer draft must survive"
     try await select(second, in: model)
     try await waitWorkspaceAttachment { model.conversation.draftSubmissionAllowed }
+    #expect(!model.conversation.hasPendingSubmissions(in: second.id.rawValue))
+    #expect(model.conversation.hasPendingSubmissions(in: first.id.rawValue))
+    #expect(model.applicationUpdateBlocker != nil,
+            "Selecting an idle bot must not hide another bot's active reply from the updater.")
     model.conversation.composerText = "Second bot draft"
     await live.release(.failed(.runtimeUnavailable))
     try await waitWorkspaceAttachment { !model.conversation.hasPendingSubmissions }
@@ -2308,6 +2405,8 @@ func durableWorkspaceTextReplyRoutingAndReopenProvenance() async throws {
     #expect(model.conversation.messages.last?.deliveryNotice == "Claude turn failed · available reply text saved")
     #expect(model.conversation.textReplyPhase == .failed(.runtimeUnavailable))
     #expect(await live.submissions.count == 1)
+    #expect(model.applicationUpdateBlocker == nil,
+            "A settled failed reply must no longer block the app update.")
 
     let reopened = DurableWorkspaceModel(service: store, textReplyService: live, hiringService: try durableHiringFixture().0)
     try await reopened.loadInitialWorkspace()
@@ -2531,7 +2630,7 @@ func aCorrectionSaysItWasPickedUpNotStopped() {
 }
 
 /// A refused wire used to read "Claude's response could not be verified", which
-/// once hid a Claude Code update behind a sentence about the
+/// hid a Claude Code update behind a sentence about the
 /// app. The person reads which version sent what the app refused.
 @Test("A refused wire names the Claude Code version and the code; without a frame the old sentence stands")
 func refusedWireReadsAsClaudeCodeSayingSomethingNew() {
@@ -2539,6 +2638,9 @@ func refusedWireReadsAsClaudeCodeSayingSomethingNew() {
     #expect(ClaudeTextReplyPhase.failed(.invalidResponse, refusedFrame: frame).description ==
         "OpenBots stopped this reply: Claude Code 2.1.272 sent something OpenBots does not understand (initializationPermissionMismatch). Nothing was resent; your text is kept.")
     let unnamed = ClaudeTextRefusedFrame(code: .responseMismatch, claudeCodeVersion: nil)
+    let outputLimit = ClaudeTextRefusedFrame(code: .outputLimitExceeded, claudeCodeVersion: nil)
+    #expect(ClaudeTextReplyPhase.failed(.invalidResponse, refusedFrame: outputLimit).description ==
+        "Claude Code sent more output than OpenBots accepts for one turn, so the turn was stopped. Nothing was resent; your text is kept.")
     #expect(ClaudeTextReplyPhase.failed(.invalidResponse, refusedFrame: unnamed).description ==
         "OpenBots stopped this reply: Claude Code sent something OpenBots does not understand (responseMismatch). Nothing was resent; your text is kept.")
     #expect(ClaudeTextReplyPhase.failed(.invalidResponse).description ==
@@ -2549,10 +2651,9 @@ func refusedWireReadsAsClaudeCodeSayingSomethingNew() {
     #expect(ClaudeTextReplyPhase.failed(.timedOut, refusedFrame: frame).description == ClaudeTextReplyPhase.explanation(.timedOut))
 }
 
-/// A turn the model had declined was once reported
-/// to the person as "Claude's response could not be verified", which sent them
-/// hunting a fault that was never there. Declining is the bot's own call about
-/// one turn, and the two places the person reads say so.
+/// A declined turn must not read as "Claude's response could not be verified".
+/// Declining is the bot's own call about one turn, and both presentation
+/// surfaces say so.
 @Test("A declined turn reads as the bot declining, and a decline over text already said leaves that text alone")
 @MainActor
 func declinedTurnReadsAsTheBotDeclining() async throws {
@@ -2660,6 +2761,8 @@ func durableWorkspaceSendStaysLiveWhileACardWaits() async throws {
     await wait("first turn waiting") { await live.waiting }
     await wait("card shown") { model.conversation.textReplyApproval != nil }
     #expect(model.conversation.textReplyPhase?.isBusy == true)
+    #expect(model.applicationUpdateBlocker != nil,
+            "An approval card is unfinished work even while the bot waits for the person.")
     model.conversation.composerText = "Wait, call it ideas.txt instead"
     await wait("draft settled") { model.conversation.canSend }
     #expect(model.conversation.canSend, "a waiting card never locks Send: typing is the correction")
@@ -2673,13 +2776,13 @@ func durableWorkspaceSendStaysLiveWhileACardWaits() async throws {
     #expect(submissions.count == 2 && submissions.last?.text == "Wait, call it ideas.txt instead" && submissions.last?.correctsRunningTurn == true)
     await live.release(.completed)
     await wait("correction completed") { model.conversation.textReplyPhase == .completed && !model.conversation.hasPendingSubmissions }
+    #expect(model.applicationUpdateBlocker == nil)
 }
 
 @Test("A second correction while the corrected turn's card waits goes out after that turn settles, Stop still reaches the last turn, and every finished reply is kept")
 @MainActor
 func durableWorkspaceSecondCorrectionWhileACardWaits() async throws {
-    // A live bug: the second correction was refused as
-    // busy and Stop disappeared while the corrected run lived on.
+    // A second correction must not make Stop disappear while the corrected run lives on.
     let (chat, _) = try durableWorkspaceFixture(suffix: "e5", name: "Twice", seed: 435)
     let store = DurableWorkspaceFakeService(chats: [chat],
         selected: .init(teammate: chat.teammate, conversation: chat.conversation))
@@ -2814,6 +2917,7 @@ func durableWorkspaceSendWhileBusySteers() async throws {
     #expect(await live.submissions.count == 2)
 }
 
+
 // MARK: - New Bot: a bot is born, asks what it is for, and sets itself up
 
 @MainActor
@@ -2852,6 +2956,7 @@ func durableWorkspaceNewBotAsksWhatItIsFor() async throws {
     try await waitWorkspaceAttachment { !model.isCreatingTeammate }
     #expect(await service.selfSettingNames == ["New Bot 2", "New Bot 3"])
 }
+
 
 /// Hidden bots keep their names: the database refuses a
 /// name a hidden bot holds, so the model must not offer it.

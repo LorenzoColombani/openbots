@@ -14,13 +14,13 @@ import OpenBotsRuntime
 ///
 /// It needs two permissions, both granted to OpenBots Next itself because the
 /// server runs as the app's child. Automation → Messages is asked for by macOS
-/// at the first send, and the server says so in plain words when it is refused.
+/// at the first send, and the server says so in their words when it is refused.
 /// Full Disk Access is different in the way that matters here: macOS NEVER
 /// asks for it. A read without it simply fails, so a row that read "ready"
 /// would switch on and then fail every read with no prompt anywhere. That is
 /// why this availability opens the database itself, read-only, and says
 /// "needs setup" with the pane to open when it cannot. The launch does not
-/// require it: a grant made before the user flips the switch still starts the
+/// require it: a grant made before they flip the switch still starts the
 /// server, whose refusal then names the same pane.
 ///
 /// Nothing is written for a read or a send, so a Messages turn owns no
@@ -53,9 +53,9 @@ public struct AppleMessagesConnectorPreparation: Sendable {
     /// The shim the row's badge is judged against, so a test can hand it one.
     private let fence: FenceProxyResource
 
-    /// `databaseURL` is always passed in by a test: the default is the user's
-    /// real history, and a test that read it would pass on one Mac and fail on
-    /// every other one.
+    /// `databaseURL` is always passed in by a test: the default is the user's real
+    /// history, and a test that read it would pass on their Mac and fail on every
+    /// other one.
     public init(scriptURL: URL? = AppOwnedConnectorCatalog.appleMessagesScriptURL,
                 applicationCandidateURLs: [URL] = AppOwnedConnectorCatalog.messagesApplicationURLs,
                 databaseURL: URL = AppOwnedConnectorCatalog.messagesDatabaseURL(

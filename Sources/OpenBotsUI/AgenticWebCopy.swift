@@ -1,5 +1,6 @@
 import Foundation
 
+
 /// One place for what the app tells the user a web grant covers.
 ///
 /// The sentence lived twice, in the bot Details caption and in Settings, and
@@ -26,6 +27,7 @@ enum AgenticWebCopy {
         + "Turning one off stops a reply that was using it. "
         + "These switches stay as you left them the next time OpenBots starts."
 
+
     /// The own-folder rule, one sentence, shared by every caption that states
     /// it: the Access sheet's work row and the Settings work master (the old
     /// Details switch left with the retired runner's controls). An edit inside the bot's own folder
@@ -40,16 +42,16 @@ enum AgenticWebCopy {
         "Edits inside its own folder go through on their own, except protected files and links that "
         + "lead outside it; a card asks before anything else that changes files or has effects."
 
-    /// Settings → Permissions & Bot Access, under the app-wide work switch.
-    /// The bot's own switch lives on its Access sheet, not in Details.
+    /// Copy for Settings → Permissions & Bot Access beneath the app-wide Work switch. Per-bot
+    /// switches live on each bot's Access sheet.
     static let settingsWorkCaption =
         "Work on this Mac lets a bot use Claude Code's own file and shell tools in its own folder and in the "
         + "folders you add to it, as you. " + ownFolderRule + " Passwords, browser data and this app's own "
         + "files stay off limits. Also turn it on in the bot's Access sheet. Turning it off stops a reply "
         + "that was using it; the switch stays as you left it the next time OpenBots starts."
 
-    /// Settings → Permissions & Bot Access, under the app-wide hire switch.
-    /// The bot's own switch lives on its Access sheet.
+    /// Settings → Permissions & Bot Access, under the app-wide hire switch. The bot's own
+    /// switch lives on its Access sheet.
     static let settingsHireCaption =
         "Hiring lets a bot ask OpenBots for a new bot from its own replies, at most three a reply. OpenBots "
         + "makes each one with every switch off and no connectors; like every bot, it reads the team's shared "
@@ -57,8 +59,8 @@ enum AgenticWebCopy {
         + "Also turn it on in the bot's Access sheet. Turned off while a bot is answering, it takes effect when "
         + "that reply ends. The switch stays as you left it the next time OpenBots starts."
 
-    /// Settings → Permissions & Bot Access, under the app-wide background-workers switch.
-    /// The bot's own switch lives on its Access sheet.
+    /// Settings → Permissions & Bot Access, under the app-wide background-workers switch. The
+    /// bot's own switch lives on its Access sheet.
     static let settingsWorkersCaption =
         "Background workers let a bot start a one-time worker for a chore no other bot owns, like summarising "
         + "some files. A worker has no chat, no memory and no place in the sidebar; it ends after one reply, and "

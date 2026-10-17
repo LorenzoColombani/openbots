@@ -8,6 +8,7 @@ public enum TeammateDeleteError: Error, Equatable, Sendable {
     case invalidDate
 }
 
+
 /// What is left of a bot deleted while its words stay in a team chat: its row, emptied and
 /// marked deleted, so those messages keep an author. It is in no list and
 /// nothing brings it back; its messages read under this name.
@@ -17,9 +18,9 @@ public enum DeletedTeammate {
     public static let role = "Teammate"
 }
 
-/// What the confirmation names before the person deletes a bot. Workspace and
-/// published project artifacts are separate exact choices; this receipt
-/// only covers the bot-owned graph that Delete removes.
+/// What the confirmation names before the person deletes a bot. Workspace and published project
+/// artifacts are separate exact choices; this receipt only covers the bot-owned graph that
+/// Delete removes.
 public struct TeammateDeleteInventory: Equatable, Sendable {
     public let displayName: String
     public let hasProfile: Bool

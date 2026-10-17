@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>Install OpenBots Next</title>
-<meta name="description" content="How to install OpenBots Next on your Mac, in 16 cards: what you need first, the one line, the optional Google step, approval cards, your data, and what to do when something goes wrong.">
+<meta name="description" content="How to install OpenBots Next on your Mac, in 18 cards: what you need first, the one line, the optional Google step, approval cards, your data, and what to do when something goes wrong.">
 <script>if(/[?&]export(&|$)/.test(location.search))document.documentElement.className='export'</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@500&family=Atkinson+Hyperlegible+Next:wght@400;700;800&family=Bricolage+Grotesque:opsz,wght@12..96,800&display=block" rel="stylesheet">
@@ -115,7 +115,7 @@ mark.swipe{background:var(--swipe)} mark.underline{background:var(--underline)}
 .steps li{counter-increment:s;position:relative;padding-left:calc(76 * var(--u));font:400 calc(48 * var(--u))/calc(64 * var(--u)) var(--font-text)}
 .steps li+li{margin-top:calc(8 * var(--u))}
 .steps li::before{content:counter(s);position:absolute;left:0;top:calc(2 * var(--u));width:calc(56 * var(--u));height:calc(56 * var(--u));border:var(--line) solid var(--ink);border-radius:calc(8 * var(--u));font:800 calc(40 * var(--u))/calc(48 * var(--u)) var(--font-display);text-align:center;background:var(--bone)}
-/* rows (card 11) */
+/* rows (cards 14 to 16) */
 .rows{background:var(--sky-soft);border:var(--line-bold) solid var(--ink);border-radius:calc(24 * var(--u));box-shadow:var(--shadow-1);overflow:hidden}
 .rows>div{padding:calc(12 * var(--u)) calc(24 * var(--u)) calc(14 * var(--u))}
 .rows>div+div{border-top:var(--line) solid var(--ink)}
@@ -173,7 +173,7 @@ html.export .ph,html.export .nb{white-space:nowrap}
 .oneline{--field:var(--sky-soft)}
 .body > .pointer{margin-top:calc(16 * var(--u))}
 
-/* ---- build additions (orchestrator) ---- */
+/* ---- additions ---- */
 html.page body{padding:24px 0 40px}
 .note .tag{border-radius:0}
 .cover{display:flex;flex-direction:column}
@@ -202,108 +202,135 @@ html.export .fork a{text-decoration:none}
 @media (max-width:699px){html.page .cmdhead{flex-wrap:nowrap;align-items:flex-end}}
 html.page .card .body{flex:1 0 auto}
 .cmd code .nl{display:none}
+/* ---- v1.1 additions ---- */
+.steps.first li{line-height:calc(60 * var(--u))}
+.steps.first li+li{margin-top:calc(8 * var(--u))}
+.steps.first li .clip{margin:calc(2 * var(--u)) calc(8 * var(--u)) calc(2 * var(--u)) 0}
+.steps.first li .say{display:block;margin-top:calc(2 * var(--u))}
+.place .clip{font-weight:400}
+.rows .fix .clip{margin-top:calc(6 * var(--u))}
+.cmd code .bs{white-space:nowrap}
 
 </style></head><body>
 <main>
-<section id="card-1" class="card cover" data-file="01-cover" aria-label="Card 1 of 16"><p class="small kicker">Install OpenBots Next on your Mac</p><div class="body">
+<section id="card-1" class="card cover" data-file="01-cover" aria-label="Card 1 of 18"><p class="small kicker">Install OpenBots Next on your Mac</p><div class="body">
 <p class="lead">There is no app to download.</p>
 <div class="slab"><p class="big">One line builds OpenBots Next <mark class="swipe">on your own Mac.</mark></p></div>
 <p class="text gap-lg">Every step that sends, changes or clicks waits on a card you approve. <b>Read each card before you approve it.</b></p>
 <div class="cue gap-lg"><svg class="stack" viewBox="0 0 200 150" aria-hidden="true"><rect x="44" y="8" width="104" height="130" rx="12" transform="rotate(8 96 73)" fill="#FFFDF7" stroke="#1B1B1F" stroke-width="8"/><rect x="40" y="10" width="104" height="130" rx="12" transform="rotate(-4 92 75)" fill="#FFFDF7" stroke="#1B1B1F" stroke-width="8"/></svg>
-<p class="small"><span class="page-only">16 cards · scroll down</span><span class="export-only">16 cards, in order</span></p></div>
-</div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-2" class="card " data-file="02-your-mac-and-xcode" aria-label="Card 2 of 16"><div class="strip-top"><span>2 of 16</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Your Mac and Xcode</h2>
-<div class="pair"><p class="text"><b>An Apple Silicon Mac, macOS 14 or later.</b> Control this Mac needs macOS 15 or later.</p><div class="row1 inline"><span class="clip" data-quote>Apple menu → About This Mac</span><p class="meaning s">is where to check.</p></div></div>
-<div class="pair gap-lg"><p class="text"><b>Full Xcode 16.3 or later</b>, from the App Store. Command Line Tools alone cannot build it.</p><div class="row1 inline"><span class="clip" data-quote>/<wbr>Applications/<wbr>Xcode.<wbr>app</span><p class="meaning s">is where it must be.</p></div></div>
-<p class="lead gap-lg"><mark class="underline">Open Xcode once</mark>, so it finishes its own setup.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-3" class="card " data-file="03-claude-code" aria-label="Card 3 of 16"><div class="strip-top"><span>3 of 16</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Claude Code</h2>
+<p class="small"><span class="page-only">18 cards · scroll down</span><span class="export-only">18 cards, in order</span></p></div>
+</div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-2" class="card " data-file="02-your-mac-and-xcode" aria-label="Card 2 of 18"><div class="strip-top"><span>2 of 18</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Your Mac and Xcode</h2>
+<div class="pair"><p class="text"><b>An Apple Silicon Mac that can run your Xcode.</b> Xcode 16.3 needs macOS 15.2 or later.</p></div>
+<div class="pair gap-lg"><p class="text"><b>Full Xcode 16.3 or later.</b> Command Line Tools alone cannot build it.</p><div class="row1 inline"><span class="clip" data-quote>/<wbr>Applications/<wbr>Xcode.<wbr>app</span><p class="meaning s">is where it must be.</p></div></div>
+<p class="lead gap-lg"><mark class="underline">Open Xcode once</mark>, so it finishes its own setup.</p>
+<p class="note"><span class="tag">Claude&#39;s note</span>Your macOS version is under Apple menu → About This Mac. Xcode is free in the App Store.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-3" class="card " data-file="03-your-certificate" aria-label="Card 3 of 18"><div class="strip-top"><span>3 of 18</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Your own certificate</h2>
+<p class="text">The app is built and signed with your own <b>Apple Development</b> certificate. There is no way around it.</p>
+<p class="lead"><mark class="swipe">It is free: a Personal Team is enough.</mark></p>
+<p class="place">In Xcode</p>
+<div class="pair gap-sm"><div class="clips"><span class="clip" data-quote>Xcode → Settings → Accounts</span></div><p class="meaning s">Add your Apple account and select your team.</p></div>
+<div class="pair"><div class="clips"><span class="clip" data-quote>Manage Certificates → Apple Development</span></div><p class="meaning s">Makes the certificate.</p></div>
+<p class="small reg">Keep it: updates use the same one. A new certificate can make macOS ask for permissions again.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-4" class="card " data-file="04-claude-code" aria-label="Card 4 of 18"><div class="strip-top"><span>4 of 18</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Claude Code</h2>
 <div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="res">Installs Claude Code</span> <span class="how">· paste in Terminal</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd "><code data-cmd><span class="ln">curl -fsSL https:/<wbr>/<wbr>claude.<wbr>ai/<wbr>install.<wbr>sh | bash</span></code></div></div>
 <p class="text"><b><mark class="swipe">Anthropic's own installer.</mark></b> An npm or Homebrew install is refused.</p>
 <div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="res">Checks that it is there</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd "><code data-cmd><span class="ln">ls -l ~/<wbr>.<wbr>local/<wbr>bin/<wbr>claude</span></code></div></div>
 <p class="text"><b>A Claude Pro or Max plan.</b> An API key, a Team or an Enterprise login is not accepted.</p>
-<p class="small reg">Node.js (connectors only): Homebrew or nodejs.org.</p>
-<p class="note"><span class="tag">Claude&#39;s note</span>Terminal is in Applications → Utilities. Copy from this page or the README, on your Mac.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-4" class="card " data-file="04-google-or-not" aria-label="Card 4 of 16"><div class="strip-top"><span>4 of 16</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Gmail, Google Calendar or Google Drive?</h2>
+<p class="small reg"><b>Node.js</b> too, from Homebrew or nodejs.org.</p>
+<p class="note"><span class="tag">Claude&#39;s note</span>Terminal is in Applications → Utilities. Copy from this page or the README, on your Mac.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-5" class="card " data-file="05-google-or-not" aria-label="Card 5 of 18"><div class="strip-top"><span>5 of 18</span><span>Before</span></div><div class="rule"></div><div class="body"><h2 class="headline">Gmail, Google Calendar or Google Drive?</h2>
 <p class="text">Your Google Client ID goes into the app when it is built.</p>
-<p class="lead"><mark class="swipe">Decide before you install.</mark></p>
-<div class="fork"><div><h3>Yes</h3><p class="text">About fifteen minutes more, once. <a href="#card-5">Card 5</a> first.</p></div><div><h3>No</h3><p class="text">Go to <a href="#card-6">card 6</a>. Skip cards 5, 8 and 14.</p></div></div>
-<p class="note"><span class="tag">Claude&#39;s note</span>Not sure? Start without Google. To add it later, run the Google line: it builds the app again with your ID, and your data is kept.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-5" class="card " data-file="05-google-sign-in" aria-label="Card 5 of 16"><div class="strip-top"><span>5 of 16</span><span>Google</span></div><div class="rule"></div><div class="body"><p class="path">Only if you want Gmail, Google Calendar or Google Drive</p>
+<div class="fork"><div><h3>Yes</h3><p class="text">About fifteen minutes more, once. <a href="#card-6">Card 6</a> first.</p></div><div><h3>No</h3><p class="text">Go to <a href="#card-7">card 7</a>. Skip cards 6, 8, 10 and 16.</p></div></div>
+<p class="lead gap-lg"><mark class="swipe">You can add it later.</mark></p>
+<p class="small reg gap-sm">Quit the app, then run the Google line (card 8). The ID is added to the rebuilt app; nothing else changes.</p>
+<p class="note"><span class="tag">Claude&#39;s note</span>Not sure? Start without Google.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-6" class="card " data-file="06-google-sign-in" aria-label="Card 6 of 18"><div class="strip-top"><span>6 of 18</span><span>Google</span></div><div class="rule"></div><div class="body"><p class="path">Only if you want Gmail, Google Calendar or Google Drive</p>
 <h2 class="headline">Your own Google sign-in</h2>
 <p class="lead"><mark class="swipe">Use a separate Google account.</mark></p>
 <p class="small reg gap-sm">Give it only what you want bots to see.</p>
 <p class="place">In your browser</p>
-<ol class="steps gap-sm"><li>A Google Cloud project</li><li>Turn on three APIs</li><li>Consent screen: Testing, you as test user</li><li>A Desktop client</li><li>Its ID into the install line (card 6)</li><li>The JSON file into the app (card 8)</li></ol>
+<ol class="steps gap-sm"><li>A Google Cloud project</li><li>Turn on three APIs</li><li>Consent screen: Testing, you as test user</li><li>A Desktop client</li><li>Its ID into the install line (card 8)</li><li>The JSON file into the app (card 10)</li></ol>
 <p class="small">Keep that JSON file private: it holds the secret.</p>
 <div class="pair"><div class="row1"><p class="see">You may see</p><span class="clip" data-quote>unverified app</span></div><p class="meaning s">This is your own app, so continue.</p></div>
-<p class="small reg">Every click: docs/guides/google-setup.md</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-6" class="card oneline" data-file="06-the-one-line" aria-label="Card 6 of 16"><div class="strip-top"><span>6 of 16</span><span>Install</span></div><div class="rule"></div><div class="body"><div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="tag">the one line</span><span class="how">Paste in Terminal</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd one"><code data-cmd><span class="ln">curl -fsSL https:/<wbr>/<wbr>raw.<wbr>githubusercontent.<wbr>com/<wbr>LorenzoColombani/<wbr>openbots/<wbr>main/<wbr>install.<wbr>sh | sh</span></code></div></div>
-<p class="text">A few minutes later, <mark class="underline"><b>it opens.</b></mark></p>
-<div class="cmdwrap" data-google><div class="cmdhead"><p class="lbl"><span class="res">With Google</span> <span class="how">· instead of the one line</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd g"><code data-cmd><span class="ln">curl -fsSL https:/<wbr>/<wbr>raw.<wbr>githubusercontent.<wbr>com/<wbr>LorenzoColombani/<wbr>openbots/<wbr>main/<wbr>install.<wbr>sh \</span><span class="nl">
+<p class="small reg">Every click: docs/guides/google-setup.md</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-7" class="card oneline" data-file="07-the-one-line" aria-label="Card 7 of 18"><div class="strip-top"><span>7 of 18</span><span>Install</span></div><div class="rule"></div><div class="body"><div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="tag">the one line</span><span class="how">Paste in Terminal</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd one"><code data-cmd><span class="ln">env -i HOME=/<wbr>nonexistent PATH=/<wbr>usr/<wbr>bin:/<wbr>bin:/<wbr>usr/<wbr>sbin:/<wbr><span class="bs">sbin \</span></span><span class="nl">
+</span><span class="ln">  /<wbr>usr/<wbr>bin/<wbr>curl -q -fsSL https:/<wbr>/<wbr>raw.<wbr>githubusercontent.<wbr>com/<wbr>LorenzoColombani/<wbr>openbots/<wbr>main/<wbr>install.<wbr>sh | sh</span></code></div></div>
+<p class="note"><span class="tag">Claude&#39;s note</span>It is one command over several lines: copy all of it.</p>
+<p class="text">When it is built, <mark class="underline"><b>the app opens.</b></mark></p>
+<p class="small reg">It builds only the published release and checks every file. If none is out yet, it stops: <span class="clip" data-quote>No published release yet.</span></p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-8" class="card oneline" data-file="08-with-google" aria-label="Card 8 of 18"><div class="strip-top"><span>8 of 18</span><span>Google</span></div><div class="rule"></div><div class="body"><p class="path">Only if you want Gmail, Google Calendar or Google Drive</p>
+<div class="cmdwrap" data-google><div class="cmdhead"><p class="lbl"><span class="res">With Google</span> <span class="how">· instead of the one line</span></p><button class="copy page-only" type="button">Copy</button></div><div class="cmd g"><code data-cmd><span class="ln">env -i HOME=/<wbr>nonexistent PATH=/<wbr>usr/<wbr>bin:/<wbr>bin:/<wbr>usr/<wbr>sbin:/<wbr><span class="bs">sbin \</span></span><span class="nl">
+</span><span class="ln">  /<wbr>usr/<wbr>bin/<wbr>curl -q -fsSL https:/<wbr>/<wbr>raw.<wbr>githubusercontent.<wbr>com/<wbr>LorenzoColombani/<wbr>openbots/<wbr>main/<wbr><span class="bs">install.sh \</span></span><span class="nl">
 </span><span class="ln">  <span class="nb">| OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=</span><wbr><span class="ph">1234-abcd.apps.googleusercontent.com</span> sh</span></code></div></div>
 <p class="key"><span class="sw"></span>replace with your Client ID, all of it</p>
 <div class="idf page-only"><label for="cid">Your Client ID (ends in .apps.googleusercontent.com) — not the secret, not the JSON file</label><input id="cid" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
 <p class="err" id="cid-err" role="alert" hidden></p>
 <div class="mine" id="cid-out" hidden><div class="cmdwrap"><div class="cmdhead"><p class="lbl"><span class="res">Your command</span> <span class="how">· paste in Terminal</span></p><button class="copy" type="button">Copy</button></div><div class="cmd g"><code id="cid-code"></code></div></div></div>
 <p class="keep">This page keeps your ID nowhere and sends it nowhere.</p></div>
-<p class="small reg">It asks nothing. Built on your own Mac, so no Gatekeeper warning.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-7" class="card " data-file="07-first-run" aria-label="Card 7 of 16"><div class="strip-top"><span>7 of 16</span><span>Install</span></div><div class="rule"></div><div class="body"><h2 class="headline">Check, sign in, say hello</h2>
+<p class="small reg">Installed without an ID? Quit the app and run this line. Updates keep the ID.</p>
+<p class="small reg">Switching to another Google client also needs <span class="clip" data-quote>OPENBOTS_REPLACE_GOOGLE_CLIENT_ID=1</span>: docs/guides/google-setup.md</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-9" class="card " data-file="09-first-run" aria-label="Card 9 of 18"><div class="strip-top"><span>9 of 18</span><span>Install</span></div><div class="rule"></div><div class="body"><h2 class="headline">Two sign-ins, then hello</h2>
 <p class="place">In OpenBots Next</p>
-<div class="pair gap-sm"><div class="clips"><span class="clip" data-quote>Settings → General &amp; Claude Code → Check Claude</span></div><p class="meaning s">The app looks at Claude Code on this Mac and at your plan.</p></div>
-<p class="text">The app opens Claude Code in Terminal. Sign in with your Pro or Max account, then check again.</p>
-<p class="small reg gap-sm">Your usual Claude login in Terminal is not reused or touched.</p>
-<p class="text">Press <span class="clip" data-quote>+ New</span> and say hello.</p>
-<p class="lead gap-lg">Everything beyond chat is <mark class="swipe">off until you turn it on for that bot.</mark></p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-8" class="card " data-file="08-google-in-the-app" aria-label="Card 8 of 16"><div class="strip-top"><span>8 of 16</span><span>Google</span></div><div class="rule"></div><div class="body"><p class="path">Only if you want Gmail, Google Calendar or Google Drive</p>
+<p class="gap-sm"><span class="clip" data-quote>Settings → General &amp; Claude Code</span></p>
+<ol class="steps first">
+<li><span class="clip" data-quote>Check for a new Claude version</span> <span class="clip" data-quote>Sign in for compatibility checks</span> <span class="say">First sign-in, with your Pro or Max account.</span></li>
+<li><span class="clip" data-quote>Check compatibility sign-in</span> <span class="clip" data-quote>Retry compatibility checks</span> <span class="say">Up to six short test requests. Needs Node.</span></li>
+<li><span class="clip" data-quote>Sign in with Claude</span> <span class="clip" data-quote>Check Claude</span> <span class="say">Second sign-in, for your bots.</span></li>
+<li>Press <span class="clip" data-quote>+ New</span> and say hello.</li></ol>
+<p class="small reg">Your own Terminal login is not touched.</p>
+<p class="lead">Everything beyond chat is <mark class="swipe">off until you turn it on for that bot.</mark></p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-10" class="card " data-file="10-google-in-the-app" aria-label="Card 10 of 18"><div class="strip-top"><span>10 of 18</span><span>Google</span></div><div class="rule"></div><div class="body"><p class="path">Only if you want Gmail, Google Calendar or Google Drive</p>
 <h2 class="headline">Connect Google in the app</h2>
 <div class="pair"><div class="clips"><span class="clip" data-quote>Settings → Connectors &amp; Skills</span><span class="clip" data-quote>Choose the Google sign-in file…</span><span class="clip" data-quote>Sign in to Google…</span></div><p class="meaning s">Pick the JSON file. Then sign in as the separate account, within five minutes. Turn Google on per bot, under Access.</p></div>
 <p class="small reg">Reading mail, drafts, Calendar, Drive: no card. Sending a mail: a card every time.</p>
 <p class="small reg"><b>Seven days:</b> Google ends the sign-in of an app in Testing. Then sign in again.</p>
-<p class="lead"><mark class="swipe">Pass your Client ID again at every update.</mark></p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-9" class="card " data-file="09-approval-cards" aria-label="Card 9 of 16"><div class="strip-top"><span>9 of 16</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">Approval cards</h2>
+<p class="lead"><mark class="swipe">Updates keep your Google setup.</mark></p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-11" class="card " data-file="11-approval-cards" aria-label="Card 11 of 18"><div class="strip-top"><span>11 of 18</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">Approval cards</h2>
 <div class="box"><p class="text"><b>The switch lets a bot read. The card asks before it acts.</b></p><p class="small reg">Control Chrome cards everything, reading included.</p></div>
 <div class="box plain"><p class="text">A card shows exactly what will be sent, run or clicked.</p><p class="small reg">Nothing guarantees a bot is not fooled: a mail or web page can try to steer it. Outside text is marked untrusted: less risk, not none.</p><p class="lead"><mark class="swipe">Read each card before you approve it.</mark></p></div>
-<p class="small reg">A bot cannot turn on its own connectors, hiring or Control this Mac.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-10" class="card " data-file="10-control-this-mac" aria-label="Card 10 of 16"><div class="strip-top"><span>10 of 16</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">Control this Mac</h2>
+<p class="small reg">A bot cannot turn on its own connectors, hiring or Control this Mac.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-12" class="card " data-file="12-control-this-mac" aria-label="Card 12 of 18"><div class="strip-top"><span>12 of 18</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">Control this Mac</h2>
 <div class="box bone"><h3>A trial</h3><p class="text">It lets a bot look at your screen, click and type. What it needs: docs/CONNECTORS.md</p></div>
 <p class="text">The first action of a reply waits on a card. On it, <span class="clip" data-quote>Allow for this turn</span> lets the rest of that reply go on without asking again.</p>
 <p class="lead">While any card is open, no screen action runs, so <mark class="swipe">a bot cannot press Approve for you.</mark></p>
-<p class="small reg">After 64 rounds in one reply, the bot asks on a card to keep going. Deny ends the reply and keeps what it wrote.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-11" class="card " data-file="11-macos-will-ask" aria-label="Card 11 of 16"><div class="strip-top"><span>11 of 16</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">macOS will ask</h2>
+<p class="small reg">After 64 rounds in one reply, the bot asks on a card to keep going. Deny ends the reply and keeps what it wrote.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-13" class="card " data-file="13-macos-will-ask" aria-label="Card 13 of 18"><div class="strip-top"><span>13 of 18</span><span>Using it safely</span></div><div class="rule"></div><div class="body"><h2 class="headline">macOS will ask</h2>
 <div class="pair"><div class="clips"><span class="clip" data-quote>System Settings → Privacy &amp; Security</span></div><p class="meaning s">Asked only when a feature first needs it: Automation for Mail, Messages, Contacts, Notes and Chrome; Calendars for Calendar; Contacts for names in the Messages chat picker; Accessibility and Screen Recording for Control this Mac.</p></div>
 <p class="text"><b>Full Disk Access</b>, for your Messages history, is never asked. Add OpenBots Next yourself, then quit and reopen it.</p>
 <p class="lead"><mark class="swipe">You can refuse or withdraw any of them.</mark></p>
-<p class="small reg">After a rebuild, macOS may ask again. If it asks whether the Google helper may use your Keychain, allow it.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-12" class="card " data-file="12-in-terminal" aria-label="Card 12 of 16"><div class="strip-top"><span>12 of 16</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">In Terminal</h2>
-<div class="rows"><div><span class="clip" data-quote>This installer is for macOS.</span><br><span class="clip" data-quote>This build targets Apple Silicon (arm64).</span><p class="fix">It needs a Mac with Apple Silicon.</p></div>
-<div><span class="clip" data-quote>This build needs full Xcode 16.3+ (Swift 6.1 toolchain) at /Applications/Xcode.app.</span><p class="fix">Get Xcode, open it once, run the line again.</p></div>
-<div><span class="clip" data-quote>The build failed. Nothing was installed.</span><p class="fix">Check Xcode, then <mark class="underline"><b>run the line again.</b></mark></p><p class="note"><span class="tag">Claude&#39;s note</span>The installer checks only that Xcode is there, not its version or its first open.</p></div>
-<div><span class="clip" data-quote>OPENBOTS_GOOGLE_OAUTH_CLIENT_ID must look like 1234-abc.apps.googleusercontent.com (the Client ID, not the secret).</span><p class="fix">Put in the Client ID, not the secret.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-13" class="card " data-file="13-in-the-app" aria-label="Card 13 of 16"><div class="strip-top"><span>13 of 16</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">In the app</h2>
+<p class="small reg">If your Mac asks whether the Google helper may use your Keychain, allow it.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-14" class="card " data-file="14-in-terminal" aria-label="Card 14 of 18"><div class="strip-top"><span>14 of 18</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">In Terminal</h2>
+<div class="rows"><div><span class="clip" data-quote>Install full Xcode 16.3 or later in /Applications and open it once first.</span><p class="fix">Get Xcode, open it once, then <mark class="underline"><b>run the line again.</b></mark></p></div>
+<div><span class="clip" data-quote>Set up an Apple Development certificate in Xcode: Settings, Accounts, Manage Certificates.</span><p class="fix">Make it (card 3), then run the line again.</p></div>
+<div><span class="clip" data-quote>Quit OpenBots Next normally before installing.</span><p class="fix">Quit the app, then run the line again.</p></div>
+<div><span class="clip" data-quote>The source build failed. The installed app is unchanged.</span><p class="fix">The log is in <span class="clip" data-quote>~/<wbr>Library/<wbr>Logs/<wbr>OpenBots Next</span></p></div>
+<div><span class="clip" data-quote>The Google client ID is malformed. Use the public Desktop client ID, never a secret.</span><p class="fix">Put in the Client ID, not the secret.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-15" class="card " data-file="15-in-the-app" aria-label="Card 15 of 18"><div class="strip-top"><span>15 of 18</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">In the app</h2>
 <div class="rows"><div><p class="sit">It could not confirm your subscription</p><p class="fix">Only a claude.ai Pro or Max login counts.</p></div>
-<div><span class="clip" data-quote>not the official one</span><p class="fix">Install Claude Code with Anthropic's line (card 3).</p></div>
-<div><span class="clip" data-quote>needs setup</span><br><span class="clip" data-quote>This build needs a new Google Desktop OAuth client before the account can be connected.</span><p class="fix">Built without a Client ID: use the Google line.</p></div>
+<div><span class="clip" data-quote>not the official one</span><p class="fix">Install Claude Code with Anthropic's line (card 4).</p></div>
+<div><span class="clip" data-quote>needs setup</span><br><span class="clip" data-quote>This build needs a new Google Desktop OAuth client before the account can be connected.</span><p class="fix">Built without a Client ID: see card 8.</p></div>
 <div><p class="sit">A connector says something is missing</p><p class="fix">Its row in Settings → Connectors &amp; Skills says what, and how to fix it.</p></div>
-<div><p class="sit">Replies start failing</p><p class="fix">A Claude Code update is the likely reason. Settings says when one is installed.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-14" class="card " data-file="14-at-google" aria-label="Card 14 of 16"><div class="strip-top"><span>14 of 16</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">At Google</h2>
-<div class="rows"><div><span class="clip" data-quote>That file describes a Web OAuth client</span><p class="fix">Create a Desktop app client (card 5).</p></div>
-<div><span class="clip" data-quote>…belongs to a different Google OAuth client</span><p class="fix">Pick the right file, or rebuild with its ID.</p></div>
+<div><p class="sit">Settings reports on Claude Code</p><p class="fix">Follow it. A new version must pass the app&#39;s checks before it is used.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-16" class="card " data-file="16-at-google" aria-label="Card 16 of 18"><div class="strip-top"><span>16 of 18</span><span>If something goes wrong</span></div><div class="rule"></div><div class="body"><h2 class="headline">At Google</h2>
+<div class="rows"><div><span class="clip" data-quote>That file describes a Web OAuth client</span><p class="fix">Create a Desktop app client (card 6).</p></div>
+<div><span class="clip" data-quote>…belongs to a different Google OAuth client</span><p class="fix">Pick the right file, or rebuild with its ID (card 8).</p></div>
 <div><span class="clip" data-quote>Google sign-in timed out. Nothing was connected.</span><p class="fix">Start again; finish within five minutes.</p></div>
 <div><span class="clip" data-quote>is switched off</span><p class="fix">Enable it in APIs &amp; Services → Library.</p></div>
 <div><p class="sit">Access denied at Google</p><p class="fix">Add the account as a test user.</p></div>
-<div><p class="sit">Worked for a week, then stopped</p><p class="fix">The Testing sign-in expired. Sign in again.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-15" class="card sun" data-file="15-what-stays-on-your-mac" aria-label="Card 15 of 16"><div class="strip-top"><span>15 of 16</span><span>Your data</span></div><div class="rule"></div><div class="body"><h2 class="headline">What stays on your Mac</h2>
+<div><p class="sit">Worked for a week, then stopped</p><p class="fix">The Testing sign-in expired. Sign in again.</p></div></div></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-17" class="card sun" data-file="17-what-stays-on-your-mac" aria-label="Card 17 of 18"><div class="strip-top"><span>17 of 18</span><span>Your data</span></div><div class="rule"></div><div class="body"><h2 class="headline">What stays on your Mac</h2>
 <div class="rows"><div><span class="clip" data-quote>~/<wbr>OpenBots Next Preview Content</span><p class="fix">Your bots' files, in your home folder.</p></div><div><span class="clip" data-quote>~/<wbr>Library/<wbr>Application Support/<wbr>com.<wbr>lorenzocolombani.<wbr>openbotsnext.<wbr>preview</span><p class="fix">The app's records and its own Claude sign-in.</p></div></div>
 <p class="small reg">Google keys: your Mac's Keychain, not iCloud. PRIVACY.md is a draft, not yet reviewed by a lawyer.</p>
 <p class="big">What leaves your Mac is what you switch on.</p>
-<p class="small reg">Nothing is sent to the developer. The app quits with its last window; nothing runs in the background.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
-<section id="card-16" class="card " data-file="16-updating" aria-label="Card 16 of 16"><div class="strip-top"><span>16 of 16<span class="stamp">the end</span></span><span>Later</span></div><div class="rule"></div><div class="body"><h2 class="headline">Updating</h2>
-<p class="big"><mark class="swipe">Run the same line again. Your data is kept.</mark></p>
-<p class="small reg">It replaces the older copy in Applications.</p>
-<p class="small">Later:</p>
-<ul class="later gap-sm"><li>Google: pass your Client ID at every update.</li><li>Google: sign in again every seven days.</li><li>After a rebuild, macOS may ask again.</li></ul>
-<p class="text">To remove it, follow docs/INSTALL.md. Copy out your bots' files first.</p>
-<p class="small reg">One line built it on your own Mac. Read each card before you approve it.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1 docs</p><p>Full docs: README and docs/INSTALL.md · 968e6ce</p></div></section>
+<p class="small reg">Update checks go to GitHub. Nothing goes to the developer. Bots stop when the app closes.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
+<section id="card-18" class="card " data-file="18-updating" aria-label="Card 18 of 18"><div class="strip-top"><span>18 of 18<span class="stamp">the end</span></span><span>Later</span></div><div class="rule"></div><div class="body"><h2 class="headline">Updating</h2>
+<p class="lead"><mark class="swipe">Press <span class="clip" data-quote>Update now</span> in the app. Your data is kept.</mark></p>
+<p class="text">It checks the signed release, builds it on your Mac, and installs when you quit. It keeps one previous copy.</p>
+<p class="small reg">On 1.0.2 or older: run the one line once (card 7). Going back to before 1.1 is not supported.</p>
+<ul class="later"><li>Keep Xcode and your certificate.</li><li>Google: sign in again every seven days.</li></ul>
+<p class="small reg">To remove it, follow <span class="clip" data-quote>Remove completely</span> in docs/INSTALL.md: the app, its data, the previous copy and the build log. Copy out your bots' files first.</p>
+<p class="small reg">Read each card before you approve it.</p></div><div class="rule b"></div><div class="strip-bottom"><p>Prepared by an AI (Claude) from the OpenBots v1.1 docs</p><p>Full docs: README and docs/INSTALL.md</p></div></section>
 </main>
 <script>
 (function(){
@@ -326,15 +353,15 @@ html.page .card .body{flex:1 0 auto}
     if (b && c) b.addEventListener('click', function(){ copyText(c.textContent, b, c); });
   });
   var SAMPLE = '1234-abcd.apps.googleusercontent.com';
-  var RULE = /^[A-Za-z0-9-]+\.apps\.googleusercontent\.com$/;
-  var MSG = 'OPENBOTS_GOOGLE_OAUTH_CLIENT_ID must look like 1234-abc.apps.googleusercontent.com (the Client ID, not the secret).';
+  var RULE = /^[A-Za-z0-9.-]+\.apps\.googleusercontent\.com$/;
+  var MSG = 'The Google client ID is malformed. Use the public Desktop client ID, never a secret.';
   var inp = document.getElementById('cid'), err = document.getElementById('cid-err'), out = document.getElementById('cid-out'), code = document.getElementById('cid-code');
   var src = document.querySelector('[data-google] code').textContent;
   function check(show){
     var v = inp.value.replace(/\s+/g, '');
     if (!v) { err.hidden = true; out.hidden = true; return; }
     if (v === SAMPLE) { out.hidden = true; if (show) { err.textContent = 'That is the sample from the guide. Paste your own Client ID.'; err.hidden = false; } return; }
-    if (RULE.test(v)) { err.hidden = true; code.textContent = src.replace(SAMPLE, v); out.hidden = false; return; }
+    if (RULE.test(v) && v.length <= 512) { err.hidden = true; code.textContent = src.replace(SAMPLE, v); out.hidden = false; return; }
     out.hidden = true; if (show) { err.textContent = MSG; err.hidden = false; }
   }
   inp.addEventListener('input', function(){ check(false); });

@@ -172,6 +172,7 @@ struct ClaudeTextHireTurnTests {
         #expect(note.parts.map(\.content) == [.status("Kite hired @Scout (\"\(stripped)\").")])
     }
 
+
     /// Every bot reads the team's shared
     /// folder and its skills. A newcomer is sealed, but not blind, and the
     /// hirer must not be told it has nothing but its own folder.

@@ -3,9 +3,10 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsRuntime
 
-// The hire carrier's real wire, replayed through the parser and the host's
-// answers. Each fixture is one recorded probe run of Claude Code 2.1.272 with the
-// app's flags and the app's own MCP server, `openbots`, answered by the probe host:
+
+// The hire carrier's protocol, replayed through the parser and the host's
+// answers. Synthetic fixtures follow Claude Code 2.1.272 with the
+// app's flags and the app's own MCP server, `openbots`:
 //   a2-ask        work + hire, no allow rule: a question first, then the call
 //   a3-allow      work + hire, the exact allow rule: the call with no question
 //   a5-faults     work + hire: a timeout, an error, an empty answer, then a hire
@@ -302,7 +303,7 @@ func cli2_1_272FaultsReplay(run: String, calls: Int) throws {
     }
 }
 
-/// Fixture a4-helper: the probe's helper definition listed the hire tool (the
+/// Probe run a4: the probe's helper definition listed the hire tool (the
 /// app's never does), so a helper could call it. The call arrives parented
 /// under the Agent call, and that is how the stream knows it is not the bot's
 /// own: the service refuses such a call without making anyone.
@@ -325,7 +326,7 @@ func cli2_1_272HelperHireCallIsNotTheBotsOwn() throws {
 }
 
 /// The launch a bot with Gmail, Messages or Control this Mac and the hire switch
-/// gets, captured live: the connector's server from the configuration file and
+/// gets: the connector's server from the configuration file and
 /// the app's hire server over the channel, in one init frame.
 @Test("Claude Code 2.1.272: a connector beside the hire server replays whole; the connector's call asks first, the hire call goes straight to the host")
 func cli2_1_272HireBesideAConnectorReplays() throws {

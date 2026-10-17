@@ -3,6 +3,102 @@ import Foundation
 import Testing
 @testable import OpenBotsRuntime
 
+@Test("A synthetic auth failure ends the transport with only a static provider diagnostic")
+func claudeTextProcessAuthenticationFailure() async throws {
+    let template = try textOnlyTestRequest()
+    let output = try textOnlyTestInit(template) + textOnlyTestReplay(template)
+        + textOnlyTestLine(textOnlyTestAuthenticationFailureFrame(template))
+    let fixture = try ClaudeConnectionFixture(body: """
+    IFS= read -r line
+    if IFS= read -r extra; then exit 31; fi
+    \(try textProcessEmit(output))
+    exit 0
+    """)
+    defer { fixture.remove() }
+    let request = try textOnlyTestRequest(target: fixture.target, runID: UUID())
+    let events = TextProcessEvents()
+    let result = await NativeClaudeTextOnlyRunner(testTimeout: 30).run(request: request) { await events.append($0) }
+    #expect(result == .failed(.authenticationRequired))
+    #expect(await events.snapshot() == [.inputSubmitted(messageID: request.messageID),
+        .initialized(sessionID: request.sessionID, actualModel: "claude-sonnet-5"),
+        .inputAcknowledged(messageID: request.messageID), .diagnostic(.providerFailure)])
+}
+
+@Test("Transport receipts are emitted only for delivered success after cleanup, never failed or cancelled results",
+      arguments: ["success", "provider-failure", "nonzero-exit", "incomplete", "cleanup-failure", "cancel-after-result"])
+func claudeTextProcessCompletionReceipt(outcome: String) async throws {
+    let template = try textOnlyTestRequest()
+    var output = try textOnlyTestInit(template) + textOnlyTestReplay(template)
+    if outcome != "incomplete" {
+        output += try textOnlyTestResult(template, override: ["num_turns": 1, "is_error": outcome == "provider-failure"])
+    }
+    let corruptPrompt = outcome == "cleanup-failure" ? """
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --system-prompt-file ]; then shift; printf 'changed' > "$1"; break; fi
+      shift
+    done
+    """ : ""
+    let fixture = try ClaudeConnectionFixture(body: """
+    IFS= read -r line
+    if IFS= read -r extra; then exit 31; fi
+    \(corruptPrompt)
+    \(try textProcessEmit(output))
+    exit \(outcome == "nonzero-exit" ? 1 : 0)
+    """)
+    defer { fixture.remove() }
+    let request = try textOnlyTestRequest(target: fixture.target, runID: UUID())
+    let seen = TextProcessCompletionReceipts(runID: request.runID)
+    let token = ClaudeTextOnlyCompletionLog.observe { seen.record($0) }
+    defer { ClaudeTextOnlyCompletionLog.removeObserver(token) }
+    let gate = TextProcessDeliveryGate()
+    let operation = Task {
+        await NativeClaudeTextOnlyRunner(testTimeout: 30, processLifecycleObserver: { _ in seen.childFinished() })
+            .run(request: request) { event in
+                if outcome == "cancel-after-result", case .textSnapshot = event { await gate.hold() }
+            }
+    }
+    if outcome == "cancel-after-result" {
+        var ready = false
+        for _ in 0..<500 {
+            if seen.hasFinished, await gate.hasEntered { ready = true; break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(ready, "the child must finish while its successful result still waits for delivery")
+        #expect(seen.receipts.isEmpty)
+        operation.cancel()
+        await gate.release()
+    }
+    let result = await operation.value
+    if outcome == "success" {
+        guard case .success = result else { Issue.record("expected success: \(result)"); return }
+        let receipt = try #require(seen.receipts.first)
+        #expect(seen.receipts.count == 1)
+        #expect(receipt.runID == request.runID && receipt.stdoutBytes == output.count)
+        #expect(receipt.resultTurns == 1 && receipt.toolCalls == 0 && receipt.toolResults == 0)
+    } else {
+        #expect(seen.receipts.isEmpty)
+        if outcome == "cancel-after-result" { #expect(result == .cancelled) }
+        else if outcome == "provider-failure" { #expect(result == .failed(.providerFailed)) }
+        else if outcome == "incomplete" { #expect(result == .failed(.invalidStream)) }
+        else { #expect(result == .failed(.processFailed)) }
+    }
+}
+
+private final class TextProcessCompletionReceipts: @unchecked Sendable {
+    private let lock = NSLock()
+    private let runID: UUID
+    private var values: [ClaudeTextOnlyCompletionReceipt] = []
+    private var finished = false
+    init(runID: UUID) { self.runID = runID }
+    func record(_ receipt: ClaudeTextOnlyCompletionReceipt) {
+        guard receipt.runID == runID else { return }
+        lock.withLock { values.append(receipt) }
+    }
+    func childFinished() { lock.withLock { finished = true } }
+    var hasFinished: Bool { lock.withLock { finished } }
+    var receipts: [ClaudeTextOnlyCompletionReceipt] { lock.withLock { values } }
+}
+
 @Test("Synthetic text child receives one JSON input, EOF and the exact per-run context environment; callbacks drain before success",
       arguments: ["default", "standard"])
 func claudeTextProcessRoundTrip(contextWindow: String) async throws {
@@ -82,6 +178,7 @@ func claudeTextProcessPreservesPartialOnError() async throws {
     #expect(observed.filter { if case .diagnostic = $0 { return true }; return false }.count == 1)
 }
 
+
 // A window of
 // sixty-four rounds can use most of the ceiling from launch; the renewal card
 // waits ten minutes, and the turn must not end as "did not finish in time"
@@ -103,6 +200,7 @@ func renewalCardOutlivesTheLaunchCeiling() async throws {
     #expect(result == .success(.init(sessionID: request.sessionID, actualModel: "claude-sonnet-5",
         text: "Working. Done.", confirmedActualModel: "claude-sonnet-5")))
 }
+
 
 // The fallback frame ends the turn at that frame; the child
 // is stopped, and neither its exit nor the stop reads as a fault.
@@ -168,12 +266,12 @@ func claudeTextProcessStaticInitializationDiagnostic() async throws {
     #expect(observed == [.inputSubmitted(messageID: template.messageID), .diagnostic(.initializationKeySourceInvalid)])
 }
 
-@Test("A mismatched model initialization fails with truthful already-submitted input evidence")
-func claudeTextProcessRejectsUnexpectedModelAfterInput() async throws {
+@Test("A malformed model initialization fails with truthful already-submitted input evidence")
+func claudeTextProcessRejectsMalformedModelAfterInput() async throws {
     let template = try textOnlyTestRequest(model: "claude-sonnet-5")
     let fixture = try ClaudeConnectionFixture(body: """
     IFS= read -r line
-    \(try textProcessEmit(textOnlyTestInit(template, override: ["model": "claude-opus-5"])))
+    \(try textProcessEmit(textOnlyTestInit(template, override: ["model": "not-a-model"])))
     """)
     defer { fixture.remove() }
     let events = TextProcessEvents()
@@ -304,7 +402,8 @@ func claudeTextProcessCancellation() async throws {
     #expect(!FileManager.default.fileExists(atPath: ClaudeTextOnlyCommandBuilder.systemPromptFileURL(for: request).path))
 }
 
-/// Seen on Claude Code 2.1.280 (fixture `run-code-probe`): the CLI
+
+/// Seen on Claude Code 2.1.280: the CLI
 /// runs every Bash command in a shell that leads a process group of its own,
 /// so killing the CLI's group left a running script alive. The synthetic CLI
 /// here makes the same shape with job control: a shell in a new group, a
@@ -608,10 +707,9 @@ func claudeTextProcessRepublishesTextWhileTheChildIsBusy() async throws {
     #expect(await quiet.snapshot().filter { $0 == .textSnapshot("Hello") }.count == 2)
 }
 
-// An Opus 5 work turn ended "deadlineExceeded" 900.4 s after it began, and
-// about 302 s of that was the user reading approval cards. The ceiling is for
-// the model's own work; time a card waits for the user is given back to it, up to a cap, so a turn still cannot live
-// forever. Here the ceiling is four seconds.
+// The deadline limits the model's own work. Time waiting for approval is
+// credited back when the user answers, up to a cap so a turn cannot live
+// forever. This test uses a four-second ceiling.
 
 /// A work child that asks one question after `before` seconds and, once
 /// answered, works `after` more; `after` nil means it then writes forever.

@@ -6,6 +6,7 @@ import OpenBotsServices
 @testable import OpenBotsUI
 import Testing
 
+
 /// Throwaway workers, on screen: a reply's worker
 /// keeps its bot's face working after the reply, shows in Details and never
 /// as a sidebar seat, holds Archive and Delete off while it runs, and its end
@@ -35,6 +36,9 @@ struct WorkerWorkspaceTests {
 
         // The worker is running: the reply has ended, the face still works.
         try await eventually { setup.workers.running == 1 }
+        try await eventually { !model.conversation.hasPendingSubmissions }
+        #expect(model.applicationUpdateBlocker != nil,
+                "A background worker must hold the update after its parent reply has finished.")
         try await eventually { model.sidebar.rows.first { $0.id == setup.kite.rawValue }?.activity == .thinkingOrWorking }
         #expect(model.sidebar.workingAvatarByConversation[setup.kiteChat.rawValue]?.teammateID == setup.kite.rawValue)
         #expect(model.conversation.backgroundWorkerLines == ["Background worker running: \"\(WorkerWorkspaceRunner.brief)\""])
@@ -59,6 +63,7 @@ struct WorkerWorkspaceTests {
         // The note the app wrote for the wake is the work channel, never a transcript row.
         #expect(!model.conversation.messages.contains { $0.body.contains("[From OpenBots]") })
         #expect(model.sidebar.rows.map(\.id) == rowsBefore)
+        try await eventually { model.applicationUpdateBlocker == nil }
     }
 
     @Test("A quit while a worker runs stops it and leaves one line in the bot's chat, read back as the app's note after a relaunch")
@@ -100,13 +105,17 @@ extension WorkerWorkspaceTests {
         try await eventually { setup.workers.running == 1 }
         setup.workers.release()
         try await eventually { setup.runner.wakesBegun == 1 }
+        #expect(model.applicationUpdateBlocker != nil,
+                "Finishing the worker does not release the update while its wake reply is running.")
         model.conversation.composerText = "Thanks, and one more thing."
         model.conversation.sendCurrentText()
         try await eventually { model.conversation.messages.contains { $0.body == WorkerWorkspaceRunner.wakeReply } }
         #expect(setup.runner.wakesBegun == 2, "the stopped wake is delivered again once the chat is free")
         // The answer is drawn as it saves; the line goes when the wake has ended.
         try await eventually { model.conversation.backgroundWorkerLines.isEmpty }
+        try await eventually { model.applicationUpdateBlocker == nil }
     }
+
 
     /// Stop ends the chain, and that holds for a wake: only a Stop the user
     /// pressed drops the result.
@@ -129,6 +138,7 @@ extension WorkerWorkspaceTests {
         #expect(setup.runner.wakesBegun == 1)
         #expect(model.conversation.backgroundWorkerLines.isEmpty)
     }
+
 
     // A running worker must be stoppable without a quit, and its stopped end
     // must not wake the bot into speaking unasked.
@@ -176,6 +186,7 @@ extension WorkerWorkspaceTests {
         #expect(setup.runner.wakeTexts.isEmpty, "the user's Stop is not undone by the worker's end")
         #expect(model.conversation.backgroundWorkerLines.isEmpty)
     }
+
 
     /// A quit during the wake must not write "quit before it could answer"
     /// beside the wake's own saved outcome.

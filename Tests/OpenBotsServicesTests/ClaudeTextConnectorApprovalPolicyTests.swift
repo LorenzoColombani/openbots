@@ -77,7 +77,7 @@ struct ClaudeTextConnectorApprovalPolicyTests {
         #expect(script.kind == .productionChange)
 
         let upload = try card(ClaudeTextBrowserApprovalPolicy.decide(
-            try question("upload_file", ["filePath": "/Users/x/passport.pdf"]), botName: "Zed"))
+            try question("upload_file", ["filePath": "/Users/fixture/passport.pdf"]), botName: "Zed"))
         #expect(upload.kind == .publish)
         #expect(upload.detail.contains("leaves the Mac"))
 
@@ -173,7 +173,7 @@ struct ConnectorApprovalRoutingTests {
             entryPointURL: URL(fileURLWithPath: "/private/tmp/cache.noindex/chrome-devtools-mcp.js"),
             options: [.headless], environment: [:])
         let mail = try ClaudeTextConnectorServer(name: mailServer, role: .appleMailRead,
-            program: .installedTool(URL(fileURLWithPath: "/Users/somebody/.local/bin/apple-mail-fast-mcp")),
+            program: .installedTool(URL(fileURLWithPath: "/Users/fixture/.local/bin/apple-mail-fast-mcp")),
             options: [.readOnly], environment: [:])
         let access = try ClaudeTextConnectorAccess(servers: [browser, mail])
         #expect(access.role(forToolNamed: "mcp__\(browserServer)__new_page") == .browser)
@@ -188,9 +188,9 @@ struct ConnectorApprovalRoutingTests {
 @Suite("What the record says while a card is still waiting")
 struct ConnectorCardActivityContractTests {
     /// The app writes a card's activity line the moment the card goes up, so a
-    /// card that phrases the deed puts a lie in the record of anything the
-    /// user refuses. This is the invariant that catches it for every connector,
-    /// including any added later.
+    /// card that phrases the deed puts a lie in the record of anything the user
+    /// refuses. This is the invariant that catches it for every connector,
+    /// including whatever a later slice adds.
     @Test("Every card a connector raises says what was asked, never what was done")
     func askedCardsNeverClaimTheDeed() throws {
         let browserTools = ["navigate_page", "new_page", "click", "hover", "fill", "type_text",
@@ -241,8 +241,7 @@ struct ConnectorCardActivityContractTests {
 /// A connector read let through quietly is written in its own words, and when
 /// it fails the record says that read did not happen, in the same words. A
 /// quiet line whose verb the record could not turn fell back to the tool's
-/// name: a live Drive read once recorded "Failed to use
-/// search google drive". Every quiet read of every role is swept here, so a
+/// name, such as "Failed to use search google drive". Every quiet read of every role is swept here, so a
 /// line added later with a new verb fails this test instead of the record.
 @Suite("A failed quiet connector read is said in its own words")
 struct ConnectorFailureLineTests {

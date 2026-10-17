@@ -1,27 +1,10 @@
 import Foundation
 import OpenBotsDomain
 
-/// Gives a row this app can actually drive the name a person would look for.
-///
-/// A connector Claude Code configured has no words of its own, so the pane has
-/// always shown the server's key — `chrome-devtools` — with "Configured in
-/// Claude Code" underneath. That is the browser, and a person who opened the
-/// app looking for browsing did not find it: what they read first
-/// was `browser-use`, which this build cannot drive at all, and the row beneath
-/// it named a developer tool rather than a browser.
-///
-/// **A row is matched by what it would LAUNCH, never by what it is called.**
-/// The first version of this keyed on the server's name, and any plugin from
-/// anywhere naming a server `chrome-devtools` would have inherited the title
-/// "Browser" and a summary that makes promises about the browser this app
-/// drives — its own profile, thrown away at the end of the turn. The matcher
-/// below is the same resolution the launch itself does, so the two cannot
-/// drift: if it is not the package the browser preparation will run, it is not
-/// called Browser.
-///
-/// Only a row that has no title of its own is renamed. An app-owned row already
-/// says what it is, and a row nothing here knows keeps reading exactly as it
-/// always has — the server's key, and where it came from underneath.
+/// Give supported connectors discoverable names based on their launch identity. An arbitrary
+/// plugin named `chrome-devtools` must not inherit Browser's title or isolated-profile
+/// promises. Use browser preparation's resolution so naming and execution agree. Rename only
+/// entries without their own title; retain app-owned and unknown entries' names.
 public struct ConnectorCatalogNaming: ConnectorCatalogReading {
     /// What a known row is called, and what it says about itself, with the test
     /// that decides whether a row is that one.

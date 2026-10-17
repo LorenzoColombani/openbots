@@ -59,12 +59,9 @@ extension SQLiteStore: ReadContextRepository {
             if !request.searchTerms.isEmpty {
                 let match = request.searchTerms.map { "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
                     .joined(separator: " OR ")
-                // The same authorship as the recent window: a row admission can
-                // never accept (a new bot's opening question, another member's
-                // reply, a brief) is not a candidate, so it is not counted as
-                // left out either. Otherwise "tell me" in the user's first
-                // answer matches the opening question and the reply says some
-                // earlier messages were not included.
+                // Use the recent window's authorship rules. A bot's opening question, another
+                // member's reply or a brief cannot be admitted, so it must not be counted as
+                // omitted context either.
                 olderRows = try query(sql: """
                     SELECT m.id,m.sequence FROM conversation_message_search
                     JOIN messages m ON m.rowid=conversation_message_search.rowid AND m.id=conversation_message_search.message_id
@@ -305,6 +302,7 @@ extension SQLiteStore {
         var currentMemory: [MemoryDocumentID: ReadContextMemoryReference?] = [:]
     }
 
+
     /// What a turn's frozen receipt rests on, proved once and stored. It never says whether the turn itself may be quoted:
     /// that changes after the fact, as when a correction names an interrupted
     /// turn, so it is read at the time of use, like memory heads.
@@ -316,12 +314,10 @@ extension SQLiteStore {
         static let unproven = ReadContextTurnProof(proven: false, memoryQualificationRequired: false, memory: [])
     }
 
-    /// A quoted turn may lend its messages when it is admitted and in scope
-    /// now, its stored proof says proven, and every memory reference under it
-    /// is still current. Proven once, a turn is never walked again: a read
-    /// costs what it quotes, however long the conversation (walking every
-    /// turn within a 1,024-turn ceiling instead would leave the newest turns
-    /// out past the ceiling).
+    /// A quoted turn lends its messages only when admitted, in scope, proven by its stored
+    /// record, and backed by current memory references. Reusing stored proof makes read cost
+    /// depend on the quoted turns rather than conversation length, without dropping newer turns
+    /// at a fixed scan ceiling.
     private func readContextHistoryIsEligible(_ runID: RunID, authority: ReadContextReceipt,
                                               validation: inout ReadContextHistoryValidation) throws -> Bool {
         if let known = validation.results[runID] { return known }
@@ -497,13 +493,12 @@ extension SQLiteStore {
             memory += quoted.memory
             qualification = qualification || quoted.memoryQualificationRequired
         }
-        // One reference per document. Two different ones for the same
-        // document can never both be current, so the turn can never be used.
-        // The list stays small without a cap: admission quotes only turns whose
-        // memory is current, so a turn stores no more than the memory heads of
-        // its bot and project at that moment. A corrected memory is a new
-        // document, and the turns resting on the old one stop being quotable,
-        // so revisions do not pile up.
+        // One reference per document. Two different ones for the same document can never both
+        // be current, so the turn can never be used. The list stays small without a cap:
+        // admission quotes only turns whose memory is current, so a turn stores no more than
+        // the memory heads of its bot and project at that moment. A corrected memory is a new
+        // document, and the turns resting on the old one stop being quotable, so revisions do
+        // not pile up.
         var unique: [ReadContextMemoryReference] = []
         for reference in memory {
             if let seen = unique.first(where: { $0.documentID == reference.documentID }) {
@@ -532,6 +527,7 @@ extension SQLiteStore {
                 .integer(reference.runRevision), .real(reference.runUpdatedAt.timeIntervalSince1970),
                 reference.selectedProjectID.map { .text($0.persistedValue) } ?? .null]).isEmpty
     }
+
 
     /// Which runs may lend their pair to history: every run that succeeded,
     /// and every run that ended interrupted, whether a correction stopped it

@@ -205,6 +205,7 @@ public enum HandoffEvent: Equatable, Sendable {
     }
 }
 
+
 /// One directed, process-independent handoff state machine. The handoff
 /// service uses it only to build a deterministic local review fixture; no
 /// persistence or runtime delivery is implied by constructing this value.

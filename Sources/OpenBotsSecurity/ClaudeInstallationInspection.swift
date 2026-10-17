@@ -4,6 +4,7 @@ import Foundation
 import MachO
 import MachO.dyld.utils
 import Security
+import OpenBotsDomain
 
 public enum ClaudeInstallationRejection: String, Equatable, Sendable {
     case unsupportedLocation
@@ -18,6 +19,8 @@ public enum ClaudeInstallationRejection: String, Equatable, Sendable {
     case changedDuringInspection
     case invalidSignature
     case unexpectedSigner
+    case unexpectedHardLinks
+    case retainedIdentityMismatch
 }
 
 public enum ClaudeInstallationUnavailableReason: Equatable, Sendable {
@@ -70,6 +73,7 @@ public struct ClaudeInstallationDetails: Equatable, Sendable {
     public var sha256: String?
     public var signature: ClaudeStaticSignatureIdentity?
     public var fileIdentity: ClaudeInstallationFileIdentity?
+    public var verifiedRetainedProvenance: VerifiedClaudeRetainedProvenance?
 
     public init(
         requestedPath: String,
@@ -77,7 +81,8 @@ public struct ClaudeInstallationDetails: Equatable, Sendable {
         versionFilename: String? = nil,
         sha256: String? = nil,
         signature: ClaudeStaticSignatureIdentity? = nil,
-        fileIdentity: ClaudeInstallationFileIdentity? = nil
+        fileIdentity: ClaudeInstallationFileIdentity? = nil,
+        verifiedRetainedProvenance: VerifiedClaudeRetainedProvenance? = nil
     ) {
         self.requestedPath = requestedPath
         self.resolvedPath = resolvedPath
@@ -85,6 +90,7 @@ public struct ClaudeInstallationDetails: Equatable, Sendable {
         self.sha256 = sha256
         self.signature = signature
         self.fileIdentity = fileIdentity
+        self.verifiedRetainedProvenance = verifiedRetainedProvenance
     }
 }
 
@@ -501,7 +507,7 @@ public struct ClaudeInstallationInspector: ClaudeInstallationInspecting {
         return nil
     }
 
-    private static func hashExecutable(_ descriptor: Int32, maximumBytes: Int64) throws -> String {
+    fileprivate static func hashExecutable(_ descriptor: Int32, maximumBytes: Int64) throws -> String {
         var header = [UInt8](repeating: 0, count: 4)
         let headerCount = header.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress, 4, 0) }
         guard headerCount == 4 else { throw InspectionFailure.rejected(.unsupportedExecutable) }
@@ -533,6 +539,124 @@ public struct ClaudeInstallationInspector: ClaudeInstallationInspecting {
     }
 }
 
+/// Only the retained inspector can create this observation. Older admission
+/// paths can accept the exact app-owned binary without accepting arbitrary paths.
+public struct VerifiedClaudeRetainedProvenance: Equatable, Sendable {
+    public let executableURL: URL
+    public let sha256: String
+    public let homeDirectory: URL
+    public let installationID: UUID
+    public let rootID: UUID
+
+    fileprivate init(executableURL: URL, sha256: String, homeDirectory: URL,
+                     installationID: UUID, rootID: UUID) {
+        self.executableURL = executableURL; self.sha256 = sha256; self.homeDirectory = homeDirectory
+        self.installationID = installationID; self.rootID = rootID
+    }
+
+    public func matches(executableURL: URL, sha256: String, homeDirectory: URL) -> Bool {
+        self.executableURL.path == executableURL.path && self.sha256 == sha256
+            && executableURL.isFileURL && homeDirectory.isFileURL && self.homeDirectory.path == homeDirectory.path
+    }
+}
+
+/// Reads only the exact retained location and the root's nonsecret ownership
+/// marker. It shares the descriptor-bound SHA and CodeDirectory signer checks.
+public struct RetainedClaudeInstallationInspector: ClaudeInstallationInspecting {
+    private let rootURL: URL
+    private let installationID: UUID
+    private let rootID: UUID
+    private let artifact: ClaudeRuntimeArtifact
+    private let signatureChecker: any ClaudeStaticSignatureChecking
+
+    public init(applicationSupportRootURL: URL, installationID: UUID, rootID: UUID,
+                artifact: ClaudeRuntimeArtifact,
+                signatureChecker: any ClaudeStaticSignatureChecking = NativeClaudeStaticSignatureChecker()) {
+        rootURL = applicationSupportRootURL; self.installationID = installationID; self.rootID = rootID
+        self.artifact = artifact; self.signatureChecker = signatureChecker
+    }
+
+    public func inspectInstallation() async -> ClaudeInstallationInspection {
+        let executable = rootURL.appending(path: "HighChurn.noindex/Runtime/Claude/Retained/\(artifact.sha256)/claude")
+        var details = ClaudeInstallationDetails(requestedPath: executable.path)
+        do {
+            try Task.checkCancellation()
+            let home = rootURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            guard artifact.isWellFormed, rootURL.isFileURL, !rootURL.path.contains("\0"),
+                  !rootURL.pathComponents.contains(".."), rootURL.pathComponents.count <= 128,
+                  rootURL.path == home.appending(path: "Library/Application Support/com.lorenzocolombani.openbotsnext.preview").path else {
+                throw InspectionFailure.rejected(.unsupportedLocation)
+            }
+            let session = InspectionSession(expectedUserID: geteuid())
+            let root = try session.openHome(rootURL)
+            try session.requirePrivateDirectory(root)
+            let markerFD = try session.openExecutable(".openbots-root.json", beneath: root)
+            let marker = try session.metadata(".openbots-root.json", beneath: root)
+            guard marker.st_mode & S_IFMT == S_IFREG, marker.st_uid == geteuid(), marker.st_nlink == 1,
+                  marker.st_mode & 0o7777 == 0o600, marker.st_size > 0, marker.st_size <= 4_096 else {
+                throw InspectionFailure.rejected(.retainedIdentityMismatch)
+            }
+            var markerData = Data(count: Int(marker.st_size))
+            let readCount = markerData.withUnsafeMutableBytes { pread(markerFD, $0.baseAddress, $0.count, 0) }
+            guard readCount == markerData.count,
+                  let value = try JSONSerialization.jsonObject(with: markerData) as? [String: Any],
+                  value["formatVersion"] as? Int == 1,
+                  value["bundleIdentifier"] as? String == "com.lorenzocolombani.openbotsnext.preview",
+                  value["kind"] as? String == "applicationSupport",
+                  (value["installationID"] as? String).flatMap(UUID.init(uuidString:)) == installationID,
+                  (value["rootID"] as? String).flatMap(UUID.init(uuidString:)) == rootID else {
+                throw InspectionFailure.rejected(.retainedIdentityMismatch)
+            }
+            try session.requireUnchanged(markerFD, name: ".openbots-root.json", beneath: root, previous: marker)
+            var parent = root; var parentURL = rootURL
+            for name in ["HighChurn.noindex", "Runtime", "Claude", "Retained", artifact.sha256] {
+                parent = try session.openChild(name, beneath: parent, at: parentURL, identityOnly: true)
+                try session.requirePrivateDirectory(parent)
+                parentURL.append(path: name)
+            }
+            let fd = try session.openExecutable("claude", beneath: parent)
+            let before = try session.executableMetadata(fd, maximumBytes: ClaudeInstallationInspector.maximumExecutableBytes)
+            guard before.st_nlink == 1 else { throw InspectionFailure.rejected(.unexpectedHardLinks) }
+            guard before.st_mode & 0o7777 == 0o700 else { throw InspectionFailure.rejected(.unsafePermissions) }
+            details.resolvedPath = executable.path; details.versionFilename = artifact.version
+            details.fileIdentity = ClaudeInstallationFileIdentity(device: UInt64(before.st_dev), inode: UInt64(before.st_ino), byteCount: before.st_size)
+            details.sha256 = try ClaudeInstallationInspector.hashExecutable(fd, maximumBytes: ClaudeInstallationInspector.maximumExecutableBytes)
+            guard details.sha256 == artifact.sha256 else { throw InspectionFailure.rejected(.retainedIdentityMismatch) }
+            try session.revalidate()
+            try session.requireUnchanged(fd, name: "claude", beneath: parent, previous: before)
+            switch signatureChecker.checkSignature(at: executable, openedDescriptor: fd) {
+            case .verified(let signature):
+                guard signature.identifier == artifact.signatureIdentifier,
+                      signature.teamIdentifier == artifact.teamIdentifier,
+                      signature.codeDirectoryHash == artifact.codeDirectoryHash else {
+                    throw InspectionFailure.rejected(.unexpectedSigner)
+                }
+                details.signature = signature
+            case .rejected: throw InspectionFailure.rejected(.invalidSignature)
+            case .unavailable(let code): throw InspectionFailure.unavailable(.signatureCheck(code: code))
+            }
+            try Task.checkCancellation()
+            try session.requireUnchanged(markerFD, name: ".openbots-root.json", beneath: root, previous: marker)
+            try session.requireUnchanged(fd, name: "claude", beneath: parent, previous: before)
+            try session.revalidate()
+            details.verifiedRetainedProvenance = VerifiedClaudeRetainedProvenance(
+                executableURL: executable, sha256: artifact.sha256, homeDirectory: home,
+                installationID: installationID, rootID: rootID)
+            return ClaudeInstallationInspection(state: .verified, details: details)
+        } catch InspectionFailure.missing {
+            return ClaudeInstallationInspection(state: .missing, details: details)
+        } catch InspectionFailure.rejected(let issue) {
+            return ClaudeInstallationInspection(state: .rejected(issue), details: details)
+        } catch InspectionFailure.unavailable(let issue) {
+            return ClaudeInstallationInspection(state: .unavailable(issue), details: details)
+        } catch is CancellationError {
+            return ClaudeInstallationInspection(state: .unavailable(.cancelled), details: details)
+        } catch {
+            return ClaudeInstallationInspection(state: .unavailable(.fileSystem(code: EIO)), details: details)
+        }
+    }
+}
+
 private enum InspectionFailure: Error {
     case missing
     case rejected(ClaudeInstallationRejection)
@@ -545,6 +669,7 @@ private struct FileObservation: Equatable {
     let owner: uid_t
     let mode: mode_t
     let size: off_t
+    let linkCount: nlink_t
     let modificationSeconds: Int
     let modificationNanoseconds: Int
     let changeSeconds: Int
@@ -562,6 +687,7 @@ private struct FileObservation: Equatable {
         owner = value.st_uid
         mode = value.st_mode
         size = value.st_size
+        linkCount = value.st_nlink
         modificationSeconds = value.st_mtimespec.tv_sec
         modificationNanoseconds = value.st_mtimespec.tv_nsec
         changeSeconds = value.st_ctimespec.tv_sec
@@ -582,13 +708,10 @@ private final class InspectionSession {
     init(expectedUserID: uid_t) { self.expectedUserID = expectedUserID }
     deinit { for descriptor in descriptors { close(descriptor) } }
 
-    /// The home folder is checked again by identity only. Its size and times
-    /// move whenever anything writes a file into it, and Claude Code rewrites
-    /// `~/.claude.json` there: compared whole, a check straddling such a write
-    /// was occasionally refused as changed, and a send failed with "Claude
-    /// setup needs attention". Swapping
-    /// `.local` out and back still changes `.local`'s own change time, which is
-    /// compared whole.
+    /// Recheck the home folder by identity only: ordinary file writes, including Claude Code's
+    /// `~/.claude.json`, change its size and timestamps without changing the directory.
+    /// Continue comparing `.local` completely, since replacing that directory must invalidate
+    /// the inspection.
     func openHome(_ url: URL) throws -> Int32 {
         let descriptor = try openAbsoluteDirectory(url)
         descriptors.append(descriptor)
@@ -596,12 +719,18 @@ private final class InspectionSession {
         return descriptor
     }
 
-    func openChild(_ name: String, beneath parent: Int32, at parentURL: URL) throws -> Int32 {
+    func openChild(_ name: String, beneath parent: Int32, at parentURL: URL, identityOnly: Bool = false) throws -> Int32 {
         let descriptor = name.withCString { openat(parent, $0, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC) }
         guard descriptor >= 0 else { throw failureForErrno() }
         descriptors.append(descriptor)
-        try recordDirectory(descriptor, at: parentURL.appending(path: name))
+        try recordDirectory(descriptor, at: parentURL.appending(path: name), identityOnly: identityOnly)
         return descriptor
+    }
+
+    func requirePrivateDirectory(_ descriptor: Int32) throws {
+        let value = try inspect(descriptor)
+        guard value.st_mode & S_IFMT == S_IFDIR, value.st_uid == expectedUserID,
+              value.st_mode & 0o7777 == 0o700 else { throw InspectionFailure.rejected(.unsafePermissions) }
     }
 
     func metadata(_ name: String, beneath parent: Int32) throws -> stat {

@@ -339,7 +339,7 @@ private struct WebGrantFixture: Sendable {
             chromeTabs: chromeTabs)
     }
 
-    /// The tool-free command exactly as it first shipped, written
+    /// The tool-free command is written
     /// out here rather than derived, so a change to the builder cannot quietly
     /// redefine what "unchanged" means.
     func shippedArguments(_ request: ClaudeTextOnlyRequest) -> [String] {
@@ -347,7 +347,7 @@ private struct WebGrantFixture: Sendable {
          "--include-partial-messages", "--replay-user-messages", "--verbose", "--safe-mode", "--restricted",
          "--no-session-persistence", "--no-chrome", "--disable-slash-commands", "--strict-mcp-config",
          "--mcp-config", "{\"mcpServers\":{}}", "--settings",
-         "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,\"enabledPlugins\":{\"agents-md@builtin\":false},"
+         "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,\"enabledPlugins\":{\"agents-md@builtin\":false,\"cc-plugin-plugin-authoring@builtin\":false,\"telemetry@builtin\":false},"
             + "\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,"
             + "\"permissions\":{\"defaultMode\":\"dontAsk\",\"deny\":[\"*\"]}}",
          "--setting-sources", "", "--permission-mode", "dontAsk", "--tools", "", "--disallowedTools", "*",
@@ -398,6 +398,7 @@ private actor HeldWebGrantRunner: ClaudeTextOnlyRunning {
         return .cancelled
     }
 }
+
 
 /// Turning a web switch off blocks its pending and new operations. The
 /// sample-folder job path has always obeyed
@@ -473,6 +474,7 @@ struct ClaudeTextReplyWebGrantWithdrawalTests {
         #expect(await outcome == .stopped)
     }
 }
+
 
 /// A work turn's folders follow the rule the web switches set: a work turn is
 /// launched with exactly the folders granted at that moment (one `--add-dir`
@@ -625,8 +627,7 @@ struct ClaudeTextReplyWebGrantRaceTests {
 
 // MARK: - The CLI's own frames, through the real parser, into SQLite
 
-/// The frames the 2.1.263 CLI writes for a granted turn, as read from the
-/// binary: the model narrates, calls a
+/// The frames the 2.1.263 CLI writes for a granted turn: the model narrates, calls a
 /// tool, gets its result, answers, and the result frame's text is the last
 /// assistant message alone. Written here by hand, so the service is tested
 /// against what the transport delivers, not against a runner's shortcut.
@@ -999,7 +1000,7 @@ private actor ReadQuestionRunner: ClaudeTextOnlyRunning {
         await onEvent(.initialized(sessionID: request.sessionID, actualModel: request.expectedResolvedModel))
         await onEvent(.inputSubmitted(messageID: request.messageID))
         await onEvent(.inputAcknowledged(messageID: request.messageID))
-        let input = try! JSONSerialization.data(withJSONObject: ["file_path": "/Users/x/Documents/notes.md", "pattern": "notes"])
+        let input = try! JSONSerialization.data(withJSONObject: ["file_path": "/Users/fixture/Documents/notes.md", "pattern": "notes"])
         await onEvent(.toolUse(ClaudeTextToolUse(id: "toolu_01", toolName: toolName, inputJSON: input)))
         let asked = ClaudeTextPermissionRequest(requestID: "req_01", toolUseID: "toolu_01", toolName: toolName, inputJSON: input)
         control?.register(asked)
@@ -1297,6 +1298,7 @@ struct ClaudeTextReplyLateWithdrawalTests {
     }
 }
 
+
 // MARK: - Switches that survived a relaunch
 
 /// The web switches survive a relaunch. When they lived in memory alone,
@@ -1312,8 +1314,7 @@ struct ClaudeTextReplyWebGrantRelaunchTests {
         defer { f.remove() }
         weak var closed: SQLiteStore?
         do {
-            // The previous launch: the user turned both switches on for this bot,
-            // then quit.
+            // The previous launch: the user turned both switches on for this bot, then quit.
             let store = try f.open(); closed = store
             try await f.seed(store)
             let earlier = AgenticJobAccessStore()
@@ -1373,8 +1374,7 @@ struct ClaudeTextReplyWebGrantRelaunchTests {
         }
         try await relaunchWait { closed == nil }
         #expect(closed == nil)
-        // The next launch: the withdrawal the user made is what comes back; the
-        // bot's own grant is still there.
+        // The next launch: the withdrawal the user made is what comes back; the bot's own grant is still there.
         let third = try f.open()
         let access = AgenticJobAccessStore()
         await access.restore(from: third)
@@ -1432,6 +1432,7 @@ private actor BrowserGrantAccess: ClaudeTextReplyWebAccessResolving {
     func revoke() { granted = []; for observer in observers.values { observer.yield(()) } }
     private func forget(_ id: UUID) { observers[id] = nil }
 }
+
 
 /// A resolver that grants the app's Messages server with a list of chats, and
 /// can change the list while a turn runs.
@@ -1505,9 +1506,7 @@ private actor MessagesChatsAccess: ClaudeTextReplyWebAccessResolving {
     private func forget(_ id: UUID) { observers[id] = nil }
 }
 
-// Every private read closes the web for the session, not only the user's texts and
-// the user's Chrome.
-@Suite("After a bot reads anything private of the user's, every web search and fetch in that session asks the user")
+@Suite("After a bot reads anything private of the user's, every web search and fetch in that session asks them")
 struct PrivateReadThenWebTests {
     static let readers: Set<ClaudeTextConnectorRole> = [.appleMailRead, .appleContactsRead, .appleCalendarRead,
         .googleGmailReadDraft, .googleCalendarRead, .googleDriveRead, .appleNotes, .appleMessages, .chromeControl,
@@ -1581,8 +1580,6 @@ struct PrivateReadThenWebTests {
         #expect(lines.contains { $0.contains("read your contacts earlier") }, "\(lines)")
     }
 
-    // A correction starts a new session,
-    // and the words it continues from are still there.
     @Test("A correction to a reply that read the user's contacts keeps the fence: its fetch asks")
     func aCorrectionKeepsTheFence() async throws {
         let f = try WebGrantFixture()
@@ -1614,6 +1611,7 @@ struct PrivateReadThenWebTests {
         #expect(await runner.requests.last?.asksBeforeWeb == true)
     }
 
+
     // The card must not cut typing at 400 characters.
     @Test("After a private read, typing too long to show whole on the card is refused; shorter typing asks with every word")
     func longTypingAfterAReadIsRefused() {
@@ -1629,6 +1627,7 @@ struct PrivateReadThenWebTests {
         #expect(card.words == String(repeating: "a", count: 400))
         guard case .ask = decide(long, fenced: false) else { Issue.record("unfenced long typing still asks"); return }
     }
+
 
     // A saved reader this build cannot name must not fail open.
     @Test("A kept session whose saved reader is a role this build does not know stays fenced")
@@ -1661,8 +1660,6 @@ struct PrivateReadThenWebTests {
         #expect(await runner.requests.last?.asksBeforeWeb == true)
     }
 
-    // A look at the user's screen is a private read (and the card shows the
-    // screenshot as well).
     @Test("A Control this Mac call is a look when its result brings the user's screen back; acting on an app is not")
     func whatCountsAsALook() {
         func look(_ tool: String, _ input: [String: Any] = [:]) -> Bool {
@@ -1678,6 +1675,7 @@ struct PrivateReadThenWebTests {
             #expect(!look(tool), "\(tool)")
         }
     }
+
 
     // A chain's reads must not merge first-come: a look written first would
     // hide a Contacts read after it, and the next bot's Mac would keep its
@@ -1733,8 +1731,7 @@ struct PrivateReadThenWebTests {
             sessionTranscriptRemove: { _, _ in ClaudeSessionTranscriptRemoval(removedPaths: [], droppedHistoryLines: 0) })
         let progress = TextsThenWebProgress()
         let turn = Task { await service.sendText(f.submission()) { await progress.append($0) } }
-        // Opening an app brings nothing of the user's screen back: the fetch after
-        // it goes through.
+        // Opening an app brings nothing of the user's screen back: the fetch after it goes through.
         let launch = try #require(await progress.waitForApproval())
         #expect(await service.allowApprovalForTurn(id: launch.id))
         #expect(await runner.waitForAnswer("req-2")?.contains("\"behavior\":\"allow\"") == true)
@@ -1866,11 +1863,11 @@ struct MessagesChatsWhileATurnRunsTests {
         let store = try f.open()
         try await f.seed(store)
         let runner = HeldWebGrantRunner()
-        let access = MessagesChatsAccess(teammateID: f.teammateID, chats: ["any;-;+33612345678", "any;-;Carrier Info"])
+        let access = MessagesChatsAccess(teammateID: f.teammateID, chats: ["any;-;+33612345678", "any;-;Example Sender"])
         let service = f.service(store, runner: runner, access: access, target: try f.target())
         async let outcome = service.sendText(f.submission()) { _ in }.outcome
         await runner.waitUntilRunning()
-        await access.name(["any;-;Carrier Info"])
+        await access.name(["any;-;Example Sender"])
         #expect(await outcome == .stopped)
         #expect(await runner.wasCancelled)
     }
@@ -1886,7 +1883,7 @@ struct MessagesChatsWhileATurnRunsTests {
         let service = f.service(store, runner: runner, access: access, target: try f.target())
         async let outcome = service.sendText(f.submission()) { _ in }.outcome
         await runner.waitUntilRunning()
-        await access.name(["any;-;+33612345678", "any;-;Carrier Info"])
+        await access.name(["any;-;+33612345678", "any;-;Example Sender"])
         #expect(await outcome == .completed)
         #expect(await !runner.wasCancelled)
         #expect(await runner.requests.first?.connectorAccess?.servers.first?.chatScope
@@ -1970,6 +1967,8 @@ struct ClaudeTextConnectorTurnTests {
         #expect(!request.grantsConnectors)
     }
 }
+
+
 
 
 /// A Messages turn with the web: fetch, read the user's texts, fetch, search, each
@@ -2073,7 +2072,7 @@ private actor TextsThenWebProgress {
     }
 }
 
-@Suite("After a bot reads the user's texts, every web search and fetch in that reply asks the user")
+@Suite("After a bot reads the user's texts, every web search and fetch in that reply asks them")
 struct TextsThenWebTests {
     @Test("The CLI is not told to run web tools unasked on a turn that can read the user's texts; without Messages it is, as before")
     func webIsNotPreApprovedBesideMessages() async throws {
@@ -2178,6 +2177,7 @@ struct TextsThenWebTests {
     }
 }
 
+
 /// The user's Chrome, as the service asks about it: open or not, and the
 /// tabs it would name. A test may close it between the card and the answer.
 final class FixtureChrome: ChromeTabDirectory, @unchecked Sendable {
@@ -2211,7 +2211,7 @@ final class FixtureChrome: ChromeTabDirectory, @unchecked Sendable {
 
 @Suite("The user's Chrome: every call asks, and once one was approved the web and the Mac ask too")
 struct ChromeThenWebTests {
-    static let inbox = ChromeTab(id: 7, title: "Inbox (3) – alex – Gmail", address: "https://mail.google.com/mail/u/0/#inbox")
+    static let inbox = ChromeTab(id: 7, title: "Inbox (3) – user – Gmail", address: "https://mail.google.com/mail/u/0/#inbox")
 
     private func approval(_ progress: TextsThenWebProgress, after count: Int) async -> ClaudeTextApproval? {
         for _ in 0..<800 {
@@ -2258,8 +2258,7 @@ struct ChromeThenWebTests {
         let service = f.service(store, runner: runner, access: access, target: try f.target(), chromeTabs: chrome)
         let progress = TextsThenWebProgress()
         let turn = Task { await service.sendText(f.submission()) { await progress.append($0) } }
-        // Before anything of the user's was read, a fetch goes through as the
-        // switches allow.
+        // Before anything of the user's was read, a fetch goes through as the switches allow.
         #expect(await runner.waitForAnswer("req-1")?.contains("\"behavior\":\"allow\"") == true)
         let read = try #require(await approval(progress, after: 0))
         #expect(read.title == "Read a page in your Chrome")
@@ -2398,8 +2397,7 @@ struct ChromeThenWebTests {
                 #expect(answer.contains("\"behavior\":\"deny\"") && answer.contains("tab changed"), "\(change): \(answer)")
             }
             #expect(await turn.value.outcome == .completed)
-            // The user's press comes first in the record, then why nothing ran
-            // ("Blocked" must not read before "Approved").
+            // The approval comes first in the record, followed by why nothing ran.
             if change != "same site" {
                 let lines = await progress.activities
                 let pressed = lines.firstIndex(of: TextsThenWebProgress.settled)
@@ -2416,11 +2414,11 @@ struct ChromeThenWebTests {
         let store = try f.open()
         try await f.seed(store)
         let cases: [(from: String, to: String, refused: Bool)] = [
-            ("file:///Users/alex/a.html", "file:///Users/alex/b.html", true),
-            ("file:///Users/alex/a.html", "https://bank.example/", true),
+            ("file:///Users/user/a.html", "file:///Users/user/b.html", true),
+            ("file:///Users/user/a.html", "https://bank.example/", true),
             ("chrome://newtab/", "https://bank.example/", true),
-            ("https://example.com/a", "file:///Users/alex/a.html", true),
-            ("file:///Users/alex/a.html", "file:///Users/alex/a.html#top", false),
+            ("https://example.com/a", "file:///Users/user/a.html", true),
+            ("file:///Users/user/a.html", "file:///Users/user/a.html#top", false),
         ]
         for item in cases {
             let page = ChromeTab(id: 7, title: "Page", address: item.from)
@@ -2518,7 +2516,7 @@ struct ChromeThenWebTests {
         }
     }
 
-    @Test("No web worker starts after a read of the user's texts or the user's Chrome; a local one does")
+    @Test("No web worker starts after a read of the user's texts or Chrome; a local one does")
     func webWorkersAreFenced() throws {
         func call(_ kind: String) throws -> ClaudeTextWorkerCall {
             ClaudeTextWorkerCall(requestID: "w", toolUseID: "toolu_w",

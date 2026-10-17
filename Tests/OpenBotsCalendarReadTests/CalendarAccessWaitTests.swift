@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import openbots_calendar_read
 
+
 /// The first calendar read after the permission prompt used to wait the full
 /// 120 s. The reader blocked on a semaphore for EventKit's completion
 /// and never looked at the status, so a grant whose completion did not arrive

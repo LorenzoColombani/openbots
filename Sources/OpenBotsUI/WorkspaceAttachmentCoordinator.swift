@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import OpenBotsDomain
+import OpenBotsServices
 
 /// The picker belongs to the draft that opened it, even if app navigation
 /// changes before its result arrives. Cancellation consumes the request too.
@@ -8,10 +9,16 @@ import OpenBotsDomain
 final class AttachmentPickerRequest {
     private let draft: AttachmentDraftModel
     private var consumed = false
-    init(draft: AttachmentDraftModel) { self.draft = draft }
+    private var updateOperation: ApplicationUpdateGate.Operation?
+    init(draft: AttachmentDraftModel, updateGate: ApplicationUpdateGate = .shared) {
+        self.draft = draft
+        updateOperation = updateGate.beginOperation()
+    }
     @discardableResult func consume(_ url: URL?) -> Bool {
         guard !consumed else { return false }
         consumed = true
+        defer { updateOperation = nil }
+        guard updateOperation != nil else { return false }
         guard let url else { return false }
         return draft.selectFile(at: url)
     }
@@ -80,6 +87,10 @@ public final class WorkspaceAttachmentCoordinator {
 
     public var isSafeToQuit: Bool {
         submissions.isEmpty && models.values.allSatisfy(\.canSubmit)
+    }
+
+    public var hasUpdateBlockingActivity: Bool {
+        !submissions.isEmpty || models.values.contains(where: \.hasUpdateBlockingActivity)
     }
 
     public func beginShutdown() {

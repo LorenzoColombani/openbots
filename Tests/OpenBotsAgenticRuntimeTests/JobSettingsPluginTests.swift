@@ -6,8 +6,9 @@ import Testing
 // Claude Code 2.1.281 announces a built-in plugin,
 // agents-md, in every init frame unless the settings switch it off, and the job
 // session refuses any announced plugin. The job's settings carry the switch for
-// the conversation process and the worker alike.
-@Test("A job's settings switch off the built-in plugin that loads AGENTS.md")
+// the conversation process and the worker alike. Claude Code 2.1.287 announces
+// a second one, cc-plugin-plugin-authoring, the same way.
+@Test("A job's settings switch off the built-in plugins Claude Code announces on its own")
 func jobSettingsDisableAgentsMd() throws {
     let root = URL(fileURLWithPath: "/private/tmp/OpenBotsJobSettings-\(UUID().uuidString).noindex")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
@@ -19,9 +20,10 @@ func jobSettingsDisableAgentsMd() throws {
     for webTools in [[], ["WebSearch", "WebFetch"]] {
         let data = try FirstToolJobLaunchPreparation.settingsJSON(paths: paths, webTools: webTools)
         let settings = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(settings["enabledPlugins"] as? [String: Bool] == ["agents-md@builtin": false], "\(webTools)")
+        #expect(settings["enabledPlugins"] as? [String: Bool] == ["agents-md@builtin": false, "cc-plugin-plugin-authoring@builtin": false, "telemetry@builtin": false], "\(webTools)")
     }
 }
+
 
 // A refused reply is never handed to another model, on the
 // job runner's launch as on a chat turn's.

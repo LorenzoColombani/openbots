@@ -217,6 +217,7 @@ struct SQLiteTextTurnRepositoryTests {
         }
     }
 
+
     /// A quit leaves an open card's row `pending`, and the record then showed
     /// it as "Waiting" for good. The turn's
     /// end closes it; an answered card keeps its answer.
@@ -595,6 +596,7 @@ struct SQLiteTextTurnRepositoryTests {
         // correction to quote.
         #expect(try await store.latestTextTurn(conversationID: room, teammateID: f.ada) == nil)
     }
+
 
     /// A hidden bot keeps its seat and shows in its teams. Hide tidies the sidebar, so it
     /// shuts the bot's own chat and nothing else.

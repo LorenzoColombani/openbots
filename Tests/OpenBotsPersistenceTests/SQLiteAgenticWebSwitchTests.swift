@@ -3,6 +3,7 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsPersistence
 
+
 /// The web switches survive a relaunch. Reinstalls once turned them off each
 /// time, because they lived only in memory. These prove the app-owned database keeps them
 /// through a real close and reopen, each capability on its own, on and off,
@@ -78,7 +79,7 @@ struct SQLiteAgenticWebSwitchTests {
             before = try await f.otherMetadataRows(store)
             try await store.setBotWebSwitch(.webSearch, enabled: true, teammateID: teammate.id)
             try await store.setAppWebSwitch(.webSearch, enabled: true)
-            // The person archives the bot with its grant on. Nothing revokes it.
+            // The user archives the bot with its grant on. Nothing revokes it.
             _ = try await store.archiveTeammate(id: teammate.id, expectedProfileRevision: 1, now: f.date.addingTimeInterval(60))
             try await store.setAppWebSwitch(.webSearch, enabled: false)
             #expect(try await f.otherMetadataRows(store) == before)

@@ -249,6 +249,7 @@ extension SQLiteStore: RunJournalRepository {
         }
     }
 
+
     /// The author a committed input must carry. A handoff leg's first input
     /// was written by the leg's sender, a report turn's by the leg's receiver,
     /// a worker's result by the app; every later steering input is the

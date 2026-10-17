@@ -90,6 +90,7 @@ public final class ConversationComposerDraftModel: ObservableObject {
     /// Called only for the ordinary composer binding. Equality is byte exact;
     /// synchronizing the already-cleared display does not clear draft authority.
     public func setText(_ value: String) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard !isShuttingDown, !sameBytes(text, value) else { return }
         text = value
         editGeneration &+= 1
@@ -161,6 +162,7 @@ public final class ConversationComposerDraftModel: ObservableObject {
     }
 
     public func beginSubmission(messageID: UUID, rawText: String, allowsEmptyText: Bool = false) -> ConversationDraftSubmissionToken? {
+        guard ApplicationUpdateGate.shared.allowsWork else { return nil }
         guard canBeginSubmission else { return nil }
         guard (allowsEmptyText || !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty),
               rawText.utf8.count <= ConversationDraftSnapshot.maximumUTF8ByteCount else { return nil }
@@ -230,6 +232,7 @@ public final class ConversationComposerDraftModel: ObservableObject {
     /// Never overwrite newer text as a side effect of recovering an older send.
     @discardableResult
     public func restoreFailedText() -> Bool {
+        guard ApplicationUpdateGate.shared.allowsWork else { return false }
         guard !isShuttingDown, text.isEmpty, let recovered = recoverableFailedText, !isSubmissionInFlight else { return false }
         recoverableFailedText = nil
         setText(recovered)
@@ -240,6 +243,7 @@ public final class ConversationComposerDraftModel: ObservableObject {
     /// An explicit UI action after the user copied/recovered or chose to discard
     /// the earlier failed text. It never deletes a file or a stored message.
     public func acknowledgeFailedTextRecovery() {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard !isShuttingDown, recoverableFailedText != nil, !isSubmissionInFlight else { return }
         recoverableFailedText = nil
         notice = nil
@@ -250,6 +254,8 @@ public final class ConversationComposerDraftModel: ObservableObject {
     /// Conflict resolution is explicit. An in-flight reload cannot overwrite
     /// typing performed after the user requested it.
     public func reloadSavedDraft() async -> Bool {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return false }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isShuttingDown, !Task.isCancelled, hasConflict, !isSubmissionInFlight, recoverableFailedText == nil else { return false }
         let generation = editGeneration
         do {
@@ -278,6 +284,8 @@ public final class ConversationComposerDraftModel: ObservableObject {
     /// Reads the competing revision once, then makes one CAS attempt. A second
     /// conflict returns to review; it is never silently retried.
     public func keepThisDraft() async -> Bool {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return false }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isShuttingDown, !Task.isCancelled, hasConflict, !isSubmissionInFlight, recoverableFailedText == nil else { return false }
         do {
             let saved = try await service.load(conversationID: conversationID)

@@ -3,7 +3,7 @@ import OpenBotsRuntime
 import os
 
 /// Bounded, secret-free diagnostics for the agentic job path. Lines go to the
-/// unified log and, because `log show` is not always readable, to
+/// unified log and, because `log show` is not always readable on this Mac, to
 /// one small app-owned file under the high-churn Logs folder. Callers pass
 /// error enum descriptions and counts only, never provider text or paths of
 /// user documents. The file is capped; when full, nothing more is written.
@@ -17,11 +17,22 @@ public enum AgenticDiagnosticsLog {
         append("\(category) \(message)")
     }
 
+
     /// A Claude reply that dies on a refused stream frame names that frame's
     /// shape here, in the file that survives (the unified log drops such
     /// lines within about a day). Called once at launch by the app.
     public static func recordStreamRefusals() {
         ClaudeTextOnlyRefusalLog.observeLines { line in error("text-turn", line) }
+        ClaudeTextOnlyCompletionLog.observe { receipt in
+            note("text-turn", completionLine(receipt))
+        }
+    }
+
+    static func completionLine(_ receipt: ClaudeTextOnlyCompletionReceipt) -> String {
+        "transport success run=\(receipt.runID.uuidString.lowercased()) stdout_bytes=\(receipt.stdoutBytes)"
+            + " tool_calls=\(receipt.toolCalls) tool_results=\(receipt.toolResults)"
+            + " successful_tool_results=\(receipt.successfulToolResults)"
+            + " result_turns=\(receipt.resultTurns.map(String.init) ?? "unknown") renewals=\(receipt.renewals)"
     }
 
     public static func error(_ category: String, _ message: String) {

@@ -4,8 +4,7 @@ import Foundation
 import OpenBotsDomain
 import OpenBotsRuntime
 
-/// Control this Mac: the old app's Peekaboo connector, carried over as a trial.
-/// Taking control is asked once
+/// Control this Mac uses the Peekaboo connector. Taking control is asked once
 /// per reply: every card of this connector shares one turn scope, so "Allow for
 /// this turn" lets the bot keep seeing the screen, clicking and typing until the
 /// reply ends, and Stop ends it at once.
@@ -20,28 +19,17 @@ import OpenBotsRuntime
 /// say so rather than promise otherwise. Handing the user the screen for a sign-in,
 /// a password, a payment or a permission dialog is the bot's own call
 /// (`hand_over_screen`); once it does, the service refuses every
-/// call until the user hands back. Stopping before a deletion stays an instruction.
+/// call until they hand back. Stopping before a deletion stays an instruction.
 public enum ClaudeTextMacControlApprovalPolicy {
-    /// Every tool the connector is launched with, and for each one exactly the
-    /// argument keys Peekaboo 4.0.0's own parser reads for it, spelled the way
-    /// it reads them: read from its source at the v4.0.0 tag
-    /// (`Core/PeekabooCore/Sources/PeekabooAgentRuntime/MCP/Tools`). Every
-    /// one of these tools reads its keys exactly — `ToolArguments.getString`
-    /// and its siblings are plain lookups, and `verify_state`
-    /// decodes with explicit coding keys — so exact matching is how Peekaboo
-    /// itself binds them. A call carrying any other key is refused: a key this
-    /// table does not name is a key no card here has been written for.
-    ///
-    /// `capture` is not here. It decodes with `.convertFromSnakeCase`, so
-    /// `videoOut`, `Video_Out` and `video__out` all name the file it writes and
-    /// `outputDir` the folder it fills; a card that reads "take a screenshot"
-    /// cannot stand in front of that, and `see` takes screenshots.
-    /// The agent, the browser driver, image analysis and the clipboard stay out.
-    ///
-    /// Nor is `image`: on Claude Code 2.1.280 its
-    /// result reaches the bot as "Captured 1 image(s)" and no picture, so a call
-    /// spends one of the CLI's sixteen rounds and shows nothing. `see` hands the
-    /// picture back.
+    /// Allow exact tools and argument keys from Peekaboo 4.0.0
+    /// (`Core/PeekabooCore/Sources/PeekabooAgentRuntime/MCP/Tools`). `ToolArguments` uses exact
+    /// lookups and `verify_state` uses explicit coding keys. Refuse unknown keys because no
+    /// card describes them.
+    /// Exclude `capture`: `.convertFromSnakeCase` accepts alternate keys for file and directory
+    /// output beyond a screenshot-only card. `see` provides screenshots. Exclude the agent,
+    /// browser driver, image analysis and clipboard.
+    /// Exclude `image`: on CLI 2.1.280 it returns only "Captured 1 image(s)" without pixels,
+    /// while `see` returns the picture.
     static let reviewedArguments: [String: Set<String>] = [
         "action": ["on", "action", "snapshot"],
         "app": ["action", "name", "bundleId", "openTargets", "foreground", "force", "wait", "waitUntilReady",
@@ -93,12 +81,12 @@ public enum ClaudeTextMacControlApprovalPolicy {
                        afterTexts: Bool = false, afterChrome: Bool = false,
                        afterOther: String? = nil, readBy: String? = nil,
                        afterLook: Bool = false) -> ClaudeTextWorkDecision {
-        // A page read in the user's Chrome fences the Mac the way their texts
-        // do: typing it into another app would carry it out. So does any other
+        // A page read in Chrome fences the Mac the way private texts do:
+        // typing it into another app would carry it out. So does any other
         // private read, named in `afterOther`.
         let fenced = afterTexts || afterChrome || afterOther != nil
-        // After a look at the user's screen, what could carry its words into
-        // another app asks every time; clicks keep the allowance.
+        // After a look at the user's screen, what could carry its words into another
+        // app asks every time; clicks keep the allowance.
         let tool = ClaudeTextConnectorApprovalPolicy.toolName(in: request.toolName)
         guard let reviewed = reviewedArguments[tool] else {
             return .denyQuietly(reason: "Control this Mac in OpenBots does not include \(tool).",
@@ -112,7 +100,8 @@ public enum ClaudeTextMacControlApprovalPolicy {
                                 activity: "Blocked \(readable(tool)) it could not read on this Mac")
         }
         // After a private read the card must show every word typed, as the
-        // web and Browser cards show an address whole or refuse it: typing into a browser carries words out as a fetch does.
+        // web and Browser cards show an address whole or refuse it:
+        // typing into a browser carries words out as a fetch does.
         if fenced || afterLook, let typed = typedText(tool, input), typedLine(typed).count > maximumShownTyping {
             return .denyQuietly(reason: "This reply read something private of his, so typing on his Mac goes ahead only "
                 + "when its card can show every word, and this is longer than \(maximumShownTyping) characters. "
@@ -178,17 +167,16 @@ public enum ClaudeTextMacControlApprovalPolicy {
         }
         // A point on the screen is refused when any OpenBots window holds it,
         // whatever lies in front, and an element from a look at the whole
-        // screen can be one of OpenBots' own (a bot can never act inside
-        // OpenBots itself).
+        // screen can be one of OpenBots' own. A bot can never act inside
+        // OpenBots itself.
         if let refusal = identity.pointRefusal(tool: tool, input: input) {
             return .denyQuietly(reason: refusal.reason, activity: refusal.activity)
         }
         if let refusal = elementRefusal(tool: tool, input: input, looks: looks) {
             return .denyQuietly(reason: refusal.reason, activity: refusal.activity)
         }
-        // A call that names no app goes to whatever is in front, and that is
-        // OpenBots Next while the user reads a reply or answers one of its
-        // cards.
+        // A call that names no app goes to whatever is in front, and that is OpenBots Next
+        // while the user reads a reply or answers one of its cards.
         if identity.landsOnThisApp(tool: tool, input: input) {
             return .denyQuietly(
                 reason: "This call names no app, and OpenBots is the app in front, so it would land on OpenBots "
@@ -204,9 +192,9 @@ public enum ClaudeTextMacControlApprovalPolicy {
                 detail: String("\(bot) wants to \(action). Anything unsaved in that app may be lost. This asks every time.".scalarPrefix(600)),
                 target: action200, kind: .productionChange, activity: String("Asked to \(action) on this Mac".scalarPrefix(200))))
         }
-        // Only launch and open read openTargets (AppTool+Lifecycle.swift), and
-        // both also take a path or a bundle file as the app to open, which opens
-        // whatever is at that path rather than an app the user already has.
+        // Only launch and open read openTargets (AppTool+Lifecycle.swift), and both also take a
+        // path or a bundle file as the app to open, which opens whatever is at that path rather
+        // than an app the user already has.
         if tool == "app", ["launch", "open"].contains(appAction ?? ""),
            present(input["openTargets"]) || namesAPath(peekabooString(input["name"])) {
             return .ask(ClaudeTextWorkCard(title: "Open something on your Mac",
@@ -216,15 +204,15 @@ public enum ClaudeTextMacControlApprovalPolicy {
         guard controlsTheMac(tool, input) else {
             // Waiting, checking permissions, listing and checking an app's state
             // neither see the user's screen nor change anything: covered by an
-            // allowance already given, but never the card that gives one.
+            // allowance they already gave, but never the card that gives one.
             return .ask(ClaudeTextWorkCard(title: "Let \(bot) use Control this Mac",
                 detail: String("\(bot) wants to \(action). Approve lets this one step happen.".scalarPrefix(600)),
                 target: action200, kind: .productionChange,
                 activity: String("Asked to \(action) on this Mac".scalarPrefix(200)), turnScope: turnScope,
                 offersTurnAllowance: false))
         }
-        // Once this reply read the user's texts or their Chrome the service
-        // offers no allowance, so the card must not describe one.
+        // Once this reply read private texts or Chrome, the service offers no
+        // allowance, so the card must not describe one.
         let lookFencesThis = afterLook && !fenced && carriesWords(tool, input)
         let allowance: String = lookFencesThis
             ? "It looked at your screen earlier in this chat, so typing, copying, pasting and dragging in your apps "
@@ -287,7 +275,7 @@ public enum ClaudeTextMacControlApprovalPolicy {
     /// the screen's elements and names what it found), or a list of apps,
     /// windows, menus, Spaces or a dialog (a window's title can carry a mail's
     /// subject). Acting on an app, typing, keys, moving and waiting bring
-    /// nothing back. After one, the web asks.
+    /// nothing back. After a screen read, the web asks.
     static func bringsTheScreenBack(_ tool: String, _ input: [String: Any]) -> Bool {
         switch tool {
         case "see", "inspect_ui", "verify_state", "click": return true
@@ -300,9 +288,9 @@ public enum ClaudeTextMacControlApprovalPolicy {
     /// input, setting a value, a key that types a character (with or without
     /// modifiers, so cmd+c and cmd+v), a menu item or a click naming Copy, Cut
     /// or Paste, a right-click (its menu holds them), and a drag (text drags
-    /// between apps). After a look at the user's screen these ask every time.
-    /// Clipboard tools are never launched. What stays open: a plain click at a spot where
-    /// a Paste item happens to be drawn.
+    /// between apps). After a look at the screen these ask every time.
+    /// Clipboard tools are never launched. A remaining limitation is a plain
+    /// click at a spot where a Paste item happens to be drawn.
     static func carriesWords(_ tool: String, _ input: [String: Any]) -> Bool {
         func namesTheClipboard(_ keys: [String]) -> Bool {
             keys.contains { key in
@@ -325,8 +313,8 @@ public enum ClaudeTextMacControlApprovalPolicy {
     /// the only kind of card that may offer Allow for this turn.
     static func controlsTheMac(_ tool: String, _ input: [String: Any]) -> Bool {
         switch tool {
-        // A state check ends in a screenshot when it is asked for, and then it
-        // does see the user's screen.
+        // A state check ends in a screenshot when it is asked for, and then it does see the user's
+        // screen.
         case "verify_state": return peekabooBool(input["final_screenshot"]) == true
         case "sleep", "permissions": return false
         case "app", "window", "menu", "dock", "space", "dialog": return peekabooString(input["action"]) != "list"
@@ -415,13 +403,10 @@ public enum ClaudeTextMacControlApprovalPolicy {
         }
     }
 
-    /// Peekaboo 4.0.0 presses a key by its place on a US keyboard
-    /// (`HotkeyService+Planning.swift`: "a" is key code 0), and clearing a field
-    /// in `type` or `dialog` presses cmd+a the same way. On an AZERTY Mac
-    /// that place types q, so select all quits the app and cmd+z closes the
-    /// window. A key whose place types something else
-    /// here, or cannot be read, is refused before any card: the card would say
-    /// one key and the Mac would get another.
+    /// Peekaboo 4.0.0 uses US keyboard positions (`HotkeyService+Planning.swift`: "a" is key
+    /// code 0), including cmd+a for clearing. On ABC-AZERTY that position types q, changing
+    /// select-all into quit. Refuse keys whose current-layout characters differ or cannot be
+    /// read so the approved and actual keystrokes agree.
     static func keyThatLandsElsewhere(_ tool: String, _ input: [String: Any], layout: MacKeyboardLayout) -> String? {
         func landed(_ chord: Chord) -> String? {
             guard let code = MacKeyboardLayout.ansiKeyCodes[chord.key],
@@ -779,9 +764,9 @@ public struct MacControlLooks: Equatable, Sendable {
     }
 }
 
-/// Typing on the user's Mac that went through and that no look at its app
-/// has followed. Peekaboo's "[ok] Typed" says the keys were sent, not where
-/// they arrived: once thirty of them left TextEdit empty and the reply said "Done". A reply that ends with typing
+/// Typing on the Mac that went through and that no look at its app has
+/// followed. Peekaboo's "[ok] Typed" says the keys were sent, not where they
+/// arrived. A reply that ends with typing
 /// still unchecked says so in the app's own words.
 public struct MacControlTypingCheck: Equatable, Sendable {
     /// The apps typed into, as the calls named them, in order; "" for a call
@@ -879,8 +864,8 @@ public struct MacControlSelfIdentity: Sendable {
     let windowTitles: @Sendable () -> [String]
     /// The process whose window is in front, when the window server says.
     let frontmostOwner: @Sendable () -> Int32?
-    /// The old OpenBots app, which no bot may operate either (the two apps are
-    /// not supposed to know each other): its names and bundle identifiers, and
+    /// The old OpenBots app, which no bot may operate either:
+    /// its names and bundle identifiers, and
     /// its running processes when a call is decided.
     let otherBundleIdentifiers: [String]
     let otherProcesses: @Sendable () -> Set<Int32>
@@ -1024,7 +1009,7 @@ public struct MacControlSelfIdentity: Sendable {
                         "Blocked \(ClaudeTextMacControlApprovalPolicy.readable(tool)) at a point OpenBots could not place")
             }
             if !guarded.isDisjoint(with: windowOwnersAt(point)) {
-                // The refusal says a way on.
+                // The refusal gives a way to continue safely.
                 return ("That point is on an OpenBots window, and Control this Mac never acts on OpenBots' own "
                     + "windows: their cards and switches are for him to answer. " + onOpenBots,
                     "Blocked \(ClaudeTextMacControlApprovalPolicy.readable(tool)) at a point on OpenBots")
@@ -1079,11 +1064,10 @@ public struct MacControlSelfIdentity: Sendable {
         return false
     }
 
-    /// The tools Peekaboo sends to the app in front when the call names none:
-    /// keys and text with `foreground`, a click or a drag on an element from
-    /// the last look or at coordinates, a dialog, a window, a menu bar.
-    /// `action` presses an element and `set_value` writes into one, both from the
-    /// last look and naming no app of their own.
+    /// The tools Peekaboo sends to the app in front when the call names none: keys and text
+    /// with `foreground`, a click or a drag on an element from the last look or at coordinates,
+    /// a dialog, a window, a menu bar. `action` presses an element and `set_value` writes into
+    /// one, both from the last look and naming no app of their own.
     static let frontmostTools: Set<String> = ["action", "click", "dialog", "drag", "menu", "move", "press",
                                               "scroll", "set_value", "type", "window"]
 
@@ -1099,7 +1083,7 @@ public struct MacControlSelfIdentity: Sendable {
         // A look with no target at all: refused here while this app is in front,
         // because what Peekaboo looks at then — the app in front or the whole
         // screen — is the one fact this repository cannot settle, and a look at
-        // this app's window shows the user's cards and conversations.
+        // this app's window shows the user's cards and their conversations.
         if Self.observationTools.contains(tool), input["app_target"] == nil { return true }
         guard Self.frontmostTools.contains(tool) else { return false }
         return !namesAnApp(tool: tool, input: input)
@@ -1160,8 +1144,8 @@ public struct MacKeyboardLayout: Sendable {
 
     public func character(at code: CGKeyCode) -> String? { read(code) }
 
-    /// Peekaboo 4.0.0's key codes for every key that types a character
-    /// (`HotkeyService+Planning.swift`, read at the v4.0.0 tag), with the character each types on a US keyboard.
+    /// Peekaboo 4.0.0 key codes from `HotkeyService+Planning.swift`, paired with their US
+    /// keyboard characters.
     static let ansiTable: [String: (code: CGKeyCode, character: String)] = [
         "a": (0x00, "a"), "s": (0x01, "s"), "d": (0x02, "d"), "f": (0x03, "f"), "h": (0x04, "h"), "g": (0x05, "g"),
         "z": (0x06, "z"), "x": (0x07, "x"), "c": (0x08, "c"), "v": (0x09, "v"), "b": (0x0B, "b"), "q": (0x0C, "q"),
@@ -1181,8 +1165,8 @@ public struct MacKeyboardLayout: Sendable {
         return MacKeyboardLayout { characters[$0] }
     }()
 
-    /// The layout in use now, read from a key event the way the window server
-    /// builds one; safe off the main thread.
+    /// Read the current layout from a key event constructed by the window server; safe off the
+    /// main thread.
     public static let current = MacKeyboardLayout { code in
         guard let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true) else { return nil }
         var length = 0

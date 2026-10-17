@@ -9,13 +9,12 @@ public enum MessagesHistoryReadError: Error, Equatable, Sendable {
     case queryFailed(message: String)
 }
 
-/// Lists the conversations in the user's Messages history for the Access
-/// sheet's chat picker. Names only: which conversations
+/// Lists the conversations in the user's Messages history for the Access sheet's
+/// chat picker. Names only: which conversations
 /// exist, who is in them, and when each last had a message. No message is read.
 ///
 /// Opened read-only and never `immutable`: Messages keeps its history in WAL
-/// mode and writes to it while this reads (a real history can carry a `-wal` of
-/// several hundred KB), so an immutable open would miss the newest conversations
+/// mode and writes to it while this reads, so an immutable open would miss the newest conversations
 /// without any error. A read-only connection takes the existing `-shm` as it
 /// finds it, which is also what `sqlite3 -readonly` does for the server.
 public enum MessagesHistoryReader {

@@ -4,6 +4,7 @@ import Foundation
 import OpenBotsDomain
 import OpenBotsRuntime
 
+
 /// Launches a Claude Desktop extension this build has reviewed, and only the
 /// exact copy that was reviewed.
 ///
@@ -33,6 +34,7 @@ public struct ClaudeExtensionConnectorPreparation: Sendable {
         public let summary: String
     }
 
+
     /// Apple Notes 0.1.7, by Anthropic. Reviewed: its
     /// `server/index.js` in full, and the SDK files it loads (the MCP SDK 1.11.3
     /// and zod 3.25.67), which read and write JSON on stdio and nothing else.
@@ -55,6 +57,7 @@ public struct ClaudeExtensionConnectorPreparation: Sendable {
             + "the exact text; replacing puts the new text in place of everything the note held.\n"
             + "Claude Desktop extension by Anthropic, version 0.1.7, the copy OpenBots checked. Needs "
             + "permission for OpenBots Next to control Notes, which macOS asks for the first time a bot looks.")
+
 
     /// Control Chrome 0.1.6, by Anthropic. Reviewed: its `server/index.js` in
     /// full. Every tool is one `osascript -e` to

@@ -105,14 +105,7 @@ final class CharacterMotionVisibilityTests: XCTestCase {
         XCTAssertTrue(published.isEmpty)
     }
 
-    func testWindowSubscriptionsFollowOnlyTheOwningWindow() throws {
-        // Open on macOS 15 only: after the view moves to another window, the OLD window's resize
-        // notification still yields one assessment there (2 instead of 1) in most CI runs; never
-        // on macOS 26. Fix the view's window-subscription handling, then remove this skip. Every
-        // other test keeps gating on macOS 15.
-        if #unavailable(macOS 26) {
-            throw XCTSkip("Known macOS 15 ordering difference in window subscriptions.")
-        }
+    func testWindowSubscriptionsFollowOnlyTheOwningWindow() {
         let first = MotionVisibilityFixture()
         let second = MotionVisibilityFixture()
         defer { first.dispose(); second.dispose() }

@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 
+
 /// Asks the user's own Chrome about its tabs, so a Control Chrome card can name
 /// a tab by its site and title rather than by a number.
 public protocol ChromeTabDirectory: Sendable {
@@ -18,20 +19,13 @@ public extension ChromeTabDirectory {
     func chromeIsOpen() -> Bool { chromeProcessID() != nil }
 }
 
-/// The real directory: `osascript` in JavaScript for Automation, which hands
-/// back JSON, so a comma in a title cannot split it the way the extension's own
-/// comma-joined lists split (its `list_tabs` and `get_current_tab`).
-///
-/// It asks `Application("Google Chrome")` by name, as the extension's
-/// `tell application "Google Chrome"` does, so the two reach the same Chrome.
-/// The Browser connector's headless Chrome registers under the same bundle as
-/// a background-only app; with the user's own Chrome open, probing showed that
-/// it is the one that answers. `chromeProcessID` counts only a Chrome with a
-/// regular window, so nothing is asked of Chrome while the user's is closed.
-///
-/// The first call is what makes macOS ask the user whether OpenBots Next may
-/// control Google Chrome; the prompt holds the call, the timeout ends it, and
-/// the card's refusal says to answer macOS first.
+/// Use JavaScript for Automation through `osascript` and return JSON so commas in tab titles
+/// cannot split results.
+/// Resolve `Application("Google Chrome")` by name, matching the extension. Browser's headless
+/// Chrome shares the bundle id, so `chromeProcessID` requires a regular Chrome window and
+/// avoids querying while the user's browser is closed.
+/// The first call can trigger macOS Automation permission. The prompt holds the call until
+/// answered or timed out; refusals direct the user to answer macOS.
 public struct OsascriptChromeTabDirectory: ChromeTabDirectory {
     public static let bundleIdentifier = "com.google.Chrome"
     static let osascript = URL(fileURLWithPath: "/usr/bin/osascript")

@@ -38,6 +38,7 @@ public extension EnvironmentValues {
     }
 }
 
+
 /// A picture shown inside the bubble: the same bounded,
 /// decoded-off-main preview the Preview sheet uses, fetched once per chip and
 /// only for an attachment whose type is an image.

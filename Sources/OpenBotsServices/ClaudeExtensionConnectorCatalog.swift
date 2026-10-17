@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 import OpenBotsDomain
 
+
 /// The Claude Desktop extensions installed on this Mac, listed beside the
 /// connectors Claude Code configured and the ones the app ships.
 ///
@@ -158,8 +159,7 @@ public struct ClaudeExtensionConnectorCatalog: ConnectorCatalogReading {
         return last
     }
 
-    /// Digits and dots, as every manifest seen so far writes one; anything else
-    /// is a manifest this does not read.
+    /// Accept only the supported numeric version format used by these manifests.
     static func isPlainVersion(_ version: String) -> Bool {
         !version.isEmpty && version.utf8.count <= 32
             && version.utf8.allSatisfy { ($0 >= 48 && $0 <= 57) || $0 == 46 }

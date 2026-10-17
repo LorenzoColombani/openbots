@@ -5,6 +5,7 @@ import MachO
 import MachO.dyld.utils
 import Security
 import Testing
+import OpenBotsDomain
 @testable import OpenBotsSecurity
 
 private final class SignatureCheckerSpy: ClaudeStaticSignatureChecking, @unchecked Sendable {
@@ -76,6 +77,91 @@ private struct InstallationFixture: Sendable {
     }
 
     func remove() { try? FileManager.default.removeItem(at: home) }
+}
+
+private struct RetainedInstallationFixture: Sendable {
+    let source: InstallationFixture
+    let root: URL
+    let executable: URL
+    let artifact: ClaudeRuntimeArtifact
+    let installationID = UUID()
+    let rootID = UUID()
+    static let signature = ClaudeStaticSignatureIdentity(identifier: "com.anthropic.claude-code",
+        teamIdentifier: "Q6L2SF6YDW", codeDirectoryHash: String(repeating: "a", count: 40))
+
+    init() throws {
+        source = try InstallationFixture()
+        root = source.home.appending(path: "Library/Application Support/com.lorenzocolombani.openbotsnext.preview")
+        artifact = ClaudeRuntimeArtifact(version: "2.1.88-fixture", sha256: source.digest,
+            signatureIdentifier: Self.signature.identifier, teamIdentifier: Self.signature.teamIdentifier,
+            codeDirectoryHash: Self.signature.codeDirectoryHash!)
+        executable = root.appending(path: "HighChurn.noindex/Runtime/Claude/Retained/\(artifact.sha256)/claude")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
+        let data = try JSONSerialization.data(withJSONObject: [
+            "formatVersion": 1, "bundleIdentifier": "com.lorenzocolombani.openbotsnext.preview",
+            "installationID": installationID.uuidString, "rootID": rootID.uuidString, "kind": "applicationSupport"
+        ])
+        let marker = root.appending(path: ".openbots-root.json")
+        try data.write(to: marker)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
+        try FileManager.default.copyItem(at: source.executable, to: executable)
+    }
+
+    func inspect(checker: any ClaudeStaticSignatureChecking = SignatureCheckerSpy(result: .verified(Self.signature))) async -> ClaudeInstallationInspection {
+        await RetainedClaudeInstallationInspector(applicationSupportRootURL: root,
+            installationID: installationID, rootID: rootID, artifact: artifact,
+            signatureChecker: checker).inspectInstallation()
+    }
+}
+
+@Test("Retained inspection issues exact provenance after the global installation is deleted")
+func retainedClaudeInspectionSurvivesDeletedGlobalSource() async throws {
+    let fixture = try RetainedInstallationFixture(); defer { fixture.source.remove() }
+    try FileManager.default.removeItem(at: fixture.source.home.appending(path: ".local"))
+    let result = await fixture.inspect()
+    #expect(result.state == .verified)
+    let provenance = try #require(result.details.verifiedRetainedProvenance)
+    #expect(provenance.matches(executableURL: fixture.executable, sha256: fixture.artifact.sha256,
+                               homeDirectory: fixture.source.home))
+    #expect(!provenance.matches(executableURL: fixture.source.executable, sha256: fixture.artifact.sha256,
+                                homeDirectory: fixture.source.home))
+    #expect(!provenance.matches(executableURL: fixture.executable, sha256: String(repeating: "f", count: 64),
+                                homeDirectory: fixture.source.home))
+}
+
+@Test("Retained inspection rejects hard links, modified bytes and a wrong CodeDirectory identity")
+func retainedClaudeInspectionRejectsLinksTamperAndWrongSigner() async throws {
+    for variant in ["link", "bytes", "signature"] {
+        let fixture = try RetainedInstallationFixture(); defer { fixture.source.remove() }
+        if variant == "link" { try FileManager.default.linkItem(at: fixture.executable, to: fixture.source.home.appending(path: "hardlink")) }
+        if variant == "bytes" { try Data([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3, 4]).write(to: fixture.executable) }
+        let checker = SignatureCheckerSpy(result: .verified(variant == "signature"
+            ? ClaudeStaticSignatureIdentity(identifier: "com.anthropic.claude-code", teamIdentifier: "Q6L2SF6YDW",
+                                            codeDirectoryHash: String(repeating: "b", count: 40))
+            : RetainedInstallationFixture.signature))
+        let result = await fixture.inspect(checker: checker)
+        let issue: ClaudeInstallationRejection = variant == "link" ? .unexpectedHardLinks
+            : variant == "bytes" ? .retainedIdentityMismatch : .unexpectedSigner
+        #expect(result.state == .rejected(issue))
+        #expect(result.details.verifiedRetainedProvenance == nil)
+    }
+}
+
+@Test("Retained path replacement during signature validation never issues provenance")
+func retainedClaudeInspectionRejectsSignatureTimeAncestorSwap() async throws {
+    let fixture = try RetainedInstallationFixture(); defer { fixture.source.remove() }
+    let checker = SignatureCheckerSpy(result: .verified(RetainedInstallationFixture.signature), onCheck: { _, _ in
+        let directory = fixture.executable.deletingLastPathComponent()
+        try! FileManager.default.moveItem(at: directory, to: directory.appendingPathExtension("old"))
+        try! FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                 attributes: [.posixPermissions: 0o700])
+        try! fixture.source.payload.write(to: fixture.executable)
+        try! FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fixture.executable.path)
+    })
+    let result = await fixture.inspect(checker: checker)
+    #expect(result.state == .rejected(.changedDuringInspection))
+    #expect(result.details.verifiedRetainedProvenance == nil)
 }
 
 @Test("Claude installation construction performs no inspection or creation")
@@ -361,10 +447,9 @@ func claudeInstallationDetectsExecutableReplacement() async throws {
     #expect(checker.calls.count == 1)
 }
 
-/// A send was once refused "Claude setup needs attention" and went
-/// through on a retry. Run many times against a real home folder, this check
-/// sometimes refused as changed during inspection: the home folder's own times move whenever a
-/// file is written into it, and Claude Code rewrites `~/.claude.json` there.
+/// The home folder's timestamps change whenever a file is written into it,
+/// including when Claude Code rewrites `~/.claude.json`. Such changes must not
+/// invalidate an otherwise verified installation.
 @Test("A file written into the home folder during the check does not refuse a verified installation")
 func claudeInstallationIgnoresUnrelatedHomeWrites() async throws {
     let fixture = try InstallationFixture()

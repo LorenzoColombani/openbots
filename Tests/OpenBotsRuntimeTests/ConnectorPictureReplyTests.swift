@@ -4,11 +4,9 @@ import Testing
 @testable import OpenBotsRuntime
 
 // A connector that hands back a picture — Control this Mac's `see` and `image`,
-// the browser's screenshot. Probed on Claude Code 2.1.272 with a stand-in
-// server returning a 600×500 PNG: the CLI re-encodes the
-// picture as a JPEG (363,656 base64 bytes here) and writes it TWICE in the one
-// user frame that finishes the call, once in the tool result's content and
-// once in `tool_use_result`, so that single line was 727,896 bytes. The
+// the browser's screenshot. Claude Code 2.1.272 re-encodes the picture as a
+// JPEG and writes it twice in the user frame that finishes the call, once
+// in the tool result's content and once in `tool_use_result`. The
 // stream's text-sized bounds (a 512 KiB line, 2 MiB a turn) ended the reply at
 // the first real screenshot.
 
@@ -132,10 +130,9 @@ private func secondsToReadPictureFrame(base64Bytes: Int) throws -> Double {
     return Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
 }
 
-/// A stream that searches its whole buffer for a newline on every read makes a
-/// frame's cost grow with the square of its size (a 256 KB frame read in 0.05 s,
-/// 512 KB in 0.18 s, 1 MB in 0.69 s), and the largest picture the CLI sends
-/// would hold the pipe for over a minute.
+/// Searching the whole buffer for a newline on every read makes parsing cost
+/// grow with the square of the frame's size. Incremental picture-frame reads
+/// must remain linear to avoid blocking the pipe on large images.
 @Test("A picture frame fed four kilobytes at a time is read in time that grows with its size, not its square")
 func aPictureFrameIsReadInLinearTime() throws {
     let seconds = try secondsToReadPictureFrame(base64Bytes: 1_048_576)
@@ -148,15 +145,10 @@ func aPictureTurnsOutputHoldsAPictureForEveryCall() {
     #expect(ClaudeTextOnlyStream.maximumPictureOutputBytes >= calls * ClaudeTextOnlyStream.maximumPictureLineBytes)
 }
 
-/// A turn runs on a thread of
-/// its own with no autorelease pool (`NativeClaudeTextOnlyRunner` detaches one
-/// per turn), so whatever Foundation autoreleased while parsing a picture line
-/// stayed alive until the turn ended; and a picture line read 4,096 bytes at a
-/// time doubled its buffer on the way up to ten megabytes, and the allocator
-/// kept every block it outgrew. Measured through the real stream on such a
-/// thread: 128 of the largest screenshot calls held 666 MB alive, and 64 left
-/// the process 600 MB larger. Memory is measured for the whole process, so this
-/// suite is serialized and is best run apart from other suites.
+/// A turn runs on its own detached thread. Without a local autorelease pool,
+/// Foundation objects from picture parsing can stay alive until the turn ends.
+/// Repeated buffer growth can also retain large allocation blocks. This suite
+/// measures memory for the whole process and therefore runs serially.
 @Suite("A long picture turn's memory", .serialized)
 struct PictureTurnMemoryTests {
     private final class Outcome: @unchecked Sendable {

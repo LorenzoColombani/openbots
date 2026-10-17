@@ -313,6 +313,14 @@ func compositionBootstrapsAndOpensRepositoryRoundTrip() async throws {
     let historyRequest = try ConversationOutcomeHistoryRequest(conversationID: ConversationID(UUID()), teammateID: TeammateID(UUID()))
     let history = try await ConversationOutcomeHistoryService(repository: context.outcomeHistoryRepository).history(historyRequest)
     #expect(history.scope == .unavailable && history.outcomes.isEmpty && !history.hasMore)
+    // Preserving the public ID performs no Keychain/runtime work and keeps
+    // connector grants byte-for-byte represented by the same repository state.
+    let googleConfiguration = await GoogleWorkspaceConfigurationService(
+        repository: context.googleWorkspaceConfigurationRepository,
+        legacyClientID: "composition-test.apps.googleusercontent.com", environmentClientID: { nil }).bootstrap()
+    #expect(googleConfiguration.updateConfiguration?.durableClientID == "composition-test.apps.googleusercontent.com")
+    #expect(try await context.connectorAccessRepository.loadConnectorAccess() == enabled)
+    #expect(await keychain.recordedOperations().isEmpty)
     #expect(
         context.databaseFacts.migrationCount
             == StoragePersistenceCompositionService.expectedMigrationCount
@@ -363,11 +371,11 @@ func compositionBootstrapsAndOpensRepositoryRoundTrip() async throws {
     #expect(await keychain.recordedOperations().isEmpty)
     #expect(await executor.calls() == 0)
     #expect(!FileManager.default.fileExists(atPath: fixture.layout.contentRoot.url.path))
-    #expect(!FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
+    #expect(FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
 }
 
-@Test("An existing installation reopens from its immutable receipt without creating or selecting")
-func compositionReopensExistingInstallation() async throws {
+@Test("Existing installs keep their database and receipt while a wholly missing Claude profile is provisioned", arguments: [false, true])
+func compositionReopensExistingInstallation(missingClaudeSubtree: Bool) async throws {
     let fixture = try StoragePersistenceCompositionFixture()
     let plan = try fixture.plan()
     let decision = try fixture.decision()
@@ -379,6 +387,10 @@ func compositionReopensExistingInstallation() async throws {
         protection: .ordinarySQLite,
         decision: decision
     )
+    let googleConfiguration = await GoogleWorkspaceConfigurationService(
+        repository: firstContext.googleWorkspaceConfigurationRepository,
+        legacyClientID: "restart-test.apps.googleusercontent.com", environmentClientID: { nil }).bootstrap()
+    #expect(googleConfiguration.updateConfiguration?.durableClientID == "restart-test.apps.googleusercontent.com")
 
     let teammateID = UUID(uuidString: "87000000-0000-0000-0000-000000000002")!
     let profileService = TeammateProfileService(
@@ -389,6 +401,12 @@ func compositionReopensExistingInstallation() async throws {
     let teammate = try await profileService.createQuickTeammate(
         QuickTeammateDraft(displayName: "Mica", role: "Analyst")
     )
+    let receiptData = try Data(contentsOf: fixture.layout.installationReceiptURL)
+    let databaseIdentity = try FileManager.default.attributesOfItem(atPath: fixture.layout.databaseURL.path)[.systemFileNumber]
+        as? NSNumber
+    if missingClaudeSubtree {
+        try FileManager.default.removeItem(at: fixture.layout.claudeCLIProfileRoot.deletingLastPathComponent())
+    }
 
     let keychain = InMemoryKeychainClient()
     let executor = CompositionExecutorSpy()
@@ -399,18 +417,56 @@ func compositionReopensExistingInstallation() async throws {
     ).reopenExisting()
 
     #expect(reopened.installationReceipt == firstContext.installationReceipt)
+    let googleAfterRestart = await GoogleWorkspaceConfigurationService(
+        repository: reopened.googleWorkspaceConfigurationRepository,
+        legacyClientID: nil, environmentClientID: { nil }).bootstrap()
+    #expect(googleAfterRestart == googleConfiguration)
+    // A build carrying a different ID is the authority over the saved one.
+    let googleAfterRebuild = await GoogleWorkspaceConfigurationService(
+        repository: reopened.googleWorkspaceConfigurationRepository,
+        legacyClientID: "different.apps.googleusercontent.com", environmentClientID: { nil }).bootstrap()
+    #expect(googleAfterRebuild.clientIDReplaced)
+    #expect(googleAfterRebuild.updateConfiguration?.durableClientID == "different.apps.googleusercontent.com")
     #expect(reopened.storageReceipt.installationID == plan.installationID)
     #expect(reopened.storageReceipt.verifiedRoots.count == 3)
     #expect(try await reopened.teammateRepository.teammate(id: teammate.id) == teammate)
+    #expect(try Data(contentsOf: fixture.layout.installationReceiptURL) == receiptData)
+    #expect(try FileManager.default.attributesOfItem(atPath: fixture.layout.databaseURL.path)[.systemFileNumber]
+        as? NSNumber == databaseIdentity)
+    #expect(ClaudeProfileInspector().inspect(applicationSupportRoot: reopened.applicationSupportRoot, layout: fixture.layout)
+        == .metadataVerified)
     #expect(await keychain.recordedOperations().isEmpty)
     #expect(await executor.calls() == 0)
     #expect(!FileManager.default.fileExists(atPath: fixture.layout.contentRoot.url.path))
-    #expect(!FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
+    #expect(FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
 }
 
-/// Seen once: a five-day-old rollback bundle, launched from a Dock tile
-/// that had followed the displaced app, opened the workspace a newer build had
-/// migrated. It failed closed, as it must, but reported a generic open failure.
+@Test("An incomplete existing Claude profile remains untouched and does not lock local chats", arguments: [false, true])
+func compositionLeavesRejectedClaudeProfileAvailableForSetup(malformedMarker: Bool) async throws {
+    let fixture = try StoragePersistenceCompositionFixture()
+    let first = try await StoragePersistenceCompositionService(
+        layout: fixture.layout, bootstrapper: fixture.bootstrapper()
+    ).bootstrapAndOpen(using: fixture.plan(), protection: .ordinarySQLite, decision: fixture.decision())
+    let marker = fixture.layout.claudeCLIProfileRoot.appending(path: ClaudeProfileInspector.markerFilename)
+    if malformedMarker {
+        try Data("foreign marker".utf8).write(to: marker)
+    } else {
+        try FileManager.default.removeItem(at: marker)
+    }
+    let receiptData = try Data(contentsOf: fixture.layout.installationReceiptURL)
+    let originalMarker = try? Data(contentsOf: marker)
+
+    let reopened = try await StoragePersistenceCompositionService(layout: fixture.layout).reopenExisting()
+
+    #expect(reopened.installationReceipt == first.installationReceipt)
+    #expect(try Data(contentsOf: fixture.layout.installationReceiptURL) == receiptData)
+    #expect((try? Data(contentsOf: marker)) == originalMarker)
+    #expect(ClaudeProfileInspector().inspect(applicationSupportRoot: reopened.applicationSupportRoot, layout: fixture.layout)
+        == (malformedMarker ? .rejected(.invalidMarker) : .missing))
+}
+
+/// An older build can encounter a workspace migrated by a newer build.
+/// It must fail closed with a specific error instead of a generic open failure.
 @Test("Reopening a workspace whose ledger is newer than this build fails closed with its own error and touches nothing")
 func compositionRefusesAWorkspaceNewerThanThisBuildByName() async throws {
     let fixture = try StoragePersistenceCompositionFixture()
@@ -545,7 +601,7 @@ func compositionMigratesSchema12AvatarIdentityAndDraftAcrossReopen(priorSchema: 
     #expect(await keychain.recordedOperations().isEmpty)
     #expect(await executor.calls() == 0)
     #expect(!FileManager.default.fileExists(atPath: fixture.layout.contentRoot.url.path))
-    #expect(!FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
+    #expect(FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
 }
 
 private extension SQLiteStore {
@@ -695,11 +751,11 @@ func compositionRecoversOnlyMissingDisposableRoot(kind: OwnedRootKind) async thr
     #expect(databaseAfter.st_ino == databaseBefore.st_ino)
     #expect(reopened.databaseFacts.protectionMode == .ordinarySQLite)
     #expect(!FileManager.default.fileExists(atPath: fixture.layout.contentRoot.url.path))
-    #expect(!FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
+    #expect(FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
 }
 
 @Test("Durable teammate identity selection and fixture chat survive a discarded graph and reopen")
-func durablePreviewStateSurvivesRelaunch() async throws {
+func durableWorkspaceStateSurvivesRelaunch() async throws {
     let fixture = try StoragePersistenceCompositionFixture()
     let plan = try fixture.plan()
     let decision = PreviewDatabaseProtectionDecision.receipt
@@ -815,7 +871,7 @@ func durablePreviewStateSurvivesRelaunch() async throws {
         #expect(attributes[.type] as? FileAttributeType == .typeRegular)
     }
     #expect(!FileManager.default.fileExists(atPath: fixture.layout.contentRoot.url.path))
-    #expect(!FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
+    #expect(FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
 }
 
 @Test("Reopen without an installation receipt fails without creating or opening anything")

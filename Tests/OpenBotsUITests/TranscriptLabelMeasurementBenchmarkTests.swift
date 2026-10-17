@@ -5,11 +5,9 @@ import XCTest
 
 /// What a transcript row costs, measured rather than asserted.
 ///
-/// The transcript felt slow in use. Idle CPU is zero,
-/// so the cost sits in interaction: scrolling, typing, streaming. Every one of
-/// those re-measures the native labels, and a long reply pays for a complete
-/// text layout each time. This file is the receipt for that claim and for any
-/// fix to it: it prints wall time for each layout pass, the label event counts,
+/// Scrolling, typing and streaming re-measure native labels. A long reply can
+/// pay for a complete text layout each time. This benchmark prints wall time
+/// for each layout pass, the label event counts,
 /// and a geometry fingerprint, so two builds can be compared line by line.
 ///
 /// The assertions stay deliberately loose, because the printed numbers are the
@@ -56,7 +54,7 @@ final class TranscriptLabelMeasurementBenchmarkTests: XCTestCase {
         ))
 
         // The size must not move. A cache that changes a height is a bug, not a
-        // speed-up: an earlier relayout loop was a half-point disagreement.
+        // speed-up: even a half-point disagreement can cause a relayout loop.
         XCTAssertEqual(repeated, firstMeasurement, "repeated measurement changed the size")
         XCTAssertGreaterThan(firstMeasurement.height, 0)
         XCTAssertEqual(firstMeasurement.width, width)
@@ -93,9 +91,9 @@ final class TranscriptLabelMeasurementBenchmarkTests: XCTestCase {
 
     // MARK: - The geometry fingerprint
 
-    /// Every measured height this code must keep identical. Printed, not
+    /// Every measured height that must stay identical. Printed, not
     /// asserted against constants, because the fonts are the reader's own: the
-    /// proof is that two builds print the same line.
+    /// receipt is that two builds print the same line.
     func testGeometryFingerprintIsStableAcrossWidths() {
         var fingerprint: [String] = []
         for (name, text) in BenchmarkTranscriptText.fingerprintSamples {
@@ -123,8 +121,8 @@ final class TranscriptLabelMeasurementBenchmarkTests: XCTestCase {
 
     // MARK: - The realistic transcript
 
-    /// Forty rows of the shape a user actually reads: short messages they typed
-    /// and long formatted replies. Hosted, laid out at one width, scrolled,
+    /// Forty synthetic rows: short user messages and long formatted replies.
+    /// Hosted, laid out at one width, scrolled,
     /// re-laid out at a second width and back, and re-rendered in place.
     ///
     /// Timed with the diagnostics off, because that is what the app ships, and

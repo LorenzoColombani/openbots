@@ -24,7 +24,7 @@ struct OfficialClaudeTextReplyServiceTests {
                 do {
                     var bot = try #require(try await store.teammate(id: f.teammateID))
                     let oldRevision = bot.profile.revision
-                    bot.claudeModel = "claude-fable-5"
+                    bot.claudeModel = "claude-fable-5-1"
                     bot.claudeEffort = "xhigh"
                     bot.claudeContextWindow = "long"
                     bot.profile = try bot.profile.revised()
@@ -40,7 +40,7 @@ struct OfficialClaudeTextReplyServiceTests {
         let next = await service.sendText(f.submission()) { _ in }
         #expect(next.outcome == .completed)
         let requests = await runner.requests
-        #expect(requests.map(\.model) == ["claude-haiku-4-5-20251001", "claude-opus-5", "claude-fable-5"])
+        #expect(requests.map(\.model) == ["claude-haiku-4-5-20251001", "claude-opus-5", "claude-fable-5-1"])
         #expect(requests.map(\.effort) == [nil, "low", "xhigh"])
         #expect(requests.map(\.contextWindow) == ["standard", "default", "long"])
         for request in requests {
@@ -62,7 +62,7 @@ struct OfficialClaudeTextReplyServiceTests {
     }
 
     @Test("Unknown or retired saved models remain unchanged and never reach preparation or launch",
-          arguments: ["opus", "claude-sonnet-retired", "unreviewed-model", "sonnet --tools Bash"])
+          arguments: ["claude-fable-5", "claude-sonnet-retired", "unreviewed-model", "sonnet --tools Bash"])
     func unavailableSavedModelIsPreserved(_ model: String) async throws {
         let f = try TextReplyServiceFixture()
         defer { f.remove() }
@@ -143,7 +143,7 @@ struct OfficialClaudeTextReplyServiceTests {
             .sendText(f.submission()) { await progress.append($0) }
         let events = await progress.events
         #expect(events.contains(.modelObserved(requested: "sonnet", observed: "claude-sonnet-5")))
-        let confirmation = ClaudeTextTurnProgress.modelConfirmed(requested: "sonnet", observed: "claude-haiku-4-5-20251001")
+        let confirmation = ClaudeTextTurnProgress.modelConfirmed(requested: "claude-sonnet-5", observed: "claude-haiku-4-5-20251001")
         #expect(events.contains(confirmation) == (mode == .success))
         if mode == .success {
             #expect(result.outcome == .completed)
@@ -193,7 +193,8 @@ struct OfficialClaudeTextReplyServiceTests {
         #expect(evidence.request == request.executionRequest)
         #expect(evidence.modelStatus == .resultMatches)
         #expect(evidence.initializedModel == "claude-sonnet-5" && evidence.resultModel == "claude-sonnet-5")
-        #expect(evidence.request.selection == ClaudeExecutionSelection(model: "claude-sonnet-5", effort: "low", contextWindow: "standard"))
+        #expect(evidence.request.selection == ClaudeExecutionSelection(model: "claude-sonnet-5", effort: "low", contextWindow: "standard",
+                                                                        resolvedModel: "claude-sonnet-5"))
         let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(evidence)) as? [String: Any])
         #expect(Set(json.keys) == ["request", "initializedModel", "resultModel"])
         let reopened = try f.open()
@@ -501,13 +502,12 @@ struct OfficialClaudeTextReplyServiceTests {
         #expect(try await store.storedClaudeSession(conversationID: f.conversationID, teammateID: f.teammateID) == kept)
     }
 
-    /// An edit inside the bot's own folder goes through with no card. A work
-    /// prompt that still said anything that changes files is shown as a card
-    /// first would let a bot promise the user a card that never comes, or hold
-    /// off an edit waiting for one.
+    /// An edit inside the bot's own folder goes through with no card. The work
+    /// prompt must describe that rule so the bot does not promise or wait for
+    /// a card that never comes.
     @Test("A work turn is told which edits go through without a card and that everything else still asks")
     func workPromptTellsTheTruthAboutTheCard() throws {
-        let desk = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Yogurt")
+        let desk = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt")
         let access = try ClaudeTextWorkAccess(workingDirectoryURL: desk, protectedPaths: [])
         let prompt = OfficialClaudeTextReplyService.workPrompt("Base.", access: access, tools: [])
         // The prompt is wrapped for reading; the sentences are checked as prose.
@@ -517,12 +517,15 @@ struct OfficialClaudeTextReplyServiceTests {
         #expect(prose.contains("Anything else that changes files, runs a command with effects, or reaches outside "
             + "those folders is shown to the user as a card first and happens only if they approve it"))
         #expect(!prose.contains("Anything that changes files"))
+        #expect(prose.contains("You have 63 rounds of tool calls this turn before you must answer"))
+        #expect(OfficialClaudeTextReplyService.grantedToolRounds(macControl: false, work: true) == 63)
+        #expect(OfficialClaudeTextReplyService.grantedToolRounds(macControl: true, work: true) == 63)
     }
 
     @Test("A work turn with the shared folder is told where it is, to look there before saying it does not know, and how notes are kept there")
     func workPromptNamesTheSharedFolder() throws {
-        let desk = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Yogurt")
-        let shared = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Shared")
+        let desk = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt")
+        let shared = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Shared")
         let access = try ClaudeTextWorkAccess(workingDirectoryURL: desk, sharedDirectoryURL: shared, protectedPaths: [])
         let prompt = OfficialClaudeTextReplyService.workPrompt("Base.", access: access, tools: [])
         #expect(prompt.contains("The team's shared folder is \(shared.path)."))
@@ -537,8 +540,8 @@ struct OfficialClaudeTextReplyServiceTests {
 
     @Test("A work turn with skills is told where they are, what each is for, to read the one that fits first, and that it cannot change them")
     func workPromptNamesTheSkills() throws {
-        let desk = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Yogurt")
-        let skills = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Skills/Yogurt")
+        let desk = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt")
+        let skills = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Skills/Yogurt")
         let access = try ClaudeTextWorkAccess(workingDirectoryURL: desk, skillsDirectoryURL: skills,
             skills: [ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project"),
                      ClaudeTextWorkSkill(name: "spec", summary: "")], protectedPaths: [])
@@ -604,9 +607,9 @@ struct OfficialClaudeTextReplyServiceTests {
 
     @Test("A work turn is told its helpers get its folders, file, shell and web tools but none of its connectors")
     func workPromptSaysHelpersHaveNoConnectors() throws {
-        // Probed on 2.1.272: a helper's
-        // explicit tools list is its fence, so no MCP tool reaches it, on a connector turn too.
-        let access = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/x/Bots/Yogurt"), protectedPaths: [])
+        // A helper's explicit tools list is its fence, so no MCP tool reaches
+        // it, including on a connector turn.
+        let access = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/Bots/Yogurt"), protectedPaths: [])
         let prompt = OfficialClaudeTextReplyService.workPrompt("Base.", access: access, tools: [])
         #expect(prompt.contains("but none of your connectors"))
         #expect(!prompt.contains("They inherit this model, folders, grants,"))
@@ -615,12 +618,12 @@ struct OfficialClaudeTextReplyServiceTests {
     @Test("Every assembled prompt keeps the sentences about the session's later turns, whatever it was granted, and never calls the session fresh")
     func everyGrantedPromptKeepsTheSessionSentences() throws {
         // A resumed session answers under its first turn's prompt for good
-        // (2.1.278), so a rewording that drops these sentences, or
+        // in CLI 2.1.278, so a rewording that drops these sentences, or
         // calls the session fresh, tells every later turn it has no history.
         // Reading is granted to every bot without Work, so it rides on all of them.
-        let read = try ClaudeTextReadAccess(sharedDirectoryURL: URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Shared"),
+        let read = try ClaudeTextReadAccess(sharedDirectoryURL: URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Shared"),
             protectedPaths: [])
-        let work = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/x/Bots/Yogurt"), protectedPaths: [])
+        let work = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/Bots/Yogurt"), protectedPaths: [])
         let connector = try ClaudeTextConnectorAccess(servers: [
             try ClaudeTextConnectorServer(name: "openbots_sessionprompt", role: .appleContactsRead,
                 program: .installedTool(URL(fileURLWithPath: "/private/tmp/contacts")), options: [], environment: [:])])
@@ -645,8 +648,8 @@ struct OfficialClaudeTextReplyServiceTests {
 
     @Test("A turn without Work is told it may read the shared folder and its skills, and nothing it is told elsewhere still says it has no file access")
     func readPromptCorrectsEveryShape() throws {
-        let read = try ClaudeTextReadAccess(sharedDirectoryURL: URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Shared"),
-            skillsDirectoryURL: URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Skills/Pillow"),
+        let read = try ClaudeTextReadAccess(sharedDirectoryURL: URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Shared"),
+            skillsDirectoryURL: URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Skills/Pillow"),
             skills: [ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project")], protectedPaths: [])
         let connector = try ClaudeTextConnectorAccess(servers: [
             try ClaudeTextConnectorServer(name: "openbots_readprompt", role: .appleContactsRead,
@@ -659,7 +662,7 @@ struct OfficialClaudeTextReplyServiceTests {
             shapes["\(label) connector"] = OfficialClaudeTextReplyService.connectorPrompt(base, access: connector)
             shapes["\(label) web and connector"] = OfficialClaudeTextReplyService.connectorPrompt(
                 OfficialClaudeTextReplyService.grantedToolsPrompt(base, tools: [.webSearch]), access: connector)
-            // The hire switch alone (the hire-probe/a13-hire-only-reads fixture), and hiring beside a connector or the web.
+            // The hire switch alone, and hiring beside a connector or the web.
             shapes["\(label) hire"] = OfficialClaudeTextReplyService.hirePrompt(base, onlyGrant: true, inTeam: false, briefsByHandoff: false)
             shapes["\(label) hire in a team"] = OfficialClaudeTextReplyService.hirePrompt(base, onlyGrant: true, inTeam: true, briefsByHandoff: true)
             shapes["\(label) connector and hire"] = OfficialClaudeTextReplyService.hirePrompt(
@@ -673,64 +676,75 @@ struct OfficialClaudeTextReplyServiceTests {
                            "Nothing beyond these tools is available to you."] {
                 #expect(!corrected.contains(denial), "\(label) still says: \(denial)")
             }
-            #expect(corrected.contains("The team's shared folder is /Users/x/OpenBots Next Preview Content/Shared."), "\(label)")
+            #expect(corrected.contains("The team's shared folder is /Users/fixture/OpenBots Next Preview Content/Shared."), "\(label)")
             #expect(corrected.contains("You can read it but not write there"), "\(label)")
-            #expect(corrected.contains("Your skills are in /Users/x/OpenBots Next Preview Content/Skills/Pillow"), "\(label)")
+            #expect(corrected.contains("Your skills are in /Users/fixture/OpenBots Next Preview Content/Skills/Pillow"), "\(label)")
         }
     }
 
     @Test("A turn that reads without Work is told to give Glob and Grep one of its folders as the path, since with none they search a folder it cannot read")
     func readPromptSaysToSearchInsideAFolder() throws {
-        let shared = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Shared")
-        let skills = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Skills/Pillow")
+        let shared = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Shared")
+        let skills = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Skills/Pillow")
         let pickup = [ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project")]
         let shapes = [try ClaudeTextReadAccess(sharedDirectoryURL: shared, protectedPaths: []),
                       try ClaudeTextReadAccess(skillsDirectoryURL: skills, skills: pickup, protectedPaths: []),
                       try ClaudeTextReadAccess(sharedDirectoryURL: shared, skillsDirectoryURL: skills, skills: pickup, protectedPaths: [])]
         for access in shapes {
             let prompt = OfficialClaudeTextReplyService.readPrompt("Base.", access: access)
-            // Captured on 2.1.272 (read-probe/r2-read-refusals): a Glob or Grep with no path searches the
+            // On CLI 2.1.272, a Glob or Grep with no path searches the
             // turn's run folder, which the protected roots cover, and the CLI refuses it.
             #expect(prompt.contains("When you use Glob or Grep, always pass one of these folders as path"), "\(access.directoryURLs)")
         }
         // A work turn's Glob and Grep search its own folder when given no path; it is not told this.
-        let work = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Pillow"),
+        let work = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Pillow"),
             sharedDirectoryURL: shared, skillsDirectoryURL: skills, skills: pickup, protectedPaths: [])
         #expect(!OfficialClaudeTextReplyService.workPrompt("Base.", access: work, tools: []).contains("always pass one of these folders as path"))
     }
 
-    @Test("A completed turn saves the Claude Code version with its evidence")
+    @Test("A completed turn publishes its saved Claude Code version with the model confirmation")
     func completedTurnSavesTheClaudeCodeVersion() async throws {
         let f = try TextReplyServiceFixture()
         defer { f.remove() }
         let store = try f.open()
         try await f.seed(store)
         let service = f.service(store, prepare: TextReplyPreparer(.ready(try f.target())), runner: TextReplyRunner(.successWithVersion))
-        let result = await service.sendText(f.submission()) { _ in }
+        let progress = TextReplyProgressLog()
+        let result = await service.sendText(f.submission()) { await progress.append($0) }
         #expect(result.outcome == .completed)
         let evidence = try #require(try await service.latestExecutionEvidence(conversationID: f.conversationID))
         #expect(evidence.claudeCodeVersion == "2.1.272" && evidence.resultModel == "claude-sonnet-5")
+        let events = await progress.events
+        let reply = try #require(result.savedReplyMessage)
+        let savedIndex = try #require(events.lastIndex(of: .assistantMessageSaved(reply)))
+        let confirmationIndex = try #require(events.firstIndex(of: .modelConfirmed(
+            requested: evidence.request.selection.expectedResolvedModel,
+            observed: "claude-sonnet-5", claudeCodeVersion: evidence.claudeCodeVersion)))
+        #expect(confirmationIndex > savedIndex)
     }
 
-    @Test("Malformed stream and provider failure preserve partial text as failed", arguments: [ClaudeTextOnlyFailure.invalidStream, .providerFailed])
+    @Test("Malformed stream and provider failure preserve partial text as failed", arguments: [ClaudeTextOnlyFailure.invalidStream, .providerFailed, .authenticationRequired])
     func providerFailure(problem: ClaudeTextOnlyFailure) async throws {
         let f = try TextReplyServiceFixture()
         defer { f.remove() }
         let store = try f.open()
         try await f.seed(store)
         let runner = TextReplyRunner(.failure(problem))
-        let service = f.service(store, prepare: TextReplyPreparer(.ready(try f.target())), runner: runner)
+        let prepare = TextReplyPreparer(.ready(try f.target()))
+        let service = f.service(store, prepare: prepare, runner: runner)
         let result = await service.sendText(f.submission()) { _ in }
         #expect(result.outcome == (problem == .invalidStream
             ? .failed(.invalidResponse, refusedFrame: ClaudeTextRefusedFrame(code: .invalidJSON, claudeCodeVersion: nil))
-            : .failed(.runtimeUnavailable)))
+            : .failed(problem == .authenticationRequired ? .authenticationRequired : .runtimeUnavailable)))
         #expect(result.savedUserMessage?.deliveryState == .failed)
         #expect(result.savedReplyMessage?.deliveryState == .failed)
         #expect(result.savedReplyMessage?.parts.first?.content == .text(TextReplyRunner.partialText))
-        let code: TextTurnDiagnosticCode = problem == .providerFailed ? .providerFailure : .invalidJSON
+        let code: TextTurnDiagnosticCode = problem == .invalidStream ? .invalidJSON : .providerFailure
         #expect(result.savedReplyMessage?.parts.count == 2)
         #expect(result.savedReplyMessage?.parts.last?.content == .status("OpenBots diagnostic: \(code.rawValue)"))
         #expect(try await store.runs(conversationID: f.conversationID, limit: 10).first?.state == .failed)
+        #expect(await prepare.calls == 1)
+        #expect(await runner.requests.count == 1)
     }
 
     @Test("A failed reply is kept for diagnosis, a whole one is not")
@@ -883,8 +897,8 @@ struct OfficialClaudeTextReplyServiceTests {
         #expect(correctionRun.request.supersededRunID == stoppedRun.id)
     }
 
-    // A stopped run had written bees.md and ants.md; a correction that saw
-    // only "Writing the three documents now." would write all three again.
+    // The correction needs the stopped run's work record to avoid repeating
+    // completed file writes based only on a partial prose response.
     @Test("A correction's prompt quotes what the stopped run did, from its record, and only that run's lines", .timeLimit(.minutes(1)))
     func correctionQuotesTheStoppedRunsRecord() async throws {
         let f = try TextReplyServiceFixture()
@@ -1094,7 +1108,7 @@ struct OfficialClaudeTextReplyServiceTests {
         #expect(macRounds == ClaudeTextOnlyCommandBuilder.maximumMacControlTurns - 1)
         #expect(OfficialClaudeTextReplyService.grantedToolsPrompt(prompt, tools: [.webSearch], rounds: macRounds)
             .contains("You have 63 rounds of tool calls this turn"))
-        let desk = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/x/Bots/Yogurt"), protectedPaths: [])
+        let desk = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/Bots/Yogurt"), protectedPaths: [])
         #expect(OfficialClaudeTextReplyService.workPrompt(prompt, access: desk, tools: [], rounds: macRounds)
             .contains("You have 63 rounds of tool calls"))
         #expect(OfficialClaudeTextReplyService.grantedToolRounds(macControl: false) == OfficialClaudeTextReplyService.grantedToolRounds)
@@ -1168,10 +1182,10 @@ private actor TextReplyRunner: ClaudeTextOnlyRunning {
         }
         switch mode {
         case .failure(let failure):
-            await onEvent(.diagnostic(failure == .providerFailed ? .providerFailure : .invalidJSON))
+            await onEvent(.diagnostic(failure == .providerFailed || failure == .authenticationRequired ? .providerFailure : .invalidJSON))
             return .failed(failure)
         case .refusedWire:
-            // What 2.1.272 did: named itself in the init
+            // CLI 2.1.272 named itself in the init
             // frame, then the parser refused the frame's permission mode.
             await onEvent(.runtimeVersion("2.1.272"))
             await onEvent(.diagnostic(.initializationPermissionMismatch))
@@ -1283,8 +1297,8 @@ private struct TextReplyServiceFixture: Sendable {
 
     @Test("A profile edit between two turns starts a new session that quotes the history and says so; an unchanged profile resumes")
     func profileEditRestartsTheSessionAndAnUnchangedProfileResumes() async throws {
-        // The CLI ignores the system prompt on --resume (2.1.272): a resumed
-        // session keeps the prompt it started with. So a bot
+        // CLI 2.1.272 ignores the system prompt on --resume: a resumed session
+        // keeps the prompt it started with. So a bot
         // whose profile changed must not resume, or it would answer under the
         // old profile for as long as the session lives.
         let f = try TextReplyServiceFixture()
@@ -1332,7 +1346,7 @@ private struct TextReplyServiceFixture: Sendable {
     @Test("A switch turned on between two turns starts a new session under the prompt that says so; unchanged since, the next turn resumes it")
     func aGrantChangeRestartsTheSession() async throws {
         // The CLI keeps the first turn's prompt for the whole session, grant
-        // paragraphs included (2.1.278): a session is kept under the
+        // paragraphs included in CLI 2.1.278: a session is kept under the
         // prompt actually handed to the CLI, so a new grant is never silent.
         let f = try TextReplyServiceFixture()
         defer { f.remove() }

@@ -1,73 +1,22 @@
 #!/usr/bin/env node
 "use strict";
 /*
- * OpenBots apple-messages — texts from the user's own number, on the right
- * service, through Apple Messages; and their conversations, read back as real
- * text.
- *
- * Ported into OpenBots Next (every send asked on a card) from the old app's
- * Resources/mcp/messages-server.js. Carried over
- * whole: the three-tier service resolver, the downgrade rule, the
- * attributedBody decoder, the argv-only AppleScript, the conversation route and
- * its buddy fallback, and the delivery check that never calls a hand-off a
- * delivery. Taken out, each for a reason:
- *
- *  - The approve-before-send outbox and its executor mode. This app answers
- *    the CLI's permission channel, so the approval card stands between the
- *    bot's call and this file: by the time send_message runs, the user has read
- *    the recipient, the service and the exact words and pressed Approve. The mail
- *    sender dropped its outbox for the same reason.
- *  - The script's own marker fence and its self-test hook. The app launches
- *    this server only through its fence proxy, which wraps every tool result.
- *  - The contacts search tool. It read Contacts' own database files under Full Disk
- *    Access, which would have handed any bot granted Messages the user's whole
- *    address book past the Contacts connector's own switch. Names are resolved through
- *    that connector.
- *  - `service: "auto"` on a send. The card has to show the service a text is
- *    asked to go out on, so check_message_service decides it BEFORE the send
- *    and the send takes that concrete answer. After approval this file may
- *    refuse; it never rewrites the recipient or the words. The service is a
- *    request, not a promise, and every card says Messages may still send it on
- *    another one: into a conversation Messages already keeps, `send … to chat
- *    id` takes no service and Messages picks it, and an RCS text with no
- *    conversation goes through the SMS relay, because the scripting layer's
- *    RCS account is disabled.
- *
- * WHY THIS EXISTS: a connector that cannot tell iMessage from RCS or SMS and
- * sends iMessages by default fails for Android users. Anthropic's Desktop extension
- * hardcodes `service type = iMessage`, and to an Android phone that is a
- * guaranteed non-delivery.
- *
- * VERIFIED, and the results still shape the design:
- *  1. Messages' scripting dictionary has exactly three service types — SMS,
- *     iMessage, RCS.
- *  2. `buddy "<anything>" of <any service>` ALWAYS resolves, even for a made-up
- *     number on the wrong service, so a wrong send raises no error and "try
- *     iMessage, fall back to SMS" cannot exist. That is why the failure is
- *     silent.
- *  3. chat.db records the service per message, per conversation and per
- *     address: the same signal that colours a bubble blue or green.
- * Hence: the service comes from HISTORY, never from a hopeful attempt, and the
- * outcome is read back from chat.db rather than trusted from the send.
- *
- * WHAT chat.db TYPICALLY HOLDS: many more conversations and addresses than
- * messages, since Messages keeps only recent message rows locally — so the
- * conversation and address tiers answer for almost everybody. Most messages
- * have no plain text; they carry an attributedBody, which is decoded below.
- * Nearly all conversation ids are `any;-;<address>`, the rest are group chats.
- * Some of the user's own sends can be recorded as downgraded.
- *
- * PERMISSIONS. The server runs as a child of OpenBots Next, so macOS asks
- * about OpenBots Next itself: Full Disk Access to read chat.db (macOS never
- * prompts for that one; it is turned on by hand) and Automation → Messages to
- * send (asked the first time a text goes out). The database path is resolved
- * by the app and passed in: the CLI runs with an app-owned HOME, so a path
- * built from HOME would name a folder with no messages in it.
- *
- * MESSAGES IS STARTED HIDDEN, and only for a send. An Apple event to an app
- * that is not running launches it, and a send that throws a window onto the
- * user's screen mid-turn is a defect the suite cannot see. Reads go through sqlite3
- * and send no Apple event, so they never start Messages at all.
+ * OpenBots apple-messages reads conversations and sends texts through Apple Messages using an
+ * explicitly approved recipient, service and body.
+ * The app's permission channel supplies approval before send_message runs, and fence-proxy
+ * wraps tool results. Contact lookup is separate and requires the Contacts connector's own
+ * grant.
+ * Resolve the service before approval; do not accept auto on send. After approval, refuse
+ * unsafe inputs rather than rewriting recipient or text. Messages can still choose a different
+ * transport when sending into an existing chat; RCS without a chat uses the SMS relay because
+ * its scriptable account is disabled.
+ * A buddy lookup can resolve even for an invented number on the wrong service, so a successful
+ * scripting call does not prove service support or delivery. Resolve service from message, chat
+ * and handle history; check delivery outcomes in chat.db.
+ * The child process attributes Full Disk Access and Automation permission to OpenBots Next. The
+ * app supplies the database path because the CLI has an app-owned HOME. Reads use sqlite3
+ * without launching Messages. Sends start Messages only when needed, hidden and in the
+ * background.
  */
 
 const { execFile } = require("child_process");
@@ -96,13 +45,10 @@ const LAUNCH_POLL_MS = 250;
 
 // ─────────────────────────────────────────────── The shape a send may take
 //
-// The approval card is built in Swift from the same input this file acts on,
-// and the two MUST read it identically — a card and a sender drift apart as
-// soon as each normalises a field its own way. So nothing here normalises anything: every field is a
-// string or the send is refused, the recipient is never trimmed, and the text
-// is passed through unchanged or refused whole. The mirror of every literal
-// below is `AppleMessagesSendProposal` in ClaudeTextConnectorApprovalPolicy.swift,
-// and a character sweep in AppleMessagesScriptTests holds the two together.
+// The approval card and this sender must read the same input identically. Require strings,
+// never trim recipients, and send text unchanged or refuse it whole.
+// `AppleMessagesSendProposal` in ClaudeTextConnectorApprovalPolicy.swift mirrors these rules;
+// AppleMessagesScriptTests sweeps characters through both implementations.
 
 /// Counted in Unicode scalars on both sides (`Array.from` here,
 /// `unicodeScalars.count` in Swift). The card's detail is a heading of under two
@@ -148,8 +94,8 @@ const SUBDIVISION_FLAG_TAGS = [
 function isRefusedAlone(cp) {
     if (cp === 0x09 || cp === 0x0A) return false;
     if (cp < 0x20 || (cp >= 0x7F && cp <= 0x9F) || cp === 0x2028 || cp === 0x2029) return true;
-    // U+FFFC stands in for an attachment and U+2800 is an empty braille cell:
-    // both take up space and draw nothing.
+    // U+FFFC stands in for an attachment and U+2800 is an empty braille cell: both take up
+    // space and draw nothing.
     if (cp === 0x2800 || cp === 0xFFFC) return true;
     if (cp >= 0xFFF9 && cp <= 0xFFFB) return true;
     // A lone surrogate cannot exist in a Swift string at all, so the card could
@@ -197,13 +143,12 @@ const takesSelector = (cp) => !isKeycapBase(cp) && EMOJI.test(String.fromCodePoi
 /// A character Unicode draws as an emoji unless it is asked for text.
 const drawnAsEmoji = (cp) => EMOJI_PRESENTATION.test(String.fromCodePoint(cp));
 
-/// The sentence refusing a text whose lines the card would lay out as empty
-/// space, or null. The first and the last line must hold something other than
-/// whitespace, and no two blank lines may follow each other: the card's box
-/// shows about six lines before it scrolls and a trackpad hides the scroller,
-/// so "Sure, see you then", forty line breaks and a second paragraph read as
-/// the first line alone. One blank line between
-/// paragraphs passes. The mirror is `AppleMessagesSendProposal.lineShapeRefusal`.
+/// The sentence refusing a text whose lines the card would lay out as empty space, or null. The
+/// first and the last line must hold something other than whitespace, and no two blank lines
+/// may follow each other: the card's box shows about six lines before it scrolls and a trackpad
+/// hides the scroller, so "Sure, see you then", forty line breaks and a second paragraph read
+/// as the first line alone. One blank line between paragraphs passes. The mirror is
+/// `AppleMessagesSendProposal.lineShapeRefusal`.
 function lineShapeRefusal(cps) {
     const blankLines = [];
     let blank = true;
@@ -229,20 +174,12 @@ function lineShapeRefusal(cps) {
     return null;
 }
 
-/// The index of the first code point the text may not carry where it stands,
-/// or -1. The mail card's hidden set alone is twenty characters, and it would
-/// let 4,154 default-ignorable ones pass both sides: tag characters after "OK"
-/// could spell a code the card drew as "OK". Four are
-/// content, and only in their place: U+200C between letters of the scripts that
-/// spell words with it (Persian and Urdu spelled right); U+200D between two
-/// emoji, looking past one presentation selector and one skin tone so ❤️‍🔥 and
-/// 🏳️‍🌈 pass, or after a virama; U+FE0F only where it turns a text-drawn
-/// character into its emoji, or on a keycap's digit, # or *, and U+FE0E only
-/// where it turns an emoji into its text drawing. Beside anything else they draw
-/// nothing and can carry a code, in a card whose pixels are the plain
-/// sentence's. Tag
-/// characters are content only inside the flags of England, Scotland and Wales.
-/// The mirror is `AppleMessagesSendProposal.firstRefused(in:)`.
+/// Return the first disallowed code point's index or -1. Default-ignorable characters can carry
+/// content invisible on the approval card.
+/// Allow U+200C within scripts that use it, U+200D between emoji past one selector and skin
+/// tone or after a virama, U+FE0F when selecting emoji presentation or keycaps, and U+FE0E when
+/// selecting text presentation. Allow tags only inside England, Scotland and Wales flag
+/// sequences. Mirror `AppleMessagesSendProposal.firstRefused(in:)`.
 function firstRefusedIndex(cps) {
     const flagTags = new Set();
     for (let start = 0; start < cps.length; start++) {
@@ -398,9 +335,9 @@ async function sql(query) {
     return trimmed ? JSON.parse(trimmed) : [];
 }
 
-/// What a refused read looks like, said once and in plain words. Full Disk
-/// Access is never asked for by macOS: it is a switch the user turns on, and
-/// until they do, sqlite3 cannot open the database at all.
+/// What a refused read looks like, said once and in the user's words. Full Disk Access
+/// is never asked for by macOS: it is a switch they turn on themselves, and until they
+/// do, sqlite3 cannot open the database at all.
 function readFailure(err) {
     if (err && err.noDatabase) return err.message;
     const detail = String((err && (err.stderr || err.message)) || "").trim();
@@ -438,11 +375,9 @@ async function ensureMessagesRunning() {
 }
 
 /**
- * AppleScript with the recipient and body passed as `argv`, never
- * interpolated: `osascript -` reads the script from stdin and hands the
- * remaining arguments to `on run argv`. Verified with unicode,
- * newlines, embedded quotes and backslashes — nothing can break out of a string
- * literal because nothing is ever inside one.
+ * Pass recipient and body as argv to `osascript -`, which reads source from stdin and passes
+ * remaining arguments to `on run argv`. Unicode, line breaks, quotes and backslashes remain
+ * values rather than executable source.
  */
 function osascript(script, argv) {
     return run(OSASCRIPT, ["-", ...argv], script);
@@ -463,7 +398,7 @@ const digitsOf = (s) => String(s || "").replace(/\D+/g, "");
 const sqlText = (s) => "'" + String(s).replace(/'/g, "''") + "'";
 const appleToUnix = (d) => {
     const n = Number(d) || 0;
-    // Current rows are nanoseconds; older macOS wrote plain seconds.
+    // Current Messages rows store nanoseconds; older macOS versions stored plain seconds.
     return (n > 1e11 ? n / 1e9 : n) + APPLE_EPOCH;
 };
 const iso = (d) => new Date(appleToUnix(d) * 1000).toISOString();
@@ -506,8 +441,8 @@ const TAIL_DIGITS = 9;
 /**
  * A SQL predicate matching one recipient against a handle-ish column. Phone
  * numbers match on their last 9 digits, so "06 39 98 12 34", "+33639981234"
- * and "0639981234" all find the same person — chat.db stores E.164, the user and
- * their contacts do not. This lives in the LOOKUP only: a send addresses exactly the
+ * and "0639981234" all find the same person — chat.db stores E.164, the user and their
+ * contacts do not. This lives in the LOOKUP only: a send addresses exactly the
  * handle on the card.
  */
 function matchClause(recipient, column) {
@@ -516,10 +451,9 @@ function matchClause(recipient, column) {
     }
     const digits = digitsOf(recipient);
     if (!digits) return "0";
-    // A SHORT input must match EXACTLY, never by suffix. Probed:
-    // a junk recipient reduced to the digits "11", and a `LIKE '%11'` suffix
-    // match resolved it to a REAL contact. Short codes (bank senders and the
-    // like) are legitimate, so they match exactly rather than being refused.
+    // Short recipient inputs require exact matching. Suffix matching could resolve a short
+    // arbitrary digit sequence to an unrelated contact. Legitimate short-code senders remain
+    // supported through exact matches.
     if (digits.length < TAIL_DIGITS) {
         return `(${column} = ${sqlText(digits)} OR ${column} = ${sqlText("+" + digits)})`;
     }
@@ -527,15 +461,11 @@ function matchClause(recipient, column) {
 }
 
 /**
- * Three independent signals, strongest first. Messages typically keeps far
- * fewer message rows than conversations and addresses, so per-message evidence
- * covers a small slice of the people the user texts. `chat` and `handle` answer
- * for almost everybody.
- *
- *  1. message.service  — the service Messages last really used. Definitive.
- *  2. chat.service_name — the thread Messages would reopen for this person.
- *  3. handle.service   — the addresses Messages has resolved for them at all.
- *                        An iMessage row means Apple's directory answered yes.
+ * Resolve service from three independent signals, strongest first: message.service records the
+ * latest actual transport; chat.service_name records the conversation transport; handle.service
+ * records resolved address services. Retained messages can be sparse, so chat and handle data
+ * remain necessary fallbacks. An iMessage handle indicates that Apple's directory recognized
+ * the address.
  */
 const PREFERENCE = { iMessage: 3, RCS: 2, SMS: 1 };
 
@@ -557,11 +487,9 @@ async function detect(recipient) {
                      ORDER BY date DESC LIMIT 200`.replace(/\s+/g, " "))
         : [];
 
-    // The user's OWN downgraded sends are not evidence about the contact.
-    // When Messages cannot use a disabled RCS account, an "as RCS" send to an
-    // RCS contact is recorded as SMS with `was_downgraded = 1`, and those rows —
-    // the newest ones — would teach this resolver that the contact is an SMS
-    // contact while their inbound messages are RCS.
+    // Ignore outgoing downgraded sends as service evidence. A send through a disabled RCS
+    // scripting account may be recorded as SMS with was_downgraded=1 even when incoming
+    // messages prove RCS support.
     const downgraded = msgs.filter((m) => Number(m.is_from_me) && Number(m.was_downgraded));
     const evidence = msgs.filter((m) => !(Number(m.is_from_me) && Number(m.was_downgraded)));
 
@@ -625,8 +553,8 @@ function chooseService(det) {
 }
 
 /// The handle a send should address when Messages has no row for this person:
-/// the number as given with only the formatting taken out, or the address
-/// as given. Nothing is added — no country code is guessed.
+/// the number as the user gave it with only the formatting taken out, or the address
+/// as they gave it. Nothing is added — no country code is guessed.
 function handleAsGiven(recipient) {
     const r = String(recipient).trim();
     if (isEmail(r)) return r;
@@ -636,14 +564,9 @@ function handleAsGiven(recipient) {
 // ─────────────────────────────────────────────────────────────────── reading
 
 /**
- * Message bodies mostly do NOT live in `message.text`. In most rows the body
- * is inside `attributedBody`, a classic NeXT `streamtyped` archive. The layout
- * after the class names is:
- *     … "NSString" 01 94 84 01 2b <length> <utf-8 bytes>
- * where <length> is one byte, or 0x81 + uint16le, or 0x82 + uint32le. Every
- * archive inspected had the `+` twelve bytes after the class name, both
- * NSMutableAttributedString and NSAttributedString, with both the 0x81 length
- * form and the one-byte form common.
+ * Message bodies may reside in `attributedBody` rather than `message.text`. Decode the NeXT
+ * streamtyped archive after its class names: `NSString`, bytes 01 94 84 01 2b, length, then
+ * UTF-8 data. The length is one byte, 0x81 plus uint16le, or 0x82 plus uint32le.
  */
 function decodeAttributedBody(hex) {
     if (!hex) return null;
@@ -676,13 +599,9 @@ const bodyOf = (row) => {
     try { return decodeAttributedBody(row.blob) || ""; } catch (_) { return ""; }
 };
 
-/// The answer's own lines start at the margin with a `[date]`; every line of a
-/// message body carries this prefix instead. A PREFIX, not an indent: a body
-/// is written by whoever sent it, it has real line breaks, and a body that
-/// could put a line at the margin could forge a whole message — "[date] the
-/// user (iMessage):" and words the user never wrote. Depth can be matched by a line
-/// of prose; a quote mark on every line cannot (the calendar reader learned
-/// this too).
+/// Own message headings start at the margin with a date. Prefix every line of untrusted message
+/// text with a quote marker so embedded line breaks cannot forge a new heading, sender or
+/// service. Indentation alone is insufficient because ordinary prose can imitate it.
 const QUOTED = "    > ";
 
 function quoted(value) {
@@ -697,14 +616,10 @@ function quoted(value) {
 // ───────────────────────────────────────────── the chats this bot may read
 
 /**
- * The conversations this bot may read, by Messages' own `chat.guid`: the ported
- * server read across all of the user's conversations, so a bot holding it read
- * their whole history and whoever texted them wrote into that bot's input. The app sends the list as a JSON array
- * in base64 (`AppleMessagesChatScope.environmentValue`). Anything else — no
- * variable, a value of another shape, an empty guid — is null, and null reads
- * nothing: a build that forgot to say is not a bot the user allowed to read it all.
- * A guid is compared whole and exactly, never trimmed or folded; the app lists
- * the same column byte for byte.
+ * Limit reads to exact Messages chat.guid values supplied by the app as a base64 JSON array
+ * (`AppleMessagesChatScope.environmentValue`). Missing, malformed or empty-guid inputs become
+ * null, which reads nothing. Compare guids byte-for-byte, without trimming or folding, matching
+ * the app's conversation directory.
  */
 const CHAT_SCOPE = parseChatScope(process.env.OPENBOTS_MESSAGES_CHATS);
 const NOTHING_READ = "Nothing was read.";
@@ -835,10 +750,10 @@ async function checkService(args) {
         det = await detect(recipient);
         // Whether this person is in a chat this bot may read. The service is
         // decided from everything Messages knows either way, because a send
-        // must go out on the right one; but the history behind it — when the
-        // user last texted them, which conversations exist, who else shares
-        // their digits — is a read of the user's conversations, and is shown
-        // only for someone in the chats the user chose.
+        // must go out on the right one; but the history behind it — when the user
+        // last texted them, which conversations exist, who else shares their
+        // digits — is a read of their conversations, and is shown only for
+        // someone in the chats they chose.
         if (CHAT_SCOPE && CHAT_SCOPE.length) {
             const chats = await namedChats();
             inChats = chats.length > 0 && (await chatsWith(recipient, chats)).length > 0;
@@ -848,20 +763,16 @@ async function checkService(args) {
     const given = oneLine(recipient);
     const handle = det.canonical ? String(det.canonical) : handleAsGiven(recipient);
     if (!inChats) return outsideTheChats(det, given, handle, service);
-    // Facts only, one to a line. Every answer reaches the bot inside the fence
-    // proxy's markers, which call it data and never instructions, so what to
-    // do with a Handle, an Ambiguous line or a missing handle is the Messages
-    // role's prompt, not this answer.
+    // Facts only, one to a line. Every answer reaches the bot inside the fence proxy's markers,
+    // which call it data and never instructions, so what to do with a Handle, an Ambiguous line
+    // or a missing handle is the Messages role's prompt, not this answer.
     const lines = [
         `Recipient: ${given}${det.canonical && det.canonical !== recipient
             ? ` (known to Messages as ${oneLine(det.canonical)})` : ""}`,
     ];
-    // Suffix matching absorbs formatting, but the numbers it finds can still
-    // differ: one contact can file the same number under two spellings, with
-    // and without a mobile prefix, and two different people can
-    // share nine trailing digits. Never choose silently: say so, and let the
-    // user pick. While the choice is theirs, no handle is offered to send to — a "To send" line
-    // above the ambiguity once named one of them as though it were made.
+    // Suffix matching can return distinct handles, such as +521 and +52 forms, or unrelated
+    // numbers sharing nine trailing digits. Report ambiguity and require a choice. Offer no
+    // send handle until that choice is resolved.
     const distinct = [...new Set([...det.handles.map((h) => h.id), ...det.chats.map((c) => c.chat_identifier)]
         .map((value) => oneLine(value)))];
     const distinctPeople = [...new Set(distinct.map((value) => digitsOf(value) || value.toLowerCase()))];
@@ -935,17 +846,11 @@ return "sent"
 end run`;
 
 /**
- * Send INTO an existing conversation. Verified read-only:
- * conversation ids on this macOS are `any;-;<number>` and `chat id "any;-;…"`
- * resolves (the old `SMS;-;…` form does not). Messages then chooses the
- * transport per message exactly as its own window does — which is the only
- * route to RCS here: the scripting layer's RCS service is `enabled=false,
- * disconnected`, so `buddy … of (service whose service type = RCS)` hands the
- * message to a dead account and Messages downgrades it to SMS.
- *
- * `tell application "Messages"` is the form proven live on a real Mac. If its
- * terminology ever stops resolving, `application id "com.apple.MobileSMS"` is
- * the same app by bundle id.
+ * Send into an existing conversation using `any;-;<number>` chat ids. Messages selects
+ * transport per message. This supports RCS where the scriptable RCS service is disabled and a
+ * direct buddy send would downgrade to SMS.
+ * Use `tell application "Messages"`; its bundle-id equivalent is `application id
+ * "com.apple.MobileSMS"`.
  */
 const SEND_TO_CHAT_SCRIPT = `on run argv
 set theChat to item 1 of argv
@@ -973,14 +878,13 @@ async function conversationGUID(recipient) {
 }
 
 /**
- * Messages' own wording for a conversation its scripting layer cannot see, and
- * nothing else: the error has to END with that sentence about the very
- * conversation asked for, with either apostrophe. -1728 is Apple's "no such
- * object", which Messages raises for more than an unloaded conversation, and
- * after any other failure the first send may have gone: the buddy route would
- * then send a second text no card showed. Matching any -1728 would do exactly
- * that. A text that names a chat id never falls back
- * either, since an error quoting its words could end with the sentence.
+ * Messages' own wording for a conversation its scripting layer cannot see, and nothing else:
+ * the error has to END with that sentence about the very conversation asked for, with either
+ * apostrophe. -1728 is Apple's "no such object", which Messages raises for more than an
+ * unloaded conversation, and after any other failure the first send may have gone: the buddy
+ * route would then send a second text no card showed. Matching any -1728 did exactly that. A
+ * text that names a chat id never falls back either, since an error quoting its words could end
+ * with the sentence.
  */
 function isUnaddressableChat(err, chat, text) {
     const detail = String((err && (err.stderr || err.message)) || "").trim();
@@ -1010,8 +914,8 @@ async function confirm(rowids, sinceUnix, sentText, requested) {
         } catch (_) {
             return null;   // a WAL or permission hiccup: say nothing rather than guess
         }
-        // Matched on the TEXT: the window is time-based, so a text the user types
-        // to the same person on their iPhone mid-poll would otherwise be reported as
+        // Matched on the TEXT: the window is time-based, so a text the user types to
+        // the same person on their iPhone mid-poll would otherwise be reported as
         // THIS send's outcome.
         const r = rows.find((row) => bodyOf(row).trim() === wanted);
         if (!r) continue;
@@ -1039,8 +943,8 @@ async function confirm(rowids, sinceUnix, sentText, requested) {
 async function sendMessage(args) {
     const refused = sendRefusal(args);
     if (refused) return { isError: true, text: refused };
-    // No outbox here, and no lookup that could change the answer. The card
-    // the user approved showed exactly these three values, and they are sent as they are.
+    // No outbox here, and no lookup that could change the answer. The card the user
+    // approved showed exactly these three values, and they are sent as they are.
     const { recipient, service, text } = args;
     const startedAt = Date.now() / 1000;
 
@@ -1067,12 +971,10 @@ async function sendMessage(args) {
                 await osascript(SEND_TO_CHAT_SCRIPT, [chat, text]);
                 route = `into their conversation (${oneLine(chat)}) — Messages picks iMessage, RCS or SMS itself`;
             } catch (err) {
-                // Messages' scripting layer exposes only the recently loaded
-                // conversations (often a few dozen out of hundreds), so a
-                // conversation chat.db holds can still be unaddressable. The
-                // conversation route is an optimisation; the buddy route is what
-                // always worked. A timeout is NOT this error and falls through
-                // to the outcome-unknown answer below.
+                // Messages' scripting layer exposes only the recently loaded conversations, so
+                // a conversation chat.db holds can still be unaddressable. The conversation
+                // route is an optimisation; the buddy route is what always worked. A timeout is
+                // NOT this error and falls through to the outcome-unknown answer below.
                 if (!isUnaddressableChat(err, chat, text) || err.killed || err.signal) throw err;
                 await osascript(SEND_SCRIPT(buddyService), [recipient, text]);
                 route = `${buddyRoute} (their conversation exists but Messages could not address it by id — only recently loaded conversations are)`;
@@ -1181,12 +1083,10 @@ const HANDLERS = {
 
 function write(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
 
-/// One request per 0x0A, split on that byte and nowhere else: the fence proxy's
-/// own framing. `readline` also ends a line at U+000D, U+2028 and U+2029, and
-/// JSON.stringify leaves the last two raw inside a string, so a call carrying
-/// one arrived as halves that were each a parse error, and the call itself was
-/// never answered (Node v26.8.2). Split as bytes, a
-/// character cut across two reads is whole again before it is decoded.
+/// Use one request per 0x0A byte, matching fence-proxy framing. `readline` also splits at
+/// U+000D, U+2028 and U+2029, while JSON.stringify can leave the last two inside strings. Byte
+/// framing prevents valid calls from splitting into parse errors and rejoins split UTF-8
+/// characters before decoding.
 function onRequestLine(input, handle) {
     let pending = Buffer.alloc(0);
     input.on("data", (chunk) => {

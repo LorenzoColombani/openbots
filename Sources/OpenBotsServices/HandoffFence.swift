@@ -120,6 +120,7 @@ public enum HandoffFence {
         """
     }
 
+
     /// Appended to the receiver's prompt for a handoff leg. The reply it
     /// produces is the member's report to the lead: kept whole on the
     /// conversation's record, and compiled by the lead for the user.
@@ -130,8 +131,8 @@ public enum HandoffFence {
         """
     }
 
-    /// Appended to the lead's prompt when it answers a member's report. The
-    /// report is the message being answered; the user never saw it.
+    /// Appended to the lead's prompt when it answers a member's report. The report is the
+    /// message being answered; the user never saw it.
     public static func reportInstructions(member: Teammate, remainingHops: Int = 0) -> String {
         """
 
@@ -143,6 +144,7 @@ public enum HandoffFence {
     public static func renderReport(_ record: HandoffRecord, member: Teammate, reply: String) -> String {
         "\(member.profile.displayName) reports back on \"\(record.brief.goal)\":\n\n\(reply)"
     }
+
 
     /// Said after the returned results when their files are more than one
     /// reply holds: the text comes whole, the files

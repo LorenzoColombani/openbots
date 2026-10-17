@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import OpenBotsExecutionRules
 
+
 // The clearest allow and deny rows of OpenBotsExecutionRules' three decision
 // surfaces: a first file rather than full coverage.
 
@@ -38,7 +39,7 @@ struct BrokerPolicyDecisionTableTests {
             case .containedWorkspaceCommand:
                 target = try file("/private/tmp/bot.noindex/work", .appOwned, scope: .narrowFolder)
             default:
-                target = try file("/Users/someone/Documents/a.txt")
+                target = try file("/Users/fixture/Documents/a.txt")
             }
             let frozen = try BrokerPolicy.freeze(proposal(operation, [target]))
             let expected: ApprovalRequirement = operation == .readOnlyExternalAccess
@@ -50,7 +51,7 @@ struct BrokerPolicyDecisionTableTests {
     @Test("Malformed targets and shapes are refused before anything is frozen")
     func refusedShapes() throws {
         #expect(throws: BrokerPolicyError.self) { try file("relative/path") }
-        #expect(throws: BrokerPolicyError.self) { try file("/Users/someone/../etc/passwd") }
+        #expect(throws: BrokerPolicyError.self) { try file("/Users/fixture/../etc/passwd") }
         #expect(throws: BrokerPolicyError.self) {
             try CanonicalTarget(kind: .externalResource, canonicalIdentifier: "https://example.com",
                                 location: .userOwnedLocal, scope: .exactItem)
@@ -58,14 +59,14 @@ struct BrokerPolicyDecisionTableTests {
         #expect(throws: BrokerPolicyError.invalidTarget("action requires at least one exact target")) {
             try BrokerPolicy.freeze(proposal(.overwrite, []))
         }
-        let a = try file("/Users/someone/a.txt")
-        #expect(throws: BrokerPolicyError.duplicateTarget("filesystem:/Users/someone/a.txt:exactItem")) {
+        let a = try file("/Users/fixture/a.txt")
+        #expect(throws: BrokerPolicyError.duplicateTarget("filesystem:/Users/fixture/a.txt:exactItem")) {
             try BrokerPolicy.freeze(proposal(.overwrite, [a, a]))
         }
         #expect(throws: BrokerPolicyError.exclusiveCreateRequiresOneExactItem) {
-            try BrokerPolicy.freeze(proposal(.exclusiveCreateNewArtifactDelivery, [a, try file("/Users/someone/b.txt")]))
+            try BrokerPolicy.freeze(proposal(.exclusiveCreateNewArtifactDelivery, [a, try file("/Users/fixture/b.txt")]))
         }
-        let providerRoot = try file("/Users/someone/Library/CloudStorage/Drive", .providerManaged,
+        let providerRoot = try file("/Users/fixture/Library/CloudStorage/Drive", .providerManaged,
                                     scope: .narrowFolder, providerRoot: true)
         #expect(throws: BrokerPolicyError.providerRootRecursiveMutationForbidden) {
             try BrokerPolicy.freeze(proposal(.destructiveFilesystemChange, [providerRoot],
@@ -78,7 +79,7 @@ struct BrokerPolicyDecisionTableTests {
 
     @Test("A receipt authorizes its own action once, inside its window, and nothing else")
     func receiptLifecycle() throws {
-        let target = try file("/Users/someone/a.txt")
+        let target = try file("/Users/fixture/a.txt")
         let action = try BrokerPolicy.freeze(proposal(.overwrite, [target]))
         let other = try BrokerPolicy.freeze(proposal(.overwrite, [target]))
         let ledger = ApprovalLedger()
@@ -207,7 +208,7 @@ struct ContainedBoundaryPolicyDecisionTableTests {
 
     @Test("A probe root outside /private/tmp or a .noindex folder, or not canonical, is refused")
     func probeRoots() throws {
-        #expect(throws: ContainedBoundaryPolicyError.self) { try paths(root: "/Users/someone/run.noindex") }
+        #expect(throws: ContainedBoundaryPolicyError.self) { try paths(root: "/Users/fixture/run.noindex") }
         #expect(throws: ContainedBoundaryPolicyError.self) { try paths(root: "/private/tmp/plain/run") }
         #expect(throws: ContainedBoundaryPolicyError.self) { try paths(root: "/private/tmp/x.noindex/../escape") }
         _ = try paths()

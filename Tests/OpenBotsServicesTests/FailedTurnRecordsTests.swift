@@ -2,10 +2,8 @@ import Foundation
 import Testing
 @testable import OpenBotsServices
 
-// A failed reply keeps what led to it, the last few failures, in a private
-// folder on the user's Mac. Without it a refused turn leaves nothing to read:
-// the stream says no more than its code, and the failed turn's CLI transcript
-// is deleted by design.
+// Failed replies retain bounded diagnostic records in a private local folder,
+// so a stream error can be investigated after the turn ends.
 @Suite("What a failed reply keeps")
 struct FailedTurnRecordsTests {
     @Test("A kept failure holds its latest frames and its CLI transcript, private to the user")

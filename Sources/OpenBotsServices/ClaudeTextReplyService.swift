@@ -49,7 +49,7 @@ public struct ClaudeTextApproval: Equatable, Sendable, Identifiable {
     /// offers it, until the turn ends. Nil on a card that must be answered
     /// every time (a plain command, a helper, a connector).
     public let turnScopeFolder: String?
-    /// Absolute path the card can reveal (a run-code script).
+    /// Absolute path the card can reveal (run-code script).
     public let openablePath: String?
     /// The login handoff: the bot hands the user the screen. Its two
     /// answers are Hand back (allow) and I couldn't do it (deny).
@@ -84,6 +84,7 @@ public struct ClaudeTextQuestionOption: Equatable, Sendable, Identifiable {
     public init(label: String, detail: String) { self.label = label; self.detail = detail }
 }
 
+
 /// A question the bot asks the user through the CLI's question tool,
 /// shown above the composer: up to six choices, free text, or a secret. One
 /// tool call may ask several in turn; `position` and `count` say where this
@@ -112,6 +113,7 @@ public struct ClaudeTextQuestion: Equatable, Sendable, Identifiable {
         self.options = options; self.allowsMultiple = allowsMultiple; self.isSecret = isSecret
         self.position = position; self.count = count; self.expiresAt = expiresAt
     }
+
 
     /// Whether a question reads as asking for a secret, by its own words.
     /// Whole words only, and "token" in the singular: since a secret card may
@@ -151,8 +153,8 @@ public enum ClaudeTextTurnProgress: Equatable, Sendable {
     case questionResolved(id: UUID)
     /// One short line of what the bot is doing on the Mac ("Read notes.md").
     case activity(String)
-    /// What Control this Mac last saw of the user's screen, a PNG or JPEG, for
-    /// the watch pane's preview. Shown from memory, never saved.
+    /// What Control this Mac last saw of the user's screen, a PNG or JPEG, for the
+    /// watch pane's preview. Shown from memory, never saved.
     case screenPicture(Data)
     /// The reply's bubbles settled so far, in order (a short first line
     /// at once, beats, then the answer whole). Each list extends the last; the
@@ -162,14 +164,15 @@ public enum ClaudeTextTurnProgress: Equatable, Sendable {
     case contextPrepared(ClaudeContextDisclosure)
     /// Startup metadata only; the CLI may later reject or remap this model.
     case modelObserved(requested: String, observed: String)
-    /// Acknowledged successful result.modelUsage, emitted only after final save.
-    case modelConfirmed(requested: String, observed: String)
+    /// Acknowledged successful result.modelUsage and that turn's CLI version,
+    /// emitted together only after final save. A missing version stays unknown.
+    case modelConfirmed(requested: String, observed: String, claudeCodeVersion: String? = nil)
     case userMessageSaved(Message)
     /// Committed provider output or a locally rendered system reply. The message
     /// author/provenance distinguishes them; this callback is not provider proof.
     case assistantMessageSaved(Message)
-    /// The bot's reply hired a teammate: saved, with its own chat,
-    /// and in the team when the hire came from one. Nothing is selected.
+    /// The bot's reply hired a teammate: saved, with its own chat, and in the team when the
+    /// hire came from one. Nothing is selected.
     case teammateHired(TeammateHire)
     /// The one app-authored line naming this reply's hires and refusals,
     /// saved after the reply however the turn ended. Not a Claude reply.
@@ -203,6 +206,7 @@ public enum ClaudeTextTurnProblem: Equatable, Sendable {
     case memoryAcknowledgementPending
     case setupRequired
     case subscriptionNotVerified
+    case authenticationRequired
     case managedPolicyPresentOrUnknown
     case runtimeUnavailable
     case invalidResponse
@@ -262,12 +266,14 @@ public struct HandoffLegSubmission: Equatable, Sendable {
     public init(handoffID: HandoffID) { self.handoffID = handoffID }
 }
 
+
 /// The lead compiling one finished leg for the user: the member's
 /// reply is the input the lead answers, and the answer is the room's.
 public struct HandoffReportSubmission: Equatable, Sendable {
     public let handoffID: HandoffID
     public init(handoffID: HandoffID) { self.handoffID = handoffID }
 }
+
 
 /// A worker's end, to wake the bot that started it.
 public struct WorkerResultSubmission: Equatable, Sendable {

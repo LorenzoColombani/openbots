@@ -70,7 +70,7 @@ struct FenceProxyTests {
         #expect(fenced.components(separatedBy: UntrustedMaterial.closeMarker).count == 2)
     }
 
-    @Test("The three lookalike close markers are defanged by the shim, not only the exact one")
+    @Test("The audit's three lookalike close markers are defanged by the shim, not only the exact one")
     func lookalikeCloseMarkersAreDefanged() throws {
         guard node() != nil else { return }
         let script = try #require(FenceProxyResource.scriptURL).path
@@ -168,7 +168,7 @@ private struct FenceBrowserFixture {
 @Suite("No shim, no third-party connector")
 struct FenceFailClosedTests {
     private let program = ClaudeTextConnectorProgram.installedTool(
-        URL(fileURLWithPath: "/Users/somebody/.local/bin/apple-mail-fast-mcp"))
+        URL(fileURLWithPath: "/Users/fixture/.local/bin/apple-mail-fast-mcp"))
 
     @Test("A build without the shim cannot launch a third-party server at all")
     func aMissingScriptRefusesTheLaunch() throws {
@@ -286,7 +286,7 @@ struct ConnectorPromptTests {
                 program: .fenced(interpreterURL: URL(fileURLWithPath: "/opt/homebrew/bin/node"),
                                  proxyURL: URL(fileURLWithPath: "/tmp/fence-proxy.js"),
                                  label: "apple-mail",
-                                 server: .installedTool(URL(fileURLWithPath: "/Users/x/.local/bin/apple-mail-fast-mcp"))),
+                                 server: .installedTool(URL(fileURLWithPath: "/Users/fixture/.local/bin/apple-mail-fast-mcp"))),
                 options: [.readOnly], environment: [:]),
         ])
     }
@@ -335,11 +335,10 @@ struct ConnectorPromptTests {
     func workAndConnectorsDoNotContradictEachOther() throws {
         // The connector paragraph rewrites what the work and web paragraphs
         // wrote, by matching their exact wording. If either of those is
-        // reworded and this is not, the bot is handed a contradiction — which
-        // is what the browser bot noticed out loud on its first live turn.
+        // reworded and this is not, the bot is handed a contradiction.
         let work = try ClaudeTextWorkAccess(
             workingDirectoryURL: URL(fileURLWithPath: "/private/tmp/desk.noindex"),
-            protectedPaths: ["/Users/x/.ssh"])
+            protectedPaths: ["/Users/fixture/.ssh"])
         for base in [OfficialClaudeTextReplyService.seamNoToolsSentence,
                      OfficialClaudeTextReplyService.assembledNoToolsSentence] {
             let afterWork = OfficialClaudeTextReplyService.workPrompt(base, access: work, tools: [])

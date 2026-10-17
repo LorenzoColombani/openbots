@@ -3,10 +3,11 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsRuntime
 
-// The setup tool's real wire, replayed through the parser
-// and the host's answers. Each fixture is one probe run of Claude Code 2.1.280
+
+// The setup tool's protocol, replayed through the parser
+// and the host's answers. Each synthetic fixture follows Claude Code 2.1.280
 // with the app's hire-only launch and the `openbots` server listing
-// `set_up_self` (Tests/.../claude-cli-2.1.280/self-setup-probe/README.md):
+// `set_up_self`:
 //   s2-competitor-prices  the acceptance sentence: a question, then the call
 //   s3-vague              "hi there": no call, one question back
 
@@ -19,8 +20,8 @@ private struct SetupProbeCapture {
     let text: String
     let frames: [Data]
 
-    init(run: String) throws {
-        let root = try #require(Bundle.module.url(forResource: "claude-cli-2.1.280", withExtension: nil, subdirectory: "Fixtures"))
+    init(run: String, version: String = "2.1.280") throws {
+        let root = try #require(Bundle.module.url(forResource: "claude-cli-\(version)", withExtension: nil, subdirectory: "Fixtures"))
         let folder = root.appendingPathComponent("self-setup-probe").appendingPathComponent(run)
         let argv = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent("argv.json"))) as? [String: Any])
         let session = try #require(argv["session_id"] as? String), message = try #require(argv["message_id"] as? String)
@@ -29,7 +30,8 @@ private struct SetupProbeCapture {
         controlID = try #require(argv["control_id"] as? String)
         let arguments = try #require(argv["argv"] as? [String])
         model = arguments[try #require(arguments.firstIndex(of: "--model")) + 1]
-        text = run == "s3-vague" ? "hi there" : "you watch my competitors' prices and tell me when they drop"
+        text = ["s3-vague": "hi there", "n9-paris-rain": "you watch the weather in Paris and warn me before it rains"][run]
+            ?? "you watch my competitors' prices and tell me when they drop"
         frames = try String(contentsOf: folder.appendingPathComponent("wire.jsonl"), encoding: .utf8)
             .split(separator: "\n").compactMap { line in
                 let record = try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
@@ -129,6 +131,24 @@ func setupProbeVague() throws {
     #expect(replay.rejections.isEmpty, "\(replay.rejections)")
     #expect(replay.completed && replay.calls.isEmpty && replay.questions.isEmpty)
     #expect(replay.text.contains("?"))
+}
+
+// Claude Code 2.1.287, launched as `sonnet` the way a new
+// bot's first turn is: the alias answers as claude-sonnet-5-5 now, and both
+// built-in plugins are switched off (ClaudeCLIWireReplayTests).
+@Test("A new bot's first turn on 2.1.287, on the sonnet alias: the question admitted, the bot's own call, and the turn finishes as Sonnet 5.5")
+func setupProbeOn2_1_287() throws {
+    let capture = try SetupProbeCapture(run: "n9-paris-rain", version: "2.1.287")
+    #expect(capture.model == "sonnet")
+    let replay = try replay(capture)
+    #expect(replay.rejections.isEmpty, "\(replay.rejections)")
+    #expect(replay.completed)
+    #expect(replay.events.contains(.initialized(sessionID: capture.sessionID, actualModel: "claude-sonnet-5-5")))
+    let question = try #require(replay.questions.first)
+    #expect(replay.questions.count == 1 && question.admitted)
+    #expect(question.toolName == ClaudeTextSelfSetupPolicy.qualifiedToolName)
+    let call = try #require(replay.calls.first)
+    #expect(replay.calls.count == 1 && call.isOwnCall && call.toolUseID == question.toolUseID)
 }
 
 @Test("A setup turn's launch: the connector-turn settings, the server named in the handshake, the tool never pre-approved")

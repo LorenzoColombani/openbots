@@ -28,10 +28,8 @@ import Testing
 
 /// The sentence a continuing turn's envelope carries in place of the quoted
 /// messages, and the one the first turn's prompt says about later turns. Both
-/// are pinned verbatim: real sessions on Claude Code
-/// 2.1.272 showed the model reading an empty messages list plus "do not invent
-/// unseen context" as "nothing happened" (0 of 6 recalls); with these two
-/// sentences it recalled 6 of 6. The CLI ignores the system prompt on
+/// are pinned verbatim: an empty messages list must not imply that the
+/// conversation has no history. Claude Code 2.1.272 ignores the system prompt on
 /// `--resume`, so the first turn's prompt is the only one the model ever sees.
 private let continuingNote = "Nothing is quoted: the earlier turns of this conversation are already in your own history above. Use them."
 private let multiTurnSentence = "This session can only produce a text reply. It may run over several turns. The context in the envelope quotes selected messages from before this session; the turns of this session itself are never quoted again, because they are already in your own history above. An empty messages list on a later turn means nothing was left out, not that nothing happened. Rely on both."
@@ -76,8 +74,7 @@ func contextAssemblyTellsAFreshTurnTheConversationIsKept() async throws {
     let snapshot = fixture.snapshot(recent: [fixture.message(sequence: 1, text: "orchard fact to keep")], older: [])
     let fresh = try await fixture.service(probe).assemble(ClaudeContextAssemblyInput(
         teammate: fixture.teammate, currentText: "orchard now", snapshot: snapshot))
-    // Live: told "remember this for later", the bot answered that it had
-    // no memory across turns, while the app was quoting every earlier turn back to it.
+    // The prompt explains that earlier conversation turns remain available.
     #expect(fresh.systemPrompt.contains(ClaudeContextAssemblyService.conversationKeptSentence))
     #expect(ClaudeContextAssemblyService.conversationKeptSentence.contains("never say you have no memory"))
     // The denial the grant prompts replace is untouched, so every granted turn still corrects it.
@@ -708,6 +705,7 @@ private func contextDigest(_ data: Data) -> String {
     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }
 
+
 /// Found in the app on a practice bot: a continuing turn quotes no
 /// message, yet it took "some earlier messages were not included" from this
 /// turn's own window, which is full once a chat has more than twelve quotable
@@ -761,10 +759,6 @@ func freshTurnRecordsLeftOutMessages() async throws {
 }
 
 
-/// The old app gave every run the time of
-/// day and Next did not, so bots did not know it. It rides in the per-turn
-/// envelope, never the system prompt, or a kept session would restart every
-/// turn.
 @Test("Each turn's envelope carries the user's local time, and the system prompt does not")
 func theEnvelopeCarriesTheLocalTime() async throws {
     let fixture = try ContextFixture()

@@ -110,6 +110,7 @@ public struct ClaudeTextConnectorServer: Equatable, Sendable {
     /// programs, and nothing a user or a package manager installed.
     public static let systemSearchPath = "/usr/bin:/bin"
 
+
     /// The pinned extensions that run `osascript` by its bare name through
     /// node's `execFile`, and so need `systemSearchPath`: Apple Notes and
     /// Control Chrome.
@@ -117,11 +118,10 @@ public struct ClaudeTextConnectorServer: Equatable, Sendable {
         role == .appleNotes || role == .chromeControl
     }
 
-    /// Deliberately short. `CHROME_PATH` is not here: the 1.8.0 server never
-    /// reads it, and Chrome is chosen by the `executablePath` option. The two
-    /// Chrome DevTools variables are containment, not courtesy — without the
-    /// usage-statistics one the server spawns a telemetry watchdog into its own
-    /// process group, where a `kill(-pid)` can never reach it.
+    /// Deliberately short. `CHROME_PATH` is not here: the 1.8.0 server never reads it, and
+    /// Chrome is chosen by the `executablePath` option. The two Chrome DevTools variables are
+    /// containment, not courtesy — without the usage-statistics one the server spawns a
+    /// telemetry watchdog into its own process group, where a `kill(-pid)` can never reach it.
     static let environmentKeys: Set<String> = [
         "HOME", "TMPDIR", "LANG",
         // The search path, for the one server that runs a program by its bare
@@ -138,8 +138,8 @@ public struct ClaudeTextConnectorServer: Equatable, Sendable {
         // overrides under that home, so naming it here states the assumption
         // instead of resting on it.
         "APPLE_MAIL_MCP_HOME",
-        // The app's own name, so the sender's permission hint names the app the
-        // user will actually find in System Settings rather than a guess.
+        // The app's own name, so the sender's permission hint names the app the user
+        // will actually find in System Settings rather than a guess.
         "OPENBOTS_APP_NAME",
         // Which Contacts the reader drives, resolved on the Swift side so the
         // row's badge and the launch cannot disagree about which copy is meant.
@@ -168,26 +168,20 @@ public struct ClaudeTextConnectorServer: Equatable, Sendable {
         // The chats the bot may read, as a JSON array in base64
         // (`AppleMessagesChatScope.environmentValue`), always plain.
         AppleMessagesChatScope.environmentKey,
-        // Control this Mac (Peekaboo 4.0.0), each read in its own source at the
-        // v4.0.0 tag. PEEKABOO_NO_REMOTE: the command
-        // runtime never looks for a bridge host, so no other app's permissions
-        // are borrowed (RuntimeHostResolver.swift). PEEKABOO_ALLOW_TOOLS: only
-        // the reviewed tools are exposed (ToolFiltering.swift), which is what
-        // keeps the agent tool out of `mcp serve`. PEEKABOO_DISABLE_AGENT: "1"
-        // or "true" refuses the `peekaboo agent` command (AgentCommand.swift);
-        // nothing showed it read on the `mcp serve` path. PEEKABOO_DISABLE_MCP_
-        // AUTOCONNECT: Tachikoma's auto-connect policy turns off only on the
-        // exact value "true"; whether `mcp serve` would auto-connect at all was
-        // not traced. PEEKABOO_CONFIG_DIR: the config folder, where credentials
-        // would live, inside the turn's own folder (ConfigurationManager.swift).
-        // Its bridge socket, forced auto-connect and visualizer switches stay
-        // unspellable.
+        // Peekaboo 4.0.0 environment controls: PEEKABOO_NO_REMOTE prevents borrowing another
+        // app's permissions through a bridge host (RuntimeHostResolver.swift).
+        // PEEKABOO_ALLOW_TOOLS exposes only reviewed tools (ToolFiltering.swift), excluding the
+        // agent from `mcp serve`. PEEKABOO_DISABLE_AGENT accepts "1" or "true" for the agent
+        // command; its effect on `mcp serve` is not established.
+        // PEEKABOO_DISABLE_MCP_AUTOCONNECT requires exactly "true" in Tachikoma's auto-connect
+        // policy. PEEKABOO_CONFIG_DIR places the configuration and potential credentials inside
+        // the turn's own folder (ConfigurationManager.swift). Bridge sockets, forced
+        // auto-connect and visualizer switches remain unspellable.
         "PEEKABOO_NO_REMOTE", "PEEKABOO_DISABLE_AGENT", "PEEKABOO_DISABLE_MCP_AUTOCONNECT",
         "PEEKABOO_ALLOW_TOOLS", "PEEKABOO_CONFIG_DIR",
-        // Where Foundation finds the home: HOME is ignored in favour of the
-        // account's own record, and only this moves homeDirectoryForCurrentUser,
-        // NSHomeDirectory and `~` expansion. Peekaboo
-        // keeps a copy of every screenshot under that home's .peekaboo.
+        // Where Foundation finds the home: HOME is ignored in favour of the account's own
+        // record, and only this moves homeDirectoryForCurrentUser, NSHomeDirectory and `~`
+        // expansion. Peekaboo keeps a copy of every screenshot under that home's.peekaboo.
         "CFFIXED_USER_HOME",
         // Peekaboo copies ~/.config/peekaboo/config.json into its config folder
         // on start and prints a line about it on stdout, the MCP channel.
@@ -209,16 +203,16 @@ public enum ClaudeTextConnectorRole: String, CaseIterable, Equatable, Sendable {
     /// account. Its answers are the app's own words, so it is not fenced.
     case appleMailSend
     /// The app's own reader for Contacts.app: search a person, read a card, and
-    /// no verb that could write one. It hands back what is written on the
-    /// user's cards, so it is fenced like any other reader.
+    /// no verb that could write one. It hands back what is written on the user's
+    /// cards, so it is fenced like any other reader.
     case appleContactsRead
     /// The app's own reader for Calendar: list the calendars, read a window of
     /// time, read one event. No verb that could write one.
     ///
     /// Unlike the other three it sends no Apple Events — it reads through
     /// EventKit, in a small binary the bundle carries, because Apple Events
-    /// cannot expand a recurring series at all and so miss most of a year's
-    /// occurrences. An invitation's title and notes are written by whoever sent
+    /// cannot expand recurring series into the requested occurrence window.
+    /// An invitation's title and notes are written by whoever sent
     /// it, so it is fenced like any other reader.
     case appleCalendarRead
     /// Read/search Gmail plus creation of drafts. Google's compose scope is
@@ -238,9 +232,9 @@ public enum ClaudeTextConnectorRole: String, CaseIterable, Equatable, Sendable {
     /// under `drive.readonly`, which can write nothing. A file's name and its
     /// words are whoever wrote them, so it is fenced like any other reader.
     case googleDriveRead
-    /// The app's own Messages server, ported from the old app: read the
-    /// user's conversations, check which service reaches a person, and send a
-    /// text from the user's own number — every send on a card showing the recipient, the
+    /// The app's own Messages server, ported from the old app: read the user's
+    /// conversations, check which service reaches a person, and send a text
+    /// from their own number — every send on a card showing the recipient, the
     /// service and the exact words. What it reads back was written by other
     /// people, so it is fenced like any other reader.
     case appleMessages
@@ -354,8 +348,8 @@ public enum ClaudeTextConnectorProgram: Equatable, Sendable {
 /// decision; nothing else can be spelled. Each case names the server it belongs
 /// to: only the app's own preparation code builds these, never catalog data.
 public enum ClaudeTextConnectorOption: Equatable, Sendable {
-    /// No visible window. A visible browser is a separate feature this
-    /// option does not cover.
+    /// No visible window. The visible browser is the Chrome co-pilot, which is
+    /// a separate and still-unruled product question.
     case headless
     /// The profile this launch owns. It is also how the app tells its own
     /// Chrome from the user's: app-launched Chrome is the Chrome whose argument
@@ -489,8 +483,8 @@ extension ClaudeTextConnectorRole {
         }
     }
 
-    /// What was read, in the user's words for a card ("your contacts"); empty
-    /// for a role that reads nothing of the user's.
+    /// What was read, in the user's words for a card ("your contacts"); empty for a
+    /// role that reads nothing of theirs.
     public var privateReadNoun: String {
         switch self {
         case .appleMailRead: "your Mail"

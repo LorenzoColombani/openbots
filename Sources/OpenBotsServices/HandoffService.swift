@@ -27,8 +27,8 @@ public actor HandoffService: HandoffServing {
 
     /// "Not now" reaches a brief the user has not sent and one whose send was
     /// turned away after the record moved: an accepted leg that never began a
-    /// durable turn is still the user's to decline, and nothing else can move
-    /// it. A leg already working belongs to its run, not to this.
+    /// durable turn is still the user's to decline. A leg already working
+    /// belongs to its run, not to this.
     @discardableResult
     public func decline(id: HandoffID) async throws -> HandoffRecord {
         guard var record = try await repository.record(id: id) else { throw HandoffServiceError.unknownHandoff }

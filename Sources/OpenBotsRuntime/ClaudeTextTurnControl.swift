@@ -50,6 +50,7 @@ public final class ClaudeTextTurnControl: @unchecked Sendable {
         }
     }
 
+
     // MARK: Renewing the rounds
 
     private enum RenewalState { case none, offered, decided(ClaudeTextRoundsRenewalDecision) }
@@ -95,6 +96,7 @@ public final class ClaudeTextTurnControl: @unchecked Sendable {
     func isHelperApproved(toolUseID: String) -> Bool {
         lock.withLock { approvedHelpers.contains(toolUseID) }
     }
+
 
     /// Queues the decision for the transport. False when the question is
     /// unknown, withdrawn or already answered. An allow carries the input back
@@ -164,7 +166,7 @@ public final class ClaudeTextTurnControl: @unchecked Sendable {
             switch message.kind {
             case .initialize(let protocolVersion):
                 // A handshake starts a connection, and its JSON-RPC ids start
-                // again (the CLI does this on its second round). A
+                // again (the CLI's second round in probe runs a6 and a8). A
                 // call from before it is one the CLI no longer waits for, and
                 // left here it could meet a later cancellation or answer that
                 // means the new connection's call with the same id.
@@ -324,6 +326,7 @@ public enum ClaudeTextRoundsRenewalDecision: Equatable, Sendable {
     /// The reply ends here, as the turn limit, keeping what it wrote.
     case end
 }
+
 
 /// The renewal of a Control this Mac turn's rounds: each approval gives the
 /// command's own allowance again, since the CLI counts `--max-turns` afresh for

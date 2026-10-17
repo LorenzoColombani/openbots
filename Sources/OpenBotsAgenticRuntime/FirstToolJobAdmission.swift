@@ -17,6 +17,17 @@ public struct FirstToolJobInstallationIdentity: Equatable, Sendable {
     public let sha256: String
     public let signature: ClaudeStaticSignatureIdentity
     public let fileIdentity: ClaudeInstallationFileIdentity
+    public let verifiedRetainedProvenance: VerifiedClaudeRetainedProvenance?
+
+    init(requestedPath: String, resolvedPath: String, versionFilename: String,
+         sha256: String, signature: ClaudeStaticSignatureIdentity,
+         fileIdentity: ClaudeInstallationFileIdentity,
+         verifiedRetainedProvenance: VerifiedClaudeRetainedProvenance? = nil) {
+        self.requestedPath = requestedPath; self.resolvedPath = resolvedPath
+        self.versionFilename = versionFilename; self.sha256 = sha256
+        self.signature = signature; self.fileIdentity = fileIdentity
+        self.verifiedRetainedProvenance = verifiedRetainedProvenance
+    }
 }
 
 /// Exact existing Preview ownership metadata checked by ClaudeProfileInspector.
@@ -91,12 +102,10 @@ public struct FirstToolJobAdmission: Sendable {
     private func installationIdentity(_ details: ClaudeInstallationDetails) throws -> FirstToolJobInstallationIdentity {
         let requested = layout.homeDirectory.appending(path: ".local/bin/claude").path
         let versions = layout.homeDirectory.appending(path: ".local/share/claude/versions")
-        guard details.requestedPath.utf8.elementsEqual(requested.utf8),
-              let filename = details.versionFilename, !filename.isEmpty, filename.utf8.count <= 255,
+        guard let filename = details.versionFilename, !filename.isEmpty, filename.utf8.count <= 255,
               filename != ".", filename != "..", !filename.contains("/"),
               !filename.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
               let resolved = details.resolvedPath,
-              resolved.utf8.elementsEqual(versions.appending(path: filename).path.utf8),
               let digest = details.sha256, Self.hex(digest, bytes: 32),
               let signature = details.signature,
               signature.identifier == ClaudeInstallationInspector.expectedIdentifier,
@@ -106,8 +115,23 @@ public struct FirstToolJobAdmission: Sendable {
               file.byteCount <= ClaudeInstallationInspector.maximumExecutableBytes else {
             throw FirstToolJobAdmissionError.malformedInstallation
         }
+        if let retained = details.verifiedRetainedProvenance {
+            guard let root = applicationSupportRoot,
+                  retained.matches(executableURL: URL(fileURLWithPath: resolved),
+                                   sha256: digest, homeDirectory: layout.homeDirectory),
+                  retained.installationID == root.installationID, retained.rootID == root.rootID,
+                  details.requestedPath.utf8.elementsEqual(resolved.utf8) else {
+                throw FirstToolJobAdmissionError.malformedInstallation
+            }
+        } else {
+            guard details.requestedPath.utf8.elementsEqual(requested.utf8),
+                  resolved.utf8.elementsEqual(versions.appending(path: filename).path.utf8) else {
+                throw FirstToolJobAdmissionError.malformedInstallation
+            }
+        }
         return FirstToolJobInstallationIdentity(requestedPath: details.requestedPath, resolvedPath: resolved,
-            versionFilename: filename, sha256: digest, signature: signature, fileIdentity: file)
+            versionFilename: filename, sha256: digest, signature: signature, fileIdentity: file,
+            verifiedRetainedProvenance: details.verifiedRetainedProvenance)
     }
 
     private static func hex(_ value: String, bytes: Int) -> Bool {

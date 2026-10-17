@@ -1,11 +1,10 @@
 import Darwin
 import Foundation
 
-/// Takes away the screenshots Control this Mac leaves behind. Peekaboo 4.0.0's
-/// `see` writes each one to the account's own temporary folder as
-/// `peekaboo-observation-<UUID>.png`, whatever TMPDIR says (recorded on Claude
-/// Code 2.1.280), and names the file in its answer; without this sweep every
-/// look at the user's screen would stay on the disk.
+/// Remove screenshots left by Control this Mac. Peekaboo 4.0.0 `see` writes
+/// `peekaboo-observation-<UUID>.png` into the account's temporary folder regardless of TMPDIR
+/// and reports the path in its result. Explicit cleanup prevents screen captures from remaining
+/// on disk.
 public enum MacControlScreenshotSweep {
     static let prefix = "peekaboo-observation-"
     static let suffix = ".png"

@@ -119,7 +119,7 @@ struct BotWorkspaceServiceTests {
         try Data("x".utf8).write(to: file)
         let ssh = f.layout.homeDirectory.appending(path: ".ssh")
         try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
-        // A real /Applications may hold the old app, which is protected too; the fixture's is empty.
+        // An installed legacy app is protected too; the fixture's Applications folder is empty.
         let applications = f.root.appending(path: "Applications")
         #expect(BotWorkspaceService.protectedPaths(layout: f.layout, applicationsDirectory: applications) == [ssh.path])
         let service = BotWorkspaceService(layout: f.layout, repository: store, teammates: store,
@@ -144,6 +144,7 @@ struct BotWorkspaceServiceTests {
         #expect(removed.folders.isEmpty)
         #expect(try await store.loadBotWorkspace(teammateID: bot.id)?.folders.isEmpty == true)
     }
+
 
     // Where the old app is installed, its data, repository, bundle and
     // preferences all exist, and none used to be fenced.
@@ -242,6 +243,7 @@ struct BotWorkspaceServiceTests {
         #expect(added.folders.map(\.url.path) == [trips.path, pictures.path])
         #expect(BotWorkspaceService.protectedPaths(layout: f.layout).contains(library.path))
     }
+
 
     /// The checks were once lexical, so a symlink to
     /// home, to the Library or to a protected root, or the firmlinked
@@ -449,10 +451,8 @@ struct BotWorkspaceServiceTests {
         #expect(access.skillsRootURL?.path == f.layout.contentRoot.url.appending(path: "Skills").path)
     }
 
-    /// Details once said "No skills in
-    /// ~/.claude/skills" whenever nothing could be offered, including when the
-    /// folder held skills that fail the name or SKILL.md check. The library now
-    /// says how many folders it could not offer.
+    /// Skills that fail the name or SKILL.md check must not make the library
+    /// appear empty. The library reports how many folders it cannot offer.
     @Test("The skill library offers what can be added and counts the folders it cannot offer, never a hidden entry or a plain file")
     func theSkillLibraryCountsWhatItCannotOffer() async throws {
         let f = try Fixture(); defer { f.remove() }

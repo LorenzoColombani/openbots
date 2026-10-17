@@ -14,7 +14,7 @@ import UniformTypeIdentifiers
 struct StorageIntegrationTests {
     @Test("A normalized photo and saved profile survive reopening the composed SQLite workspace")
     func profilePhotoRoundTrip() async throws {
-        let fixture = try StorageIntegrationFixture()
+        let fixture = try StorageIntegrationStorageFixture()
         defer { fixture.remove() }
         let source = fixture.root.appending(path: "explicit-picked-photo.png")
         let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
@@ -71,14 +71,14 @@ struct StorageIntegrationTests {
         "Composed SQLite directory and collaboration fixtures preserve the storage boundary"
     )
     func composedDirectoryAndCollaborationRoundTrip() async throws {
-        let fixture = try StorageIntegrationFixture()
+        let fixture = try StorageIntegrationStorageFixture()
         defer { fixture.remove() }
 
         let timestamp = Date(timeIntervalSince1970: 9_500)
-        let firstTeammateID = TeammateID(storageFixtureUUID(1))
-        let secondTeammateID = TeammateID(storageFixtureUUID(2))
-        let projectID = ProjectID(storageFixtureUUID(100))
-        let teamID = TeamID(storageFixtureUUID(101))
+        let firstTeammateID = TeammateID(storageIntegrationUUID(1))
+        let secondTeammateID = TeammateID(storageIntegrationUUID(2))
+        let projectID = ProjectID(storageIntegrationUUID(100))
+        let teamID = TeamID(storageIntegrationUUID(101))
         let initialKeychain = InMemoryKeychainClient()
         let initialExecutor = PendingArchitectureExecutor()
 
@@ -103,7 +103,7 @@ struct StorageIntegrationTests {
             let profileService = TeammateProfileService(
                 repository: context.teammateRepository,
                 clock: StorageIntegrationFixedClock(value: timestamp),
-                uuidGenerator: StorageIntegrationUUIDGenerator([
+                uuidGenerator: StorageIntegrationSequenceUUIDGenerator([
                     firstTeammateID.rawValue,
                     secondTeammateID.rawValue,
                 ])
@@ -125,7 +125,7 @@ struct StorageIntegrationTests {
                 projectProvisioningRepository: context.projectProvisioningRepository,
                 teamRepository: context.teamRepository,
                 clock: StorageIntegrationFixedClock(value: timestamp),
-                uuidGenerator: StorageIntegrationUUIDGenerator([
+                uuidGenerator: StorageIntegrationSequenceUUIDGenerator([
                     projectID.rawValue,
                     teamID.rawValue,
                 ])
@@ -246,7 +246,7 @@ struct StorageIntegrationTests {
         #expect(await reopenedKeychain.recordedOperations().isEmpty)
         #expect(reopened.teammateExecutor is PendingArchitectureExecutor)
         await #expect(throws: ExecutorUnavailableError.self) {
-            try await reopenedExecutor.requestStop(runID: RunID(storageFixtureUUID(900)))
+            try await reopenedExecutor.requestStop(runID: RunID(storageIntegrationUUID(900)))
         }
         #expect(await reopenedKeychain.recordedOperations().isEmpty)
     }
@@ -258,7 +258,7 @@ private struct StorageIntegrationFixedClock: OpenBotsClock {
     func now() -> Date { value }
 }
 
-private final class StorageIntegrationUUIDGenerator: UUIDGenerator, @unchecked Sendable {
+private final class StorageIntegrationSequenceUUIDGenerator: UUIDGenerator, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [UUID]
 
@@ -269,7 +269,7 @@ private final class StorageIntegrationUUIDGenerator: UUIDGenerator, @unchecked S
     func next() -> UUID {
         lock.lock()
         defer { lock.unlock() }
-        precondition(!values.isEmpty, "The fixture UUID sequence is exhausted.")
+        precondition(!values.isEmpty, "The integration UUID sequence is exhausted.")
         return values.removeFirst()
     }
 }
@@ -281,22 +281,22 @@ private struct StorageIntegrationFixedAdmission: MacOSLocationAdmissionChecking 
             isReadOnlyVolume: false,
             isUbiquitousItem: false,
             fileProviderStatus: .notManaged,
-            volumeIdentifier: "storage-integration-volume"
+            volumeIdentifier: "synthetic-integration-volume"
         )
     }
 }
 
-private final class StorageIntegrationFixture: @unchecked Sendable {
+private final class StorageIntegrationStorageFixture: @unchecked Sendable {
     let root: URL
     let layout: PreviewStorageLayout
-    let installationID = storageFixtureUUID(700)
+    let installationID = storageIntegrationUUID(700)
     let rootIDs: [OwnedRootKind: UUID] = [
-        .applicationSupport: storageFixtureUUID(701),
-        .caches: storageFixtureUUID(702),
-        .temporary: storageFixtureUUID(703),
+        .applicationSupport: storageIntegrationUUID(701),
+        .caches: storageIntegrationUUID(702),
+        .temporary: storageIntegrationUUID(703),
     ]
     let decision = try! ProtectionDecisionReceipt(
-        decisionID: storageFixtureUUID(704),
+        decisionID: storageIntegrationUUID(704),
         selectedAt: Date(timeIntervalSince1970: 9_500),
         rationaleVersion: 2
     )
@@ -356,6 +356,6 @@ private final class StorageIntegrationFixture: @unchecked Sendable {
     }
 }
 
-private func storageFixtureUUID(_ value: Int) -> UUID {
+private func storageIntegrationUUID(_ value: Int) -> UUID {
     UUID(uuidString: String(format: "95000000-0000-0000-0000-%012d", value))!
 }

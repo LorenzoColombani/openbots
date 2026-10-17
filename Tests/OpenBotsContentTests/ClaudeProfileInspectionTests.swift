@@ -4,6 +4,174 @@ import XCTest
 @testable import OpenBotsContent
 
 final class ClaudeProfileInspectionTests: XCTestCase {
+    func testCompatibilityPurposeOwnsSeparateProfileAndStableIdentityWithoutCopyingPrimaryState() throws {
+        let fixture = try ClaudeProfileInspectionFixture()
+        let layout = fixture.container.layout.withClaudeProfilePurpose(.compatibility)
+        let primaryBytes = Data("opaque-primary-fixture".utf8)
+        try primaryBytes.write(to: fixture.profile.appending(path: "opaque-state"))
+        XCTAssertEqual(layout.applicationSupportRoot, fixture.container.layout.applicationSupportRoot)
+        XCTAssertEqual(layout.cacheRoot, fixture.container.layout.cacheRoot)
+        XCTAssertEqual(layout.runtimeRoot, fixture.container.layout.runtimeRoot)
+        XCTAssertEqual(layout.claudeCLIProfileRoot.lastPathComponent, "CompatibilityProfile")
+        try ClaudeProfileProvisioner().ensureExists(applicationSupportRoot: fixture.root, layout: layout)
+        let inspector = ClaudeProfileInspector()
+        let identity = try inspector.verifiedProfileIdentity(applicationSupportRoot: fixture.root, layout: layout)
+        try ClaudeProfileProvisioner().ensureExists(applicationSupportRoot: fixture.root, layout: layout)
+        XCTAssertEqual(try inspector.verifiedProfileIdentity(applicationSupportRoot: fixture.root, layout: layout), identity)
+        XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: layout.claudeCLIProfileRoot.path)),
+                       Set(["backups", ClaudeProfileInspector.markerFilename]))
+        XCTAssertEqual(try Data(contentsOf: fixture.profile.appending(path: "opaque-state")), primaryBytes)
+        XCTAssertEqual(fixture.inspect(), .metadataVerified)
+    }
+
+    func testPrimaryOwnershipMarkerCannotAdmitCompatibilityProfile() throws {
+        let fixture = try ClaudeProfileInspectionFixture()
+        let layout = fixture.container.layout.withClaudeProfilePurpose(.compatibility)
+        try FileManager.default.copyItem(at: fixture.profile, to: layout.claudeCLIProfileRoot)
+        XCTAssertEqual(ClaudeProfileInspector().inspect(applicationSupportRoot: fixture.root, layout: layout),
+                       .rejected(.invalidMarker))
+        XCTAssertThrowsError(try ClaudeProfileProvisioner().ensureExists(applicationSupportRoot: fixture.root, layout: layout))
+    }
+
+    func testProvisioningPublishesOnlyAWhollyMissingProfileOrClaudeSubtree() throws {
+        for removeClaudeParent in [false, true] {
+            let fixture = try ClaudeProfileInspectionFixture()
+            try FileManager.default.removeItem(at: removeClaudeParent ? fixture.url(.claude) : fixture.profile)
+            let provisioner = ClaudeProfileProvisioner(beforePublication: {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.profile.path))
+            })
+
+            try provisioner.ensureExists(applicationSupportRoot: fixture.root, layout: fixture.container.layout)
+
+            XCTAssertEqual(fixture.inspect(), .metadataVerified)
+            for location in [ClaudeProfileInspectionFixture.Location.claude, .profile, .backups] {
+                XCTAssertEqual(try fixture.metadata(fixture.url(location)).st_mode & 0o7777, 0o700)
+            }
+            XCTAssertEqual(try fixture.metadata(fixture.marker).st_mode & 0o7777, 0o600)
+            XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: fixture.backups.path).isEmpty)
+            XCTAssertEqual(Set(try FileManager.default.contentsOfDirectory(atPath: fixture.profile.path)),
+                           Set(["backups", ClaudeProfileInspector.markerFilename]))
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.url(.claude).path), ["CLIProfile"])
+        }
+    }
+
+    func testProvisioningLeavesAnExistingValidProfileAndOpaqueStateUntouched() throws {
+        let fixture = try ClaudeProfileInspectionFixture()
+        let opaque = fixture.profile.appending(path: "opaque-auth-state")
+        let bytes = Data("not authentication; test fixture".utf8)
+        try bytes.write(to: opaque)
+        let profile = try fixture.metadata(fixture.profile)
+        let marker = try fixture.metadata(fixture.marker)
+
+        try ClaudeProfileProvisioner().ensureExists(applicationSupportRoot: fixture.root, layout: fixture.container.layout)
+
+        XCTAssertEqual(try Data(contentsOf: opaque), bytes)
+        for (url, before) in [(fixture.profile, profile), (fixture.marker, marker)] {
+            let after = try fixture.metadata(url)
+            XCTAssertEqual(after.st_ino, before.st_ino)
+            XCTAssertEqual(after.st_mtimespec.tv_sec, before.st_mtimespec.tv_sec)
+            XCTAssertEqual(after.st_mtimespec.tv_nsec, before.st_mtimespec.tv_nsec)
+        }
+    }
+
+    func testProvisioningNeverRepairsAnExistingIncompleteOrMalformedProfile() throws {
+        for missing in ["backups", ClaudeProfileInspector.markerFilename, "wrong-marker"] {
+            let fixture = try ClaudeProfileInspectionFixture()
+            let target = missing == "wrong-marker" ? fixture.marker : fixture.profile.appending(path: missing)
+            if missing == "wrong-marker" {
+                try Data("{\"schemaVersion\":1,\"bundleIdentifier\":\"foreign\",\"role\":\"preview\"}".utf8)
+                    .write(to: target)
+            } else {
+                try FileManager.default.removeItem(at: target)
+            }
+            let before = try fixture.metadata(fixture.profile)
+            let entries = try FileManager.default.contentsOfDirectory(atPath: fixture.profile.path)
+            let marker = try? Data(contentsOf: fixture.marker)
+
+            XCTAssertThrowsError(try ClaudeProfileProvisioner().ensureExists(
+                applicationSupportRoot: fixture.root, layout: fixture.container.layout
+            ))
+
+            XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.profile.path), entries)
+            XCTAssertEqual(try? Data(contentsOf: fixture.marker), marker)
+            XCTAssertEqual(try fixture.metadata(fixture.profile).st_mtimespec.tv_nsec, before.st_mtimespec.tv_nsec)
+        }
+    }
+
+    func testProvisioningRefusesSymlinksAndUnsafePermissionsAtEveryOwnedPath() throws {
+        for location in ClaudeProfileInspectionFixture.Location.allCases {
+            for useSymlink in [false, true] {
+                let fixture = try ClaudeProfileInspectionFixture()
+                let url = fixture.url(location)
+                if useSymlink {
+                    let original = url.appendingPathExtension("original")
+                    try FileManager.default.moveItem(at: url, to: original)
+                    try FileManager.default.createSymbolicLink(at: url, withDestinationURL: original)
+                } else {
+                    try fixture.setMode(location.isMarker ? 0o644 : 0o755, at: url)
+                }
+                let before = try fixture.metadata(url)
+                XCTAssertThrowsError(try ClaudeProfileProvisioner().ensureExists(
+                    applicationSupportRoot: fixture.root, layout: fixture.container.layout
+                ))
+                let after = try fixture.metadata(url)
+                XCTAssertEqual(after.st_ino, before.st_ino)
+                XCTAssertEqual(after.st_mode, before.st_mode)
+            }
+        }
+    }
+
+    func testProvisioningDoesNotReconstructMissingAuthorityAncestors() throws {
+        for location in [ClaudeProfileInspectionFixture.Location.highChurn, .runtime] {
+            let fixture = try ClaudeProfileInspectionFixture()
+            let url = fixture.url(location)
+            try FileManager.default.removeItem(at: url)
+            XCTAssertThrowsError(try ClaudeProfileProvisioner().ensureExists(
+                applicationSupportRoot: fixture.root, layout: fixture.container.layout
+            ))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    func testProvisioningPublicationNeverReplacesAConcurrentProfile() throws {
+        let fixture = try ClaudeProfileInspectionFixture()
+        try FileManager.default.removeItem(at: fixture.profile)
+        let sentinel = fixture.profile.appending(path: "keep")
+        let provisioner = ClaudeProfileProvisioner(beforePublication: {
+            try FileManager.default.createDirectory(at: fixture.profile, withIntermediateDirectories: false)
+            try fixture.setMode(0o700, at: fixture.profile)
+            try Data("keep".utf8).write(to: sentinel)
+        })
+
+        XCTAssertThrowsError(try provisioner.ensureExists(
+            applicationSupportRoot: fixture.root, layout: fixture.container.layout
+        ))
+
+        XCTAssertEqual(try Data(contentsOf: sentinel), Data("keep".utf8))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.profile.path), ["keep"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.url(.claude).path), ["CLIProfile"])
+    }
+
+    func testProvisioningRejectsAnAncestorReplacementBeforePublication() throws {
+        let fixture = try ClaudeProfileInspectionFixture()
+        try FileManager.default.removeItem(at: fixture.profile)
+        let runtime = fixture.url(.runtime)
+        let previous = runtime.appendingPathExtension("previous")
+        let provisioner = ClaudeProfileProvisioner(beforePublication: {
+            try FileManager.default.moveItem(at: runtime, to: previous)
+            try FileManager.default.createDirectory(at: runtime, withIntermediateDirectories: false)
+            try fixture.setMode(0o700, at: runtime)
+        })
+
+        XCTAssertThrowsError(try provisioner.ensureExists(
+            applicationSupportRoot: fixture.root, layout: fixture.container.layout
+        )) { error in
+            XCTAssertEqual(error as? ClaudeProfileProvisioningError, .rejected(.changedIdentity))
+        }
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: runtime.path).isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: previous.appending(path: "Claude/CLIProfile").path))
+    }
+
     func testValidProfileLeavesOpaqueClaudeStateAndBackupsUntouched() throws {
         let fixture = try ClaudeProfileInspectionFixture()
         let opaque = fixture.profile.appending(path: ".credentials.json")

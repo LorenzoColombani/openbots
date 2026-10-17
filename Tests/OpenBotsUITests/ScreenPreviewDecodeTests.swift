@@ -2,6 +2,7 @@ import AppKit
 import XCTest
 @testable import OpenBotsUI
 
+
 /// The screen preview's picture is decoded off the main thread: a
 /// full-resolution Retina PNG decoded on the main actor at every new
 /// look could stall the window.

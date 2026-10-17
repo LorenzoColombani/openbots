@@ -1,12 +1,10 @@
 import Foundation
 import OpenBotsServices
 
-/// What the setup screen says at a person's first blocked moment, in the app's
-/// own words: what did not happen, and what to do next. No build vocabulary
-/// ("Preview", "one-shot", "tracing", "isolation", "prerequisites",
-/// "metadata", "provider flow", "inconclusive") reaches the screen.
+/// Setup guidance explains what did not happen and what to do next in user-facing language,
+/// without internal build or protocol vocabulary.
 public enum ClaudeSetupWording {
-    /// The official native install.
+    /// The official native installation route.
     public static let installCommand = "curl -fsSL https://claude.ai/install.sh | bash"
     public static let installPageURL = URL(string: "https://docs.anthropic.com/en/docs/claude-code/setup")!
 
@@ -35,14 +33,17 @@ public enum ClaudeSetupWording {
     public static let copyInstallCommandTitle = "Copy the install command"
     public static let openInstallPageTitle = "Open the install page"
 
+
     /// The vocabulary the screen never uses. A test walks every sentence.
     /// "official CLI", "Claude CLI" and "teammate" are build words too.
     public static let bannedWords = ["Preview", "one-shot", "tracing", "isolation", "prerequisites", "metadata",
                                      "provider flow", "inconclusive", "official CLI", "Claude CLI", "teammate"]
 
     /// The line at the top of the screen, in a few words.
-    public static func title(for state: ClaudeSetupState, localInstallationChecked: Bool) -> String {
-        switch state {
+    public static func title(for state: ClaudeSetupState, step: ClaudeSetupStep = .bots,
+                             localInstallationChecked: Bool) -> String {
+        if let wording = stepWording(for: state, step: step) { return wording.title }
+        return switch state {
         case .notChecked, .readyToConnect: "Claude connection not checked"
         case .checking: "Checking this Mac…"
         case .needsSignIn: "Sign in to Claude"
@@ -60,16 +61,22 @@ public enum ClaudeSetupWording {
     }
 
     /// The sentences under the title: what is true now, and what to do next.
-    public static func status(for state: ClaudeSetupState) -> String {
-        switch state {
+    /// "May have expired" is said only of a sign-in that passed a check earlier;
+    /// on a first install that would be false.
+    public static func status(for state: ClaudeSetupState, step: ClaudeSetupStep = .bots,
+                              previouslyVerified: Bool = false) -> String {
+        if let wording = stepWording(for: state, step: step) { return wording.status }
+        return switch state {
         case .notChecked:
-            "Check Claude looks at Claude Code on this Mac and at your Claude plan. It does not sign you in or send saved messages."
+            "Sign in with Claude to connect your Pro or Max account. If you already signed in, press Check Claude. Your connection has not been checked yet."
         case .checking:
             "Checking Claude Code on this Mac. Your account is not checked yet, and nothing is sent to Claude."
         case .readyToConnect:
-            "Claude Code on this Mac looks right. Press Check Claude to check your Claude plan."
+            "Claude Code on this Mac is ready. Sign in with Claude, or press Check Claude if you already signed in."
+        case .needsSignIn where previouslyVerified:
+            "Claude needs you to sign in. Your previous sign-in may have expired. Press Sign in with Claude to sign in through Terminal. Your saved work stays here."
         case .needsSignIn:
-            "Claude Code says OpenBots is signed out. Press Sign in with Claude to sign in through Terminal. Your saved work stays here."
+            "Your bots use their own Claude sign-in. Press Sign in with Claude to sign in through Terminal with your Pro or Max account. Your saved work stays here."
         case .signingIn:
             "Getting Claude Code’s own sign-in ready in Terminal. Your Claude plan is not checked yet."
         case .signedInNeedsVerification:
@@ -88,6 +95,52 @@ public enum ClaudeSetupWording {
             "Stopped waiting. What was found earlier is still below. This does not close Terminal, stop a sign-in already running there, or sign you out."
         case .problem(let problem):
             explanation(problem)
+        }
+    }
+
+    /// A first install's two sign-ins, in order: sign in for testing, the test
+    /// runs, sign in for the bots. Only the bots'
+    /// own sign-in may say "Connected"; problems and waits keep their own words.
+    static func stepWording(for state: ClaudeSetupState, step: ClaudeSetupStep) -> (title: String, status: String)? {
+        switch (step, state) {
+        case (.signInForTesting, .notChecked), (.signInForTesting, .readyToConnect),
+             (.signInForTesting, .needsSignIn), (.testing, .needsSignIn):
+            return testingSignIn
+        case (.signInForTesting, .verified):
+            return ("Signed in for testing",
+                    "The test of Claude Code has not started yet. Press Retry compatibility checks under Claude runtime to start it. It uses up to six short requests from your Claude plan. Your bots cannot reply until it passes.")
+        case (.noVersionToTest, .notChecked), (.noVersionToTest, .readyToConnect), (.noVersionToTest, .verified):
+            return ("No Claude Code to test yet",
+                    "OpenBots is signed in for testing, but it has not found a Claude Code version to test. Check Claude again, and if Claude Code is not on this Mac, OpenBots shows how to install it. Your bots cannot reply until a version passes its test.")
+        case (.noVersionToTest, .needsSignIn):
+            return testingSignIn
+        case (.testing(let progress), .notChecked), (.testing(let progress), .readyToConnect),
+             (.testing(let progress), .verified):
+            return testingWording(progress)
+        case (.signInForBots, .notChecked), (.signInForBots, .readyToConnect), (.signInForBots, .needsSignIn):
+            return ("Step 2 of 2: sign in for your bots",
+                    "Claude Code passed its test. Now sign in once more, this time for your bots. They use their own sign-in, not the test’s. Press Sign in with Claude to sign in through Terminal.")
+        default:
+            return nil
+        }
+    }
+
+    private static let testingSignIn = (
+        title: "Step 1 of 2: sign in so OpenBots can test Claude Code",
+        status: "Before your bots use a Claude Code version, OpenBots tests it. Sign in with Claude for that test. It has its own sign-in and uses a few short requests from your Claude plan. After it passes, you sign in once more, for your bots.")
+
+    private static func testingWording(_ progress: ClaudeRuntimeTestProgress) -> (title: String, status: String) {
+        let name = progress.version.map { "Claude Code \($0)" } ?? "Claude Code"
+        switch progress.stage {
+        case .running:
+            return ("Testing \(name) before your bots use it",
+                    "The test uses up to six short requests from your Claude plan, with made-up data. Your bots cannot reply until it passes. Then you sign in once more, for your bots.")
+        case .waiting:
+            return ("\(name) is waiting for its test",
+                    "The test starts when OpenBots is not busy. It uses up to six short requests from your Claude plan. Your bots cannot reply until it passes.")
+        case .failed:
+            return ("\(name) has not passed its test",
+                    "Your bots cannot reply yet. To test it again, press Retry compatibility checks under Claude runtime. That uses up to six short requests from your Claude plan.")
         }
     }
 
@@ -128,7 +181,7 @@ public enum ClaudeSetupWording {
         case .readyToConnect, .needsSignIn, .signedInNeedsVerification, .handedOffNeedsVerification, .verified, .checkingSubscription, .signingIn:
             "Your subscription counts as confirmed only when Claude Code itself reports a claude.ai Pro or Max plan. Terminal opening, a browser opening or a sign-in returning is not that. Status and sign-in use OpenBots’ own account folder; neither gives a bot any tool."
         default:
-            "Check Claude looks at the Claude Code on this Mac and OpenBots’ own account folder, then asks Claude Code for your subscription status. Inspect Installation does the local part only. Sign-in is offered when Claude Code says it is needed."
+            "Check Claude looks at the Claude Code on this Mac and OpenBots’ own account folder, then asks Claude Code for your subscription status. Inspect Installation does the local part only. Sign in with Claude starts sign-in only when you press it."
         }
     }
 }

@@ -4,6 +4,7 @@ import OpenBotsDomain
 import OpenBotsServices
 import SwiftUI
 
+
 /// A view of the shared switches: the web and work switches the app keeps
 /// between launches, and the session-local jobs switch, which it still reads
 /// for the retired runner's admission but which nothing on screen sets any
@@ -243,6 +244,12 @@ final class AgenticJobCoordinator {
     private var shutdownTask: Task<Void, Never>?
     private var closing = false
 
+    var hasUpdateBlockingActivity: Bool {
+        !stopTasks.isEmpty || entries.values.contains {
+            $0.submitting != nil || $0.deciding != nil || $0.stopping || $0.progress?.phase.isActive == true
+        }
+    }
+
     init(service: any AgenticJobServing, access: AgenticJobAccessStore,
          changed: @escaping @MainActor () -> Void,
          completed: @escaping @MainActor (UUID) -> Void = { _ in }) {
@@ -273,6 +280,7 @@ final class AgenticJobCoordinator {
     func isActive(conversationID: UUID) -> Bool { presentation(for: conversationID)?.phase.isActive == true }
 
     func reserve(conversationID: UUID, teammateID: TeammateID, messageID: UUID) -> Bool {
+        guard ApplicationUpdateGate.shared.allowsWork else { return false }
         guard !closing else { return false }
         if var entry = entries[conversationID], isActive(conversationID: conversationID) {
             guard entry.teammateID == teammateID, entry.submitting == nil, !entry.stopping,

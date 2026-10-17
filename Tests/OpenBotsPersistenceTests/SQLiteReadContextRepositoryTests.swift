@@ -297,12 +297,9 @@ struct SQLiteReadContextRepositoryTests {
         #expect(afterRequest.utf8.elementsEqual(beforeRequest.utf8))
     }
 
-    /// Seen live: a bot was told where something is stored and, one turn
-    /// later, said nothing in the conversation mentioned it. Its conversation
-    /// had a few dozen turns, each quoting up to the twelve messages before it,
-    /// and walking that ancestry spent the 256 references a context read
-    /// allowed, so the newest turns were left out of context while the oldest
-    /// were kept. A longer conversation was given none of its recent twelve.
+    /// Recursively walking quoted ancestry can exhaust the 256-reference budget
+    /// before reaching the newest turns. A long conversation must retain its
+    /// latest exchange instead of keeping only the oldest messages.
     @Test("A long conversation whose every turn quoted the messages before it keeps its latest exchange in context")
     func longQuotedHistoryKeepsTheLatestExchange() async throws {
         let f = try ReadContextFixture()
@@ -328,10 +325,10 @@ struct SQLiteReadContextRepositoryTests {
         #expect(snapshot.recentMessages.map(\.text).suffix(2) == ["Request 39", "Answer 39"], "\(snapshot.recentMessages.map(\.text))")
     }
 
-    /// Proving every admitted turn before a read once had two costs: one old
-    /// turn whose stored record could not be parsed, even a turn nothing quotes,
-    /// failed every context read of the conversation, and every check that
-    /// quotes no message walked the whole conversation first.
+    /// Proving every admitted turn
+    /// before a read made a turn that nothing quotes, once its stored record could
+    /// not be parsed, fail every context read of the conversation, and made every
+    /// check that quotes no message walk the whole conversation first.
     @Test("An unreadable old turn that nothing quotes fails neither a check that quotes nothing nor a context read")
     func anUnreadableUnquotedTurnFailsNoRead() async throws {
         let f = try ReadContextFixture()
@@ -363,7 +360,7 @@ struct SQLiteReadContextRepositoryTests {
         } catch { Issue.record("the context read failed: \(error)") }
     }
 
-    /// One turn whose proof throws was once charged to the
+    /// One turn whose proof throws was charged to the
     /// run budget again for every later turn that quotes it, so a conversation past
     /// about forty quoting turns lost its newest messages — including turns that
     /// quote nothing and rest on nothing.
@@ -397,10 +394,8 @@ struct SQLiteReadContextRepositoryTests {
         #expect(snapshot.omissions.excludedMessageLowerBound == 0)
     }
 
-    /// Every read used to walk the bot's whole
-    /// conversation within a ceiling of 1,024 turns, and past it the newest
-    /// turns were the ones left out. Each turn's proof is now stored, so the
-    /// length of a conversation costs a read nothing and drops nothing.
+    /// Each turn's proof is stored, so the length of a conversation does not
+    /// increase the read cost or drop its newest turns beyond a fixed ceiling.
     @Test("A conversation past the old 1,024-turn ceiling keeps its newest turns")
     func aChainPastTheOldCeilingKeepsItsNewestTurns() async throws {
         let f = try ReadContextFixture()

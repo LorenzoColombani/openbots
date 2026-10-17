@@ -96,6 +96,7 @@ public final class WorkspaceDraftCoordinator: ObservableObject {
     /// Shutdown uses the frozen, deadline-owned path below.
     public func flushAll() async -> Bool { await flushAllExplained() == .saved }
 
+
     /// Why a flush of every draft did not end saved: a draft's own failure is
     /// named before a message in flight, since waiting fixes only the second.
     public enum FlushOutcome: Equatable, Sendable { case saved, draftFailed, messageInFlight }

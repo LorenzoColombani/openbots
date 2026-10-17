@@ -1,11 +1,11 @@
 {
- "shape": "work",
- "claude_code_version": "2.1.272",
- "captured": "2026-09-15",
- "model": "claude-opus-5",
- "session_id": "df400ce8-918e-499a-b29a-ca55fef6d12c",
- "message_id": "776c3707-dd55-4927-ba8a-4e212f2c8d82",
- "control_id": "a76b818f-cf00-4591-b72e-94cc706de0ed",
- "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
- "prompt": "Research the public information about Velmont School's campus in Port Aldry: its history and its programmes. Use one helper (subagent_type openbots-helper) for the programmes; look up the history pages yourself with web search and fetch. Then write a short executive summary to Outbox/summary.md and answer me in two sentences."
+  "shape": "work",
+  "claude_code_version": "2.1.272",
+  "captured": "2000-01-01",
+  "model": "claude-opus-5",
+  "session_id": "da572b31-f148-5ec5-aa05-a25257e4efa7",
+  "message_id": "8fcbdb51-a335-5fb5-8bf4-dcd84147ae4f",
+  "control_id": "3d8d83a9-154f-566f-ab75-b39298f78fc4",
+  "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+  "prompt": "Research the public information about Velmont School's campus in Port Aldry: its history and its programmes. Use one helper (subagent_type openbots-helper) for the programmes; look up the history pages yourself with web search and fetch. Then write a short executive summary to Outbox/summary.md and answer me in two sentences."
 }

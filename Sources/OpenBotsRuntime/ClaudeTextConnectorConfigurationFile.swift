@@ -13,10 +13,10 @@ import Foundation
 /// inherited from a settings file. An ungranted turn keeps the shipped inline
 /// `{"mcpServers":{}}` and writes no file at all.
 public enum ClaudeTextConnectorConfigurationFile {
-    /// Independent bound on the serialized file; the server count bound
-    /// (`ClaudeTextConnectorAccess.maximumServerCount`) does not replace this
-    /// byte bound.
+    /// Independent bound on the serialized file; the seven-server count bound
+    /// lives on `ClaudeTextConnectorAccess` and does not replace this byte bound.
     public static let maximumBytes = 64 * 1024
+
 
     /// How long Claude Code waits for one Apple Mail send or reply call before
     /// it tells the bot the call was never answered. Its default is 1e8 ms, about 27

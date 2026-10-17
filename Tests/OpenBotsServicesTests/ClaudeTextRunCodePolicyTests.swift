@@ -7,9 +7,9 @@ import Testing
 @Suite("Run-code policy: script runs get the run card; installs are named")
 struct ClaudeTextRunCodePolicyTests {
     private let access = try! ClaudeTextWorkAccess(
-        workingDirectoryURL: URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Yogurt"),
-        additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/x/Documents/Invoices")],
-        protectedPaths: ["/Users/x/.ssh"])
+        workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt"),
+        additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/fixture/Documents/Invoices")],
+        protectedPaths: ["/Users/fixture/.ssh"])
 
     private func question(_ command: String) throws -> ClaudeTextPermissionRequest {
         ClaudeTextPermissionRequest(requestID: "r", toolUseID: "t", toolName: "Bash",
@@ -72,16 +72,13 @@ struct ClaudeTextRunCodePolicyTests {
     }
 }
 
-/// The shapes Claude Code 2.1.280 really sent when a work bot was
-/// asked to write and run a script (fixture `claude-cli-2.1.280/run-code-probe`,
-/// `bash-asks.json`), and what a rerun allowance must never cover.
 @Suite("Run card on the real wire shapes")
 struct ClaudeTextRunCodeWireShapeTests {
     private static let bot = "/private/tmp/run-code-probe.noindex/Bot"
     private let access = try! ClaudeTextWorkAccess(
         workingDirectoryURL: URL(fileURLWithPath: Self.bot),
-        additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/x/Documents/Invoices")],
-        protectedPaths: ["/Users/x/.ssh"])
+        additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/fixture/Documents/Invoices")],
+        protectedPaths: ["/Users/fixture/.ssh"])
     private let python = [ClaudeTextInterpreter(name: "Python 3", path: "/usr/bin/python3", kind: .python)]
 
     private func run(_ command: String) -> ClaudeTextWorkCard? {
@@ -129,7 +126,7 @@ struct ClaudeTextRunCodeWireShapeTests {
     @Test("A newline, a background run, a redirection or a substitution is not a run card")
     func notOneRun() {
         for command in ["python3 sort.py\nrm -rf notes", "python3 sort.py &", "nohup python3 count.py > /dev/null 2>&1 &",
-                        "python3 sort.py > /Users/x/out.txt", "python3 sort.py < /Users/x/.ssh/id",
+                        "python3 sort.py > /Users/fixture/out.txt", "python3 sort.py < /Users/fixture/.ssh/id",
                         "python3 $(echo sort.py)", "python3 `echo sort.py`", "python3 sort.py; rm -rf notes",
                         "cd /etc && python3 sort.py", "cd .. && python3 sort.py"] {
             #expect(ClaudeTextRunCodePolicy.parse(command, access: access) == nil, "\(command)")
@@ -155,10 +152,10 @@ struct ClaudeTextRunCodeWireShapeTests {
         #expect(card.title == "Run x.py")
         #expect(card.turnScope == nil)
         #expect(!card.offersTurnAllowance)
-        let absolute = try #require(run("python3 /Users/x/Desktop/x.py"))
+        let absolute = try #require(run("python3 /Users/fixture/Desktop/x.py"))
         #expect(absolute.turnScope == nil)
-        let granted = try #require(run("python3 /Users/x/Documents/Invoices/total.py"))
-        #expect(granted.turnScope?.folderPath == "/Users/x/Documents/Invoices/total.py")
+        let granted = try #require(run("python3 /Users/fixture/Documents/Invoices/total.py"))
+        #expect(granted.turnScope?.folderPath == "/Users/fixture/Documents/Invoices/total.py")
     }
 
     @Test("The two installs the CLI asked for are named, with the package, from the install part")
@@ -208,6 +205,7 @@ struct ClaudeTextRunCodeWireShapeTests {
         #expect(ClaudeTextRunCodePolicy.parse("python3 sort.py 2>&1", access: access) != nil)
     }
 
+
     /// A work turn's PATH reaches user-writable folders
     /// after the system ones, so a no-card name must be a system program.
     @Test("A no-card read runs only a program the system folders hold")
@@ -225,7 +223,7 @@ struct ClaudeTextRunCodeWireShapeTests {
 
     @Test("A run's allowance names its interpreter: uv run of an approved python3 script asks again")
     func allowanceNamesTheInterpreter() throws {
-        let uv = [ClaudeTextInterpreter(name: "uv", path: "/Users/x/.local/bin/uv", kind: .uv)] + python
+        let uv = [ClaudeTextInterpreter(name: "uv", path: "/Users/fixture/.local/bin/uv", kind: .uv)] + python
         let approved = try #require(run("python3 Outbox/count.py")).turnScope
         guard case .ask(let other) = ClaudeTextRunCodePolicy.decide(
             "uv run Outbox/count.py", access: access, botName: "Yogurt", interpreters: uv) else {
@@ -248,6 +246,7 @@ struct ClaudeTextRunCodeWireShapeTests {
         #expect(ClaudeTextWorkApprovalPolicy.commandSegments("python3 x.py &> log.txt && ls") == ["python3 x.py &> log.txt", "ls"])
         #expect(ClaudeTextWorkApprovalPolicy.commandSegments("sleep 9 & rm x") == ["sleep 9", "rm x"])
     }
+
 
     // A command chained by a line break must not be titled by its first word.
     // Swift folds "\r\n" into one Character, so a Character-level check for "\n"
@@ -298,6 +297,7 @@ struct ClaudeTextInterpreterCatalogTests {
         }
     }
 }
+
 
 /// "Allow for this turn" on a script must not cover a later version of that
 /// file, or a bot could approve a harmless script and rewrite it before the

@@ -2,9 +2,8 @@ import AppKit
 import OpenBotsDomain
 import SwiftUI
 
-/// App-owned approved artwork. The three vector paths and facial geometry are
-/// copied unchanged from the accepted character drawing, not the old
-/// generated grammar. Guide and Fin are immutable bundled transparent cutouts.
+/// App-owned artwork with fixed vector paths and facial geometry.
+/// Guide and Fin are immutable bundled transparent cutouts.
 @MainActor
 enum BuiltInAvatarResources {
     private final class BundleMarker: NSObject {}

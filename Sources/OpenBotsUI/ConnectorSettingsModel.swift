@@ -10,10 +10,8 @@ public final class ConnectorSettingsModel: ObservableObject {
     @Published public private(set) var reading = ConnectorAccessReading()
     @Published public private(set) var isWorking = false
     @Published public private(set) var notice: String?
-    /// What the last Google account action said: connect, disconnect, the
-    /// client file. It is drawn in the Google account section, under the button
-    /// the user pressed, not below every row (the browser sends the user back
-    /// "for the reason", and at the bottom of the pane it is missed).
+    /// Result of the latest Google account action: connect, disconnect or client-file
+    /// selection. Display it beneath the action's button within the account section.
     @Published public private(set) var googleNotice: String?
     /// The page of the Google Cloud switch that would fix the last failure,
     /// when the failure named one.
@@ -97,18 +95,15 @@ public final class ConnectorSettingsModel: ObservableObject {
             notice = definition.availability.reason
             return
         }
-        // A turn launches at most so many connectors, and past that the launch
-        // hands back none at all — the bot would answer with no connector and no
-        // word about why. So the grant that would get there is refused here,
-        // where the user can read the reason. Every row this bot has switched on
-        // counts, including one killed app-wide or one that cannot run today:
-        // either can come back without the user's hand on this switch, and counting
-        // only the live ones let a kill, a new grant and an un-kill carry a bot
-        // past the bound in silence. The one grant that takes no place is a row
-        // nothing in this build can launch at all: the launch skips it, so
-        // counting it refused a connector the turn would have run (an old
-        // iMessage plugin grant, for one). A selected
-        // id with no row to say otherwise still counts.
+        // A turn launches at most so many connectors, and past that the launch hands back none
+        // at all — the bot would answer with no connector and no word about why. So the grant
+        // that would get there is refused here, where the user can read the reason. Every row this
+        // bot has switched on counts, including one killed app-wide or one that cannot run
+        // today: either can come back without their hand on this switch, and counting only the
+        // live ones let a kill, a new grant and an un-kill carry a bot past the bound in
+        // silence. The one grant that takes no place is a row nothing in this build can launch
+        // at all: the launch skips it, so counting it refused a connector the turn would have
+        // run. A selected id with no row to say otherwise still counts.
         if selected, !reading.selectedIDs.contains(definition.id) {
             let unowned = Set(reading.definitions.filter(\.availability.isUnowned).map(\.id))
             guard reading.selectedIDs.subtracting(unowned).count < ConnectorLaunchService.maximumConnectorsPerBot else {
@@ -136,6 +131,8 @@ public final class ConnectorSettingsModel: ObservableObject {
     public var googleIsConnected: Bool { googleStatus?.state == .connected }
 
     public func importGoogleClientConfiguration(from url: URL) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard teammateID == nil, let googleAuthorization, !isWorking else { return }
         isWorking = true; clearGoogleNotice()
         do {
@@ -160,6 +157,8 @@ public final class ConnectorSettingsModel: ObservableObject {
     private func clearGoogleNotice() { googleNotice = nil; googleSwitchPage = nil }
 
     public func connectGoogle() async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard teammateID == nil, let googleAuthorization, !isWorking else { return }
         isWorking = true; clearGoogleNotice()
         do {
@@ -186,6 +185,8 @@ public final class ConnectorSettingsModel: ObservableObject {
     }
 
     public func disconnectGoogle() async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard teammateID == nil, let googleAuthorization, !isWorking else { return }
         isWorking = true; clearGoogleNotice()
         do {
@@ -234,6 +235,8 @@ public final class ConnectorSettingsModel: ObservableObject {
     deinit { observation?.cancel() }
 
     private func perform(_ operation: @MainActor () async throws -> Void) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isWorking else { return }
         isWorking = true; notice = nil
         do { try await operation() }
@@ -245,16 +248,11 @@ public final class ConnectorSettingsModel: ObservableObject {
     }
 }
 
-/// A standalone surface for composition in app settings or a bot's Access sheet.
-/// Every row is a verified local definition, never a fixture or a connection
-/// claim. Account-hosted services are intentionally absent from this inventory.
-/// The sentences this pane says, named so a test can read them. Wording is
-/// where this pane goes wrong — a line that reads false once the row beside it
-/// gains a switch — and a string sitting
-/// inside a view body is the one thing nothing in this repo can assert on.
+/// A connector surface reusable in Settings or a bot's Access sheet. Each row is a verified
+/// local definition, not a connection claim. Account-hosted services use their own inventory.
+/// Named copy keeps wording independently testable.
 public enum ConnectorCopy {
-    /// The bot's own switches live on its Access sheet, opened with Access…
-    /// from Details or from its row in the sidebar.
+    /// Per-bot switches live on the Access sheet, opened from Details or the sidebar row.
     public static let master = "This switch is the master. Each row below turns one connector on or off for the "
         + "whole app, and each bot still chooses its own on its Access sheet — all three have to be on."
     /// In the app-wide pane the reason is ORed across every bot's grants, so
@@ -266,9 +264,8 @@ public enum ConnectorCopy {
     /// or a plugin reinstalled elsewhere trips it with no version change.
     public static let appWideChanged = "A bot’s own switch for this was turned off when it changed. "
         + "Turn it back on from that bot’s Access sheet."
-    /// The same line under a row nothing in this build can run: no bot's sheet
-    /// lists such a row once its switch is off, and no switch can turn it on,
-    /// so the line sends the user nowhere.
+    /// The same line under a row nothing in this build can run: no bot's sheet lists such a row
+    /// once its switch is off, and no switch can turn it on, so the line sends the user nowhere.
     public static let changedAndUnowned = "A bot’s own switch for this was turned off when it changed. "
         + "Nothing in this version of OpenBots Next can run this connector, so it cannot be turned back on for any bot."
     public static let botChanged = "This connector or its connected account changed since you allowed it, "
@@ -336,6 +333,7 @@ public struct ConnectorSettingsView: View {
     @ObservedObject private var model: ConnectorSettingsModel
     @State private var confirmsGoogleDisconnect = false
     @State private var choosesGoogleClientConfiguration = false
+    @State private var configurationPickerOperation: ApplicationUpdateGate.Operation?
     public init(model: ConnectorSettingsModel) { self.model = model }
 
     public var body: some View {
@@ -394,7 +392,8 @@ public struct ConnectorSettingsView: View {
                             // sitting under a row whose own switch is on, and
                             // once that row got a switch of its own the two
                             // read as a contradiction six pixels apart — which
-                            // is the pane looking broken when it is not.
+                            // is the pane looking broken when it is not, the
+                            // exact thing this step exists to end.
                             Text(changed)
                                 .font(.caption).foregroundStyle(.secondary)
                                 .accessibilityIdentifier("connectors.changed.\(definition.id)")
@@ -447,9 +446,14 @@ public struct ConnectorSettingsView: View {
         .onDisappear { model.stopObserving() }
         .fileImporter(isPresented: $choosesGoogleClientConfiguration,
                       allowedContentTypes: [.json]) { result in
+            let operation = configurationPickerOperation
+            configurationPickerOperation = nil
             switch result {
             case .success(let url):
-                Task { await model.importGoogleClientConfiguration(from: url) }
+                Task {
+                    defer { withExtendedLifetime(operation) {} }
+                    await model.importGoogleClientConfiguration(from: url)
+                }
             case .failure(let error):
                 if (error as? CocoaError)?.code != .userCancelled {
                     model.googleClientConfigurationSelectionFailed()
@@ -553,6 +557,8 @@ public struct ConnectorSettingsView: View {
         if model.googleClientConfigurationStatus != nil {
             Button(ConnectorCopy.googleClientConfigurationImportTitle(
                 isReady: model.googleClientConfigurationStatus?.isReady == true)) {
+                guard let operation = ApplicationUpdateGate.shared.beginOperation() else { return }
+                configurationPickerOperation = operation
                 choosesGoogleClientConfiguration = true
             }
             .disabled(!model.canImportGoogleClientConfiguration)
@@ -561,16 +567,9 @@ public struct ConnectorSettingsView: View {
     }
 }
 
-/// The app-wide connector list, inside Settings.
-///
-/// The model is owned here rather than built in the caller's `body`: a model
-/// rebuilt on every render starts empty — no rows, `isAvailable` false — and
-/// its `.task` has already run for the instance that was replaced. The pane
-/// then shows "no compatible local connector configurations" with a dead
-/// master switch, which is exactly what happens the moment the first toggle
-/// publishes a change and SwiftUI re-evaluates the settings scene. A bot's own
-/// connector switches sit on its Access sheet (`BotAccessSheet.swift`), over
-/// this same model.
+/// The app-wide connector list in Settings owns its model. Constructing it in the caller's body
+/// would replace it with an empty instance during redraws after its task already ran, leaving a
+/// disabled master and no rows. BotAccessSheet uses the same model for per-bot switches.
 public struct AppConnectorControl: View {
     @StateObject private var model: ConnectorSettingsModel
 

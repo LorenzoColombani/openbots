@@ -7,6 +7,7 @@ public protocol TeamArchiving: Sendable {
     func restoreTeam(id: TeamID, expectedUpdatedAt: Date) async throws -> Team
 }
 
+
 /// Archive and restore change only a team's lifecycle: its chat, memberships
 /// and records stay, and nothing is cancelled.
 public actor TeamArchiveService: TeamArchiving {

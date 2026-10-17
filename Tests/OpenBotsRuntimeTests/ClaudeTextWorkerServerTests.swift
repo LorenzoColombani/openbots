@@ -3,6 +3,7 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsRuntime
 
+
 // Throwaway workers. A bot holding the workers switch
 // is offered `spawn_worker` on the app's own `openbots` server, beside the hire
 // tool and the login handoff, over the same control channel. These pin the
@@ -54,7 +55,7 @@ func webWithWorkersCommandContract() throws {
 @Test("Work with workers and hiring allows both server names, and the helper can neither hire nor spawn")
 func workWithWorkersKeepsTheHelperFenced() throws {
     let work = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/private/tmp/desk.noindex"),
-                                        protectedPaths: ["/Users/x/.ssh"])
+                                        protectedPaths: ["/Users/fixture/.ssh"])
     let request = try textOnlyTestRequest(workAccess: work, grantsHiring: true, grantsWorkers: true)
     let without = try textOnlyTestRequest(workAccess: work)
     #expect(request.appServerToolNames == [ClaudeTextHirePolicy.qualifiedToolName, ClaudeTextWorkerPolicy.qualifiedToolName])
@@ -104,8 +105,8 @@ func workerCallsAreAnsweredOnce() throws {
     try consume(try textOnlyTestLine(["type": "assistant", "session_id": request.sessionID.uuidString,
         "message": ["role": "assistant", "model": request.expectedResolvedModel, "content": [
             ["type": "tool_use", "id": "toolu_w1", "name": ClaudeTextWorkerPolicy.qualifiedToolName,
-             "input": ["brief": "Summarise the three PDFs in /Users/x/Bot."]]]]]))
-    let arguments: [String: Any] = ["brief": "Summarise the three PDFs in /Users/x/Bot."]
+             "input": ["brief": "Summarise the three PDFs in /Users/fixture/Bot."]]]]]))
+    let arguments: [String: Any] = ["brief": "Summarise the three PDFs in /Users/fixture/Bot."]
     try consume(try mcpFrame(id: "call-1", message: ["jsonrpc": "2.0", "id": 2, "method": "tools/call",
         "params": ["name": "spawn_worker", "arguments": arguments, "_meta": ["claudecode/toolUseId": "toolu_w1"]]]))
     let call = try #require(calls.first)

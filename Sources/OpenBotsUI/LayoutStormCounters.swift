@@ -1,13 +1,9 @@
 import Foundation
 import OpenBotsServices
 
-/// Whether the layout diagnostics below run at all.
-///
-/// They have found real layout storms and are kept, but they must not be what
-/// the app pays for by default: every counter builds a string and updates
-/// dictionaries on the main thread, and `label.setFrameOrigin` alone
-/// means one string per visible label per scrolled frame. Off unless the
-/// environment asks for it; a test that asserts on the counters turns them on.
+/// Layout counters build strings and update dictionaries on the main thread, including once per
+/// visible label per scrolled frame. Keep them off unless enabled by the environment; tests
+/// requiring counters explicitly enable them.
 enum LayoutDiagnosticsDefault {
     static let isEnabled = ProcessInfo.processInfo.environment["OPENBOTS_LAYOUT_DIAGNOSTICS"] == "1"
 }

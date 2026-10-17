@@ -3,6 +3,7 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsRuntime
 
+
 // Bots that hire bots. The carrier is the app's own MCP server,
 // `openbots`, over the control channel, with one tool, `hire_teammate` (probed on
 // Claude Code 2.1.272). These pin
@@ -45,7 +46,7 @@ func hireOnlyCommandContract() throws {
     for name in ["Agent", "Task", "Bash", "Read", "WebFetch", "WebSearch", "Skill"] {
         #expect(denied.contains(name), "missing deny \(name)")
     }
-    // The probed command, flag for flag where the app's own flags decide.
+    // The probe's a12 command, flag for flag where the app's own flags decide.
     #expect(denied == ClaudeTextOnlyCommandBuilder.deniableToolNames.filter { $0 != "AskUserQuestion" && $0 != "mcp__*" })
 
     let settings = try json(Data(ClaudeTextOnlyCommandBuilder.settingsJSON(for: request).utf8))
@@ -62,7 +63,7 @@ func hireOnlyCommandContract() throws {
 @Test("Work and hiring together keep the work settings, add only the hire name to allow, and leave the helper unable to hire")
 func workWithHiringKeepsTheHelperFenced() throws {
     let work = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/private/tmp/desk.noindex"),
-                                        protectedPaths: ["/Users/x/.ssh"])
+                                        protectedPaths: ["/Users/fixture/.ssh"])
     let request = try textOnlyTestRequest(allowedTools: [.webSearch], workAccess: work, grantsHiring: true)
     let withoutHiring = try textOnlyTestRequest(allowedTools: [.webSearch], workAccess: work)
     let arguments = ClaudeTextOnlyCommandBuilder.arguments(for: request)
@@ -74,7 +75,7 @@ func workWithHiringKeepsTheHelperFenced() throws {
     #expect(permissions["allow"] as? [String] == ["WebSearch", "mcp__openbots__hire_teammate"])
     #expect(permissions["ask"] as? [String] == ["Agent"])
     #expect(settings["sandbox"] != nil)
-    // The helper's own tools list is the fence (probed): unchanged, it
+    // The helper's own tools list is the fence (probe a9, a11): unchanged, it
     // neither names the hire tool nor drops the server wildcard.
     let helpers = try json(Data(try #require(value(arguments, "--agents")).utf8))
     let helper = try #require(helpers[ClaudeTextHelperPolicy.agentType] as? [String: Any])
@@ -290,7 +291,7 @@ func callsAreAnsweredOnce() throws {
 }
 
 /// A cancellation names a call by its JSON-RPC id only, and the ids start
-/// again after the CLI reconnects the server (probed: a second
+/// again after the CLI reconnects the server (probe runs a6 and a8: a second
 /// handshake round). A call from the connection before is one the CLI no
 /// longer waits for.
 @Test("A fresh initialize ends the calls of the connection before it, so a cancellation afterwards reaches only the new connection's call")
@@ -474,6 +475,7 @@ func hireProcessRoundTrip() async throws {
     #expect(arguments2.contains("--permission-prompt-tool\nstdio"))
     #expect(arguments2.contains("--tools\nAskUserQuestion\n"))
 }
+
 
 // MARK: - The login handoff
 

@@ -12,12 +12,11 @@ public struct DurableTeammateDraft: Equatable, Sendable {
     public let teammateID: TeammateID
     public let displayName: String
     public let role: String
-    /// A hired bot's standing instructions and seat, written by its hirer.
-    /// Nil for a bot made in the New Bot sheet.
+    /// A hired bot's standing instructions and seat, written by its hirer. Nil for a bot made
+    /// in the New Bot sheet.
     public let detailedInstructions: String?
     public let seat: TeammateSeat?
-    /// The hirer's name when a hire wrote this profile; nil for a
-    /// bot the person makes.
+    /// The hirer's name when a hire wrote this profile; nil for a bot the person makes.
     public let profileWrittenByHirer: String?
     public let appearance: AgentAppearance
 
@@ -204,7 +203,7 @@ public extension DurableTeammateChatServing {
     }
 }
 
-/// Coordinates durable teammate chat.
+/// Coordinates the smallest durable teammate/chat vertical slice.
 ///
 /// This actor owns ordering only. Repositories own durability and transactions;
 /// no executor, credential provider, network client, or filesystem root is
@@ -430,6 +429,7 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
         throw failure
     }
 
+
     /// New Bot: a bot under a free placeholder name and the
     /// placeholder role, its chat opened on its one question, marked as waiting
     /// to set itself up. Nothing else is written until the person answers. The question
@@ -477,6 +477,7 @@ public actor DurableTeammateChatService: DurableTeammateChatServing {
         case .direct, .team: break
         case .project: throw DurableTeammateChatError.conversationUnavailable(conversationID)
         }
+
 
         // The transcript's page. Work-audit rows (briefs, reports and member
         // replies between bots) belong to the record and are left

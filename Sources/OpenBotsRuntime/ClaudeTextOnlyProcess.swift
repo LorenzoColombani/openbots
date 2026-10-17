@@ -78,7 +78,9 @@ public struct NativeClaudeTextOnlyRunner: ClaudeTextOnlyRunning {
                         let (events, result) = transfer.take()
                         for event in events where !transfer.isCancelled { await onEvent(event) }
                         if let result {
-                            continuation.resume(returning: transfer.isCancelled ? .cancelled : result)
+                            let (outcome, receipt) = transfer.completion(for: result)
+                            if let receipt { ClaudeTextOnlyCompletionLog.report(receipt) }
+                            continuation.resume(returning: outcome)
                             return
                         }
                         try? await Task.sleep(for: .milliseconds(10))
@@ -95,6 +97,7 @@ private final class ClaudeTextOnlyTransfer: @unchecked Sendable {
     private var events: [ClaudeTextOnlyEvent] = []
     private var result: ClaudeTextOnlyResult?
     private var rejectionCode: ClaudeTextOnlyDiagnosticCode?
+    private var completionReceipt: ClaudeTextOnlyCompletionReceipt?
     var isCancelled: Bool { lock.withLock { cancelled } }
     func cancel() { lock.withLock { cancelled = true; events.removeAll() } }
     func publish(_ event: ClaudeTextOnlyEvent) {
@@ -113,6 +116,16 @@ private final class ClaudeTextOnlyTransfer: @unchecked Sendable {
         lock.withLock { if rejectionCode == nil { rejectionCode = code } }
     }
     var diagnosticCode: ClaudeTextOnlyDiagnosticCode? { lock.withLock { rejectionCode } }
+    func recordCompletionReceipt(_ receipt: ClaudeTextOnlyCompletionReceipt?) {
+        lock.withLock { completionReceipt = receipt }
+    }
+    func completion(for value: ClaudeTextOnlyResult) -> (ClaudeTextOnlyResult, ClaudeTextOnlyCompletionReceipt?) {
+        lock.withLock {
+            if cancelled { return (.cancelled, nil) }
+            guard case .success = value else { return (value, nil) }
+            return (value, completionReceipt)
+        }
+    }
     func take() -> ([ClaudeTextOnlyEvent], ClaudeTextOnlyResult?) {
         lock.withLock { let value = events; events.removeAll(keepingCapacity: true); return (value, result) }
     }
@@ -131,15 +144,14 @@ private struct ClaudeTextOnlyBudget {
     let leaseHeartbeat: UInt64
     /// The ceiling of a reply that renews its rounds by card (Control this
     /// Mac). Sixty-four look-and-click rounds, with the cards the user answers
-    /// between them, do not fit the fifteen minutes of any other reply; a
-    /// renewal still restarts its own ceiling. Tests that set
+    /// between them, do not fit the fifteen minutes of any other reply;
+    /// a renewal still restarts its own ceiling. Tests that set
     /// their own overall budget keep it.
     var macControlOverall: UInt64? = nil
-    /// The most card time given back to one ceiling. A long work turn can
-    /// spend a third of its fifteen minutes on cards the user is reading.
-    /// Forty-five minutes in the app: an ordinary turn ends within an hour of
-    /// launch, a Control this Mac window within ninety minutes of its launch
-    /// or renewal.
+    /// The most card time given back to one ceiling. Reading approval cards
+    /// must not consume the model's full execution budget. Forty-five minutes
+    /// in the app: an ordinary turn ends within an hour of launch, a Control this
+    /// Mac window within ninety minutes of its launch or renewal.
     let cardCredit: UInt64
 }
 
@@ -217,8 +229,8 @@ private enum ClaudeTextOnlyProcess {
         // the group kill above never reached it.
         if let access = request.connectorAccess {
             ClaudeTextConnectorReaper.reap(profileURLs: access.ownedProfileURLs)
-            // Every look at the user's screen this turn took left a file in
-            // the user's own temporary folder; they go with the turn. Another bot's Control
+            // Every look at the user's screen this turn took left a file in their own
+            // temporary folder; they go with the turn. Another bot's Control
             // this Mac turn running now loses its files too, which costs it
             // nothing: the picture was handed back when it was taken.
             if access.servers.contains(where: { $0.role == .macControl }) {
@@ -240,8 +252,8 @@ private enum ClaudeTextOnlyProcess {
                                         lastOutputAt: UInt64, overallDeadline: UInt64,
                                         transfer: ClaudeTextOnlyTransfer, control: ClaudeTextTurnControl?) -> ClaudeTextOnlyResult {
         var lastOutputAt = lastOutputAt
-        // Moves on while a card waits for the user, and when they renew a
-        // turn's rounds (below).
+        // Moves on while a card waits for the user, and when they renew a turn's
+        // rounds (below).
         var overallDeadline = overallDeadline
         // Card time given back to the ceiling since launch or the last
         // renewal, and when the loop last looked at an open card.
@@ -355,15 +367,11 @@ private enum ClaudeTextOnlyProcess {
                 transfer.recordDiagnostic(.streamReadFailed); failure = error; break
             } catch { failure = .invalidStream; break }
             republishForLease(stream, transfer: transfer, lastSnapshotAt: &lastSnapshotAt, budget: budget)
-            // A child waiting on the user's decision is not a silent child: the
-            // silence budget pauses while a question is open, and while the
-            // card renewing the rounds waits. Nor is it working: the ceiling
-            // measures the model's own time, so it moves on by every moment
-            // any card is open, whatever kind. It moves while the card is
-            // still open, not when it closes, so a long read that crosses the
-            // ceiling does not end the turn under the user. At most
-            // `cardCredit` is given back, so a turn nobody comes back to still
-            // ends: ceiling plus credit from launch or from the last renewal.
+            // Pause the silence budget while a question or renewal card waits. Credit time
+            // spent on any approval card toward the execution ceiling while that card is open,
+            // so reading cannot prematurely end the turn. Credit is bounded by `cardCredit`; an
+            // unanswered turn still ends at its ceiling plus credit, measured from launch or
+            // its latest renewal.
             if let control, control.isAwaitingDecision {
                 let now = DispatchTime.now().uptimeNanoseconds
                 lastOutputAt = now
@@ -394,7 +402,7 @@ private enum ClaudeTextOnlyProcess {
             // message's id before a byte of it is written, so nothing the CLI
             // says about it can arrive first; then it goes out after any
             // answers already queued. The ceiling starts again with the new
-            // allowance, since the user chose to give it: measured from launch, a
+            // allowance, since they chose to give it: measured from launch, a
             // window of sixty-four rounds and a card that waited would leave
             // the renewal nothing. No: the turn ends here as the turn limit,
             // keeping what it wrote, and the child is reaped like any other.
@@ -488,7 +496,9 @@ private enum ClaudeTextOnlyProcess {
         }
         guard reaped == pid, status & 0x7f == 0 else { return .failed(.processFailed) }
         guard written == input.count else { return .failed(.inputRejected) }
-        return stream.finish(exitCode: (status >> 8) & 0xff) { transfer.recordDiagnostic($0) }
+        let result = stream.finish(exitCode: (status >> 8) & 0xff) { transfer.recordDiagnostic($0) }
+        transfer.recordCompletionReceipt(stream.completionReceipt(for: result))
+        return result
     }
 
     /// Nil for a turn the model declined: a diagnostic names a fault, and a
@@ -505,7 +515,7 @@ private enum ClaudeTextOnlyProcess {
         case .outputLimitExceeded: .outputLimitExceeded
         case .invalidStream: .incompleteResult
         case .unsafeInitialization: .invalidEnvelope
-        case .providerFailed: .providerFailure
+        case .providerFailed, .authenticationRequired: .providerFailure
         case .turnLimitReached: .turnLimitReached
         case .sessionNotFound: .sessionNotFound
         case .processFailed: .processFailed

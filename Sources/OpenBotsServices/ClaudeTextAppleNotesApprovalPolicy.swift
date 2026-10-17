@@ -2,17 +2,10 @@ import Foundation
 import OpenBotsDomain
 import OpenBotsRuntime
 
-/// What a bot asked to write in Apple Notes, read exactly as the Claude Desktop
-/// extension's `server/index.js` (Notes 0.1.7) will
-/// read it.
-///
-/// The extension is pinned and cannot be changed, so this is the only side
-/// that checks anything, unlike the app's own Messages server, which checks
-/// every text again. Where the extension coerces, this refuses: it takes any
-/// JSON value for a folder and splices it into the AppleScript, so a number
-/// there names a folder by its position; here a folder is a string or nothing.
-/// Where the extension defaults, this shows the default: `folder || "Notes"`
-/// for a new note, and `if (folder)` for a replacement, which is any folder.
+/// Read Apple Notes inputs as the pinned extension's `server/index.js` (Notes 0.1.7) will read
+/// them. Validate before execution: its AppleScript accepts arbitrary JSON folder values, where
+/// numbers select by position; here a folder must be a string or absent. Show its defaults:
+/// `folder || "Notes"` for creation and `if (folder)` for replacement.
 public struct AppleNotesWriteProposal: Equatable, Sendable {
     public static let addTool = "add_note"
     public static let replaceTool = "update_note_content"
@@ -113,6 +106,7 @@ public struct AppleNotesWriteProposal: Equatable, Sendable {
         }
     }
 
+
     /// The text: the rules a text card holds a message to, for the same reason,
     /// and one more. The extension sets the note's `body`, which Notes reads as
     /// web markup, so the card could not show what Notes would: `hunter&#50;2`
@@ -176,7 +170,7 @@ extension AppleNotesWriteProposal.Refusal {
             return "`\(field)` is empty." + tail
         case .tooLong(let field, let scalars, let limit):
             return "`\(field)` is \(scalars) characters long and the limit is \(limit), so it cannot be shown "
-                + "to the user whole." + tail
+                + "to him whole." + tail
         case .notOneLine(let field):
             return "`\(field)` must be one line: a line break or a tab in it cannot be shown on a card as it "
                 + "would be written." + tail
@@ -201,6 +195,7 @@ extension AppleNotesWriteProposal.Refusal {
     }
 }
 
+
 /// What the card says when a bot wants to use Apple Notes, through the Claude
 /// Desktop extension.
 ///
@@ -217,7 +212,7 @@ public enum ClaudeTextAppleNotesApprovalPolicy {
 
     static let refusalActivity = "Blocked a note whose details could not be shown exactly"
     static let secretRefusal = "This note carries something the user gave as a secret earlier in this turn, so "
-        + "the card could not show it exactly as it would be written. Nothing was written. Never put a secret the user "
+        + "the card could not show it exactly as it would be written. Nothing was written. Never put a secret he "
         + "gave you into a note."
     static let secretActivity = "Blocked a note that carried a secret you gave"
 

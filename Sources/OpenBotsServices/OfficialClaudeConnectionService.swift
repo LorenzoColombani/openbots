@@ -1,5 +1,6 @@
 import Foundation
 import OpenBotsRuntime
+import OpenBotsDomain
 
 public enum ClaudeConnectionOperation: Equatable, Sendable {
     case status
@@ -34,6 +35,7 @@ public struct PendingClaudeConnectionAdmission: ClaudeConnectionAdmitting {
     }
 }
 
+
 /// Admits the two user-initiated setup operations, and only those.
 /// App composition selects this policy; construction and local checks remain
 /// inert, and every operation still requires fresh installation/profile checks.
@@ -58,6 +60,8 @@ public actor OfficialClaudeConnectionService: ClaudeSetupServicing {
     private let admission: any ClaudeConnectionAdmitting
     private let statusChecker: any ClaudeStatusChecking
     private let signInHandoff: any ClaudeConnectionSignInHandingOff
+    private let modelDiscovery: (any ClaudeModelCatalogDiscovering)?
+    private let modelCatalog: ClaudeModelCatalogRegistry
     private let now: @Sendable () -> Date
     private var operationInProgress = false
 
@@ -67,6 +71,8 @@ public actor OfficialClaudeConnectionService: ClaudeSetupServicing {
         admission: any ClaudeConnectionAdmitting = PendingClaudeConnectionAdmission(),
         statusChecker: any ClaudeStatusChecking = NativeClaudeStatusChecker(),
         signInHandoff: any ClaudeConnectionSignInHandingOff,
+        modelDiscovery: (any ClaudeModelCatalogDiscovering)? = nil,
+        modelCatalog: ClaudeModelCatalogRegistry = .shared,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.inspector = inspector
@@ -74,6 +80,8 @@ public actor OfficialClaudeConnectionService: ClaudeSetupServicing {
         self.admission = admission
         self.statusChecker = statusChecker
         self.signInHandoff = signInHandoff
+        self.modelDiscovery = modelDiscovery
+        self.modelCatalog = modelCatalog
         self.now = now
     }
 
@@ -124,8 +132,15 @@ public actor OfficialClaudeConnectionService: ClaudeSetupServicing {
                     exitCode: 0, loggedIn: true, authMethod: "claude.ai",
                     apiProvider: "firstParty", subscriptionType: tier.rawValue, checkedAt: now()
                 ) else { return .init(local: local, outcome: .problem(.connectionCheckInconclusive)) }
+                if let modelDiscovery {
+                    let catalog = await modelDiscovery.discover(target: target)
+                    guard !Task.isCancelled else { return .init(local: local, outcome: .cancelled) }
+                    modelCatalog.replace(with: catalog)
+                }
                 return .init(local: local, outcome: .verified(verified))
-            case .signedOut: return .init(local: local, outcome: .needsSignIn)
+            case .signedOut:
+                if modelDiscovery != nil { modelCatalog.replace(with: nil) }
+                return .init(local: local, outcome: .needsSignIn)
             case .inconclusive: return .init(local: local, outcome: .problem(.connectionCheckInconclusive))
             case .cancelled: return .init(local: local, outcome: .cancelled)
             }

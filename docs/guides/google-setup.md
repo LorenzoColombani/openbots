@@ -6,8 +6,6 @@ developer to review. So **you create your own Google sign-in client**, build it
 into your copy of the app, and sign in with it. It takes about fifteen minutes,
 once.
 
-![Six steps: a Google Cloud project, three APIs, a consent screen in Testing with you as test user, a Desktop client, then the client ID into the build and the JSON file into the app](google-setup-flow.svg)
-
 > **Use a separate Google account.** The app calls it "the separate OpenBots Google
 > account" everywhere. Bots can read its mail, draft (and, if you allow it, send)
 > as it, and read its calendar and Drive. Give it only what you want bots to see,
@@ -87,20 +85,46 @@ choose the JSON file inside the app in step 6, and it is kept in your Keychain.
 **With the one-line installer**, put the ID in front of `sh`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/LorenzoColombani/openbots/main/install.sh \
+env -i HOME=/nonexistent PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  /usr/bin/curl -q -fsSL https://raw.githubusercontent.com/LorenzoColombani/openbots/main/install.sh \
   | OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=1234-abcd.apps.googleusercontent.com sh
 ```
 
-**From a clone**, write it to the file the build reads, then build:
+**For a first installation from a clean public clone**, pass your own public ID
+without adding it to source files:
 
 ```sh
-mkdir -p .build.noindex
-echo 1234-abcd.apps.googleusercontent.com > .build.noindex/google-oauth-client-id
-Scripts/build-preview.sh
+OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=1234-abcd.apps.googleusercontent.com \
+  /usr/bin/python3 -I -B -S Scripts/bootstrap-install.py --source .
 ```
 
-`.build.noindex/` is ignored by git, so the ID stays out of your commits. Rebuild
-the same way after every update, or the new copy of the app has no Google client.
+The bootstrap uses your own Apple Development certificate; see
+[local signing setup](../INSTALL.md). It never exports the certificate's private
+key or puts your Google secret into the build.
+
+**Installed without an ID?** Quit the app normally and run the installer again
+with `OPENBOTS_GOOGLE_OAUTH_CLIENT_ID` as above. The ID is added to the rebuilt
+app; nothing else changes.
+
+**Switching to a different client?** An installation that already has an ID keeps
+it unless you ask for the change. Set both variables:
+
+```sh
+env -i HOME=/nonexistent PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  /usr/bin/curl -q -fsSL https://raw.githubusercontent.com/LorenzoColombani/openbots/main/install.sh \
+  | OPENBOTS_GOOGLE_OAUTH_CLIENT_ID=5678-efgh.apps.googleusercontent.com OPENBOTS_REPLACE_GOOGLE_CLIENT_ID=1 sh
+```
+
+From a clone, pass `--replace-google-client-id` instead of the second variable.
+The app notices the new ID and asks you to sign in to Google again; choose the new
+client's JSON file in step 6.
+
+**Already connected on 1.0.2?** Quit the app normally and run the new installer
+without an ID override. It preserves the existing bundle's public client ID; a
+different ID is refused unless you ask for the switch as above. On first launch, the new app saves that ID in
+its own protected configuration store. Future **Update now** source updates use
+that saved setup. Existing credentials stay in Keychain; you do not have to
+re-enter the public ID for each update.
 
 A build without a client ID still shows the Google rows, marked **needs setup**,
 with both buttons off: "This build needs a new Google Desktop OAuth client before
@@ -119,10 +143,11 @@ the account can be connected."
 4. Turn the Google connectors on for the bots that need them, under each bot's
    Access.
 
-If your Mac asks whether the Google helper may use your Keychain, allow it. An app
-built without an Apple Development certificate is signed ad hoc, and macOS then
-treats every rebuild as a new program: expect the question again after each
-rebuild, and answer it, or the Google connectors stay unavailable.
+If your Mac asks whether the Google helper may use your Keychain, allow it.
+Source builds require your own Apple Development certificate, as described in
+[Install](../INSTALL.md), and keep that signing identity for updates. Replacing
+the signing identity, including upgrading an older ad-hoc installation, may
+require you to approve Keychain access again.
 
 ## Disconnect
 
@@ -142,3 +167,4 @@ account for each bot again. You can also remove access from the Google side at
 | An API "is switched off" | Enable it in **APIs & Services → Library** (step 2). |
 | Access denied at Google | Add the account as a test user (step 3). |
 | Worked for a week, then stopped | The Testing sign-in expired. Sign in again. |
+

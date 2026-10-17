@@ -44,7 +44,7 @@ struct TranscriptMessagePartsView: View {
     @ViewBuilder
     private var emptyContent: some View {
         if message.streamState == .streaming {
-            // Presence: the creature shows it is working. No transport caption.
+            // Reference presence: creature shows working. No transport caption.
             Color.clear
                 .frame(height: 0)
                 .accessibilityLabel(TranscriptEmptyStreamChrome.accessibilityLabel)
@@ -357,7 +357,7 @@ struct TranscriptDiagnostic: Equatable {
         case .providerFailure:
             "Claude could not finish this reply, because of a problem on Claude’s side or with the connection. \(kept)"
         case .turnLimitReached:
-            "The bot used up its rounds of tool calls before it finished this reply. \(kept)"
+            "The bot reached its tool-use limit before finishing this reply. \(kept)"
         case .deadlineExceeded:
             // One code for both limits (the runtime log says which fired):
             // silence, or the whole reply's time. Replies saved before card
@@ -365,9 +365,9 @@ struct TranscriptDiagnostic: Equatable {
             // about cards.
             "Claude did not finish in time: it went quiet for too long, or the whole reply ran past its time limit. \(kept)"
         case .outputLimitExceeded:
-            "The reply grew past the size OpenBots takes in one turn, so it was stopped. \(kept)"
+            "Claude Code sent more output than OpenBots accepts for one turn, so the turn was stopped. \(kept)"
         case .finalModelMismatch:
-            "Claude answered on a different model than the one asked for, so OpenBots did not keep the reply. \(kept)"
+            "Claude Code reported inconsistent or unverifiable model information, so OpenBots did not keep the reply. \(kept)"
         case .executableRejected, .launchFailed, .inputWriteFailed:
             "Claude Code could not be started for this reply. Check it under Settings → General & Claude Code. \(kept)"
         case .streamReadFailed, .processFailed, .incompleteResult:
@@ -394,9 +394,8 @@ struct TranscriptDiagnostic: Equatable {
     }
 }
 
-/// The diagnostic chip under a failed reply opens (it used to be drawn like
-/// a chip that did nothing on a click): what the code means in words,
-/// the code itself to quote, and the conversation's "What happened" record.
+/// The diagnostic chip opens an explanation, a copyable code and the conversation's What
+/// happened record.
 private struct DiagnosticStatusChip: View {
     let status: String
     let diagnostic: TranscriptDiagnostic

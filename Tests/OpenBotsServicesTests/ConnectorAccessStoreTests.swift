@@ -53,6 +53,7 @@ struct ConnectorAccessStoreTests {
         #expect(!raw.contains("https://") && !raw.contains("command") && !raw.contains("arguments") && !raw.contains("headers"))
     }
 
+
     /// A deleted bot's grants go with it, through the store: editing the
     /// record behind the store's back would
     /// leave its revision stale and take every connector dark at the next switch.
@@ -151,7 +152,7 @@ struct ConnectorAccessStoreTests {
     }
 
     @Test("A switch the user turned off themselves is never blamed on a later version bump")
-    func theUsersOwnOffIsNotBlamedOnAChange() async throws {
+    func hisOwnOffIsNotBlamedOnAChange() async throws {
         let f = try Fixture(); defer { f.remove() }
         let db = try f.open(), a = TeammateID(UUID())
         let original = try connector(), bumped = try connector(digest: "b")
@@ -160,14 +161,14 @@ struct ConnectorAccessStoreTests {
         try await store.restore()
         try await store.setAppEnabled(true)
         try await store.setBotEnabled(true, identity: original.definition.identity, teammateID: a)
-        // The user turns it off. That writes a disabled grant carrying the
+        // The user turns it off themselves. That writes a disabled grant carrying the
         // identity of the day, which is the shape the whole question turns on.
         try await store.setBotEnabled(false, identity: original.definition.identity, teammateID: a)
         await catalog.replace(bumped)
         try await store.refreshCatalog()
-        // The row did change. The grant was not revoked by it — it was already
-        // off — so saying a new version switched it off is a lie, and one
-        // that nags the user to turn on something they deliberately turned off.
+        // The row did change. The user's grant was not revoked by it — it was already
+        // off — so telling them a new version switched it off is a lie, and one
+        // that nags them to turn on something they deliberately turned off.
         #expect(await store.current(teammateID: a).changedSinceAllowed.isEmpty)
         #expect(await store.current().changedSinceAllowed.isEmpty)
         let reopened = ConnectorAccessStore(repository: try f.open(), catalog: catalog)
@@ -199,14 +200,14 @@ struct ConnectorAccessStoreTests {
         let reopened = ConnectorAccessStore(repository: try f.open(), catalog: catalog)
         try await reopened.restore()
         #expect(await reopened.current(teammateID: a).changedSinceAllowed.contains(original.definition.identity.id))
-        // And it stops the moment the user touches the switch.
+        // And it stops the moment the user touches the switch themselves.
         try await reopened.setBotEnabled(true, identity: original.definition.identity, teammateID: a)
         #expect(await reopened.current(teammateID: a).changedSinceAllowed.isEmpty)
     }
 
-    @Test("A record written before the reason existed keeps its switched-off rows saying why")
-    func theOneTimeSeedFillsInAnExistingRecord() throws {
-        // The shape an older build's record held: no
+    @Test("A record written before the reason existed keeps the user's switched-off rows saying why")
+    func theOneTimeSeedFillsInHisExistingRecord() throws {
+        // An older persisted shape has no
         // `revokedByChange`, no `grantFlagsSeeded`, one grant off at a digest
         // the catalog has moved past and one off at the digest it still has.
         let json = """
@@ -223,7 +224,7 @@ struct ConnectorAccessStoreTests {
         #expect(decoded.grants.allSatisfy { !$0.revokedByChange })
         let seeded = decoded.seedingGrantFlags()
         #expect(seeded.grantFlagsSeeded)
-        // The row whose browser was lost to the change reads as revoked by it.
+        // The row the user lost their browser to reads as revoked by the change.
         #expect(try #require(seeded.grants.first { $0.identity.id.contains("chrome-devtools") }).revokedByChange)
         // The one still at the digest it was allowed at was the user's own doing.
         #expect(!(try #require(seeded.grants.first { $0.identity.id.contains("imessage") }).revokedByChange))
@@ -310,7 +311,7 @@ struct ConnectorAccessStoreTests {
         try await store.setAppEnabled(true)
         try await store.setBotEnabled(true, identity: one.definition.identity, teammateID: a)
         let lease = try #require(await store.lease(teammateID: a))
-        // The app-wide kill switch: off for the whole app, and no bot may launch it.
+        // The user's kill switch: off for the whole app, and no bot may launch it.
         try await store.setConnectorAppEnabled(false, id: one.definition.id)
         #expect(await store.lease(teammateID: a) == nil)
         #expect(await !store.isCurrent(lease))
@@ -360,7 +361,7 @@ struct ConnectorAccessStoreTests {
         try await store.setAppEnabled(true)
         // The switch records what the user decided about the connector, not whether
         // this build happens to be able to run it. A later build that CAN run
-        // it must find that decision waiting, not turn itself on.
+        // it must find their decision waiting, not turn itself on.
         try await store.setConnectorAppEnabled(false, id: dead.definition.id)
         #expect(await store.current().appDisabledIDs.contains(dead.definition.id))
         let reopened = ConnectorAccessStore(repository: try f.open(), catalog: PairCatalog(
@@ -368,6 +369,7 @@ struct ConnectorAccessStoreTests {
         try await reopened.restore()
         #expect(await reopened.current().appDisabledIDs.contains(dead.definition.id))
     }
+
 
     // MARK: the chats a bot may read in Messages
 
@@ -464,7 +466,7 @@ struct ConnectorAccessStoreTests {
 
     @Test("A record written before the kill switch existed decodes with nothing killed")
     func anOlderRecordKillsNothing() throws {
-        // An older build's record has no such field. Decoding it
+        // Older records have no such field. Decoding it
         // strictly would fail the whole read and take every connector dark.
         let raw = """
         {"revision":26,"appEnabled":true,"catalog":[],"grants":[],"grantFlagsSeeded":true}
@@ -474,6 +476,7 @@ struct ConnectorAccessStoreTests {
         #expect(state.appEnabled)
         try state.validate()
     }
+
 
     /// The rollback check. A build that lists
     /// the Claude Desktop extensions stores their rows under a source the build
@@ -538,10 +541,10 @@ struct ConnectorAccessStoreTests {
     }
 
     @Test("The pane reads the rows that work first, and the dead one last")
-    func theListPutsWhatWorksFirst() async throws {
+    func theListHeReadsPutsWhatWorksFirst() async throws {
         let f = try Fixture(); defer { f.remove() }
         let db = try f.open()
-        // The pair that shows the problem: `browser-use` sorts first by name and this
+        // The pair the user actually met: `browser-use` sorts first by name and this
         // build cannot drive it, and the browser that works sat underneath.
         let store = ConnectorAccessStore(repository: db, catalog: PairCatalog(
             first: try connector(id: "claude-plugin:browser-use@official:browser-use", server: "browser-use",
@@ -551,6 +554,7 @@ struct ConnectorAccessStoreTests {
         try await store.restore()
         #expect(await store.current().definitions.map(\.serverName) == ["chrome-devtools", "browser-use"])
     }
+
 
     // MARK: rows gone from the catalog, revocation reasons and kill pruning
 

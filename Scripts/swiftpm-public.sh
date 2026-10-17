@@ -94,6 +94,12 @@ swiftpm_environment=(
   "GIT_CONFIG_VALUE_1="
 )
 
+# A fixed test-only switch selects an external display without forwarding
+# arbitrary caller environment into the isolated build.
+if [[ ${OPENBOTS_TEST_EXTERNAL_DISPLAY_ONLY:-0} == 1 ]]; then
+  swiftpm_environment+=("OPENBOTS_TEST_EXTERNAL_DISPLAY_ONLY=1")
+fi
+
 exec /usr/bin/env -i "${swiftpm_environment[@]}" /usr/bin/xcrun swift "$swiftpm_command" \
   "${swiftpm_scratch_arguments[@]}" \
   --cache-path "$shared_cache" \

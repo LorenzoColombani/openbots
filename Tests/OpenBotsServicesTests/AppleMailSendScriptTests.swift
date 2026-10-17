@@ -177,8 +177,8 @@ private final class ScriptSession {
         // split its line-framed protocol and the id was never seen — would
         // hang the test run on a blocking read instead of failing a test, so the
         // process is killed at the deadline and the empty read becomes an
-        // error. The deadline is shorter than the test run's own
-        // timeout, because a wedge here is instantaneous rather than slow.
+        // error. The deadline is shorter than the test run it
+        // protects, because a wedge here is instantaneous rather than slow.
         let watchdog = DispatchWorkItem { [process] in
             if process.isRunning { process.terminate() }
         }
@@ -239,7 +239,7 @@ struct AppleMailSendScriptTests {
         // stdin and every value after it is an argv item, so nothing a bot or a
         // stranger writes can be read as AppleScript. Then: mode, account,
         // subject, body, to, cc, bcc, signature — swapping cc and bcc used to
-        // pass every test here.
+        // pass every test in this slice.
         #expect(argv == ["-", "send", "iCloud", "Subject here", "Body here",
                          "a@example.test", "b@example.test", "c@example.test", "Work"])
     }
@@ -257,7 +257,7 @@ struct AppleMailSendScriptTests {
     @Test("A claimed subject that is not the message's subject refuses the reply, and nothing is written")
     func aMismatchedSubjectRefusesTheReply() throws {
         // The message really is about the NDA; the bot claims "a", which the
-        // old substring check accepted (proved on a real Mac).
+        // old substring check accepted.
         let harness = try ScriptHarness(
             resolveAnswer: "12345\tiCloud\tLawyer: sign the NDA today")
         defer { harness.remove() }
@@ -283,11 +283,9 @@ struct AppleMailSendScriptTests {
     /// reached Mail on a real `reply_mail` call rather than about text that
     /// exists somewhere in a file.
     ///
-    /// What it pins is the line that was wrong for the whole life of the reply
-    /// tool. Mail silently ignores `set content of m` on a message returned by
-    /// `reply` — no error, nothing in the log — so every reply went out
-    /// carrying only the user's signature, until this was fixed. `set properties`
-    /// takes. The ordering matters as much as the form: the same assignment
+    /// Mail silently ignores `set content of m` on a message returned by
+    /// `reply`, leaving only the signature. `set properties` takes.
+    /// The ordering matters as much as the form: the same assignment
     /// after the send would be the same defect again.
     @Test("The reply script handed to Mail sets the body through properties, before anything leaves",
           arguments: ["reply_mail", "draft_reply"])
@@ -318,18 +316,18 @@ struct AppleMailSendScriptTests {
     @Test("The same subject with a Re: prefix and odd spacing is the same subject")
     func theSubjectComparisonIsHumanButExact() throws {
         let harness = try ScriptHarness(
-            resolveAnswer: "12345\tWork\tRe:  OpenBots   send test ",
-            replyAnswer: "sent from me@work.example to 1 recipient(s)")
+            resolveAnswer: "12345\tWork Account\tRe:  OpenBots   send test ",
+            replyAnswer: "sent from sender@example.test to 1 recipient(s)")
         defer { harness.remove() }
         let answer = try harness.call("reply_mail", [
             "rfc_message_id": "abc123@mail.example", "body": "all good",
-            "expect_subject": "OpenBots send test", "account": "Work",
+            "expect_subject": "OpenBots send test", "account": "Work Account",
         ])
         #expect(!answer.isError, Comment(rawValue: answer.text))
         // The claim is echoed, never the real subject.
         #expect(answer.text.contains("\"OpenBots send test\""))
         let argv = try harness.lastArgv()
-        #expect(argv == ["-", "send", "12345", "Work", "all good", "one"])
+        #expect(argv == ["-", "send", "12345", "Work Account", "all good", "one"])
     }
 
     @Test("Reply-to-all reaches the script as such, and a missing message says so")
@@ -363,15 +361,13 @@ struct AppleMailSendScriptTests {
 struct AppleMailReplySideTests {
     @Test("A named account that does not hold the message is an error, not a search elsewhere")
     func aNamedAccountIsNotAHint() throws {
-        // A mail sent between two of the user's own accounts exists twice —
-        // in the receiving account's inbox and in the sender's Sent — and a
-        // fallback across accounts once answered the Sent one, so the reply came out of the
-        // wrong side of the conversation.
+        // A message can exist in one account's inbox and another account's Sent.
+        // A fallback across accounts could answer the wrong side of the conversation.
         let harness = try ScriptHarness(resolveFails: "execution error: NOT_IN_THAT_ACCOUNT (-1728)")
         defer { harness.remove() }
         let answer = try harness.call("reply_mail", [
             "rfc_message_id": "abc@mail.example", "body": "b", "expect_subject": "Hello",
-            "account": "Work",
+            "account": "Work Account",
         ])
         #expect(answer.isError)
         #expect(answer.text.contains("does not hold a message with that Message-ID"))
@@ -409,7 +405,7 @@ struct AppleMailOneShapeTests {
     func aLeadingByteOrderMarkIsRefused() throws {
         // Foundation's JSONSerialization drops one leading U+FEFF from every string it reads, and the
         // app both builds the card from such a read and hands the approved input back to the CLI from
-        // it; node's JSON.parse keeps it (measured). This is about which input was
+        // it; node's JSON.parse keeps it. This is about which input was
         // approved, not what the card draws: a body still beginning with one is not the body the app read.
         let harness = try ScriptHarness(resolveAnswer: "9\tiCloud\tHello", replyAnswer: "sent"); defer { harness.remove() }
         for (tool, verb, arguments) in [
@@ -579,11 +575,9 @@ struct AppleMailPlainSendTests {
     }
 }
 
-/// The compose path once capped nothing, while the reply
-/// path had capped its inputs from the start. The limits are deliberately
-/// generous, and the first test here is the one that matters: the last refusal
-/// rule added to this file broke every ordinary send and was installed for
-/// twenty minutes before anyone noticed.
+/// Both compose and reply paths enforce deliberately generous input limits.
+/// Ordinary sends are pinned alongside hostile inputs so a refusal rule
+/// cannot silently block valid messages.
 @Suite("What the sender refuses for being implausible, and what it must not")
 struct AppleMailComposeLimitTests {
     @Test("An ordinary mail with an ordinary subject and ten recipients still goes")
@@ -592,9 +586,9 @@ struct AppleMailComposeLimitTests {
         defer { harness.remove() }
         let answer = try harness.call("send_mail", [
             "account": "iCloud",
-            "to": (1...5).map { "firstname.lastname\($0)@department.company.example" }
+            "to": (1...5).map { "firstname.lastname\($0)@department.example.co.uk" }
                 .joined(separator: ", "),
-            "cc": (1...5).map { "othername.surname\($0)@department.subsidiary.example" }
+            "cc": (1...5).map { "othername.surname\($0)@department.subsidiary.co.uk" }
                 .joined(separator: ", "),
             "subject": String(repeating: "a long but ordinary subject line ", count: 11).trimmingCharacters(in: .whitespaces),
             "body": String(repeating: "An ordinary paragraph of an ordinary mail. ", count: 500),
@@ -719,7 +713,7 @@ struct AppleMailComposeLimitTests {
         for value in UInt32(0)...0x10FFFF {
             guard let scalar = Unicode.Scalar(value) else { continue }
             // U+2028 and U+2029 are in: neither Foundation nor Node escapes
-            // them, and a raw one once split this server's
+            // them, and a raw one could split this server's
             // line-framed protocol so the call was never answered. The server
             // now splits its input on 0x0A alone (AppOwnedServerFramingTests).
             // U+0000 is left out because the spawn refuses it: Node will not
@@ -846,11 +840,8 @@ struct AppleMailComposeLimitTests {
         }
     }
 
-    /// The last refusal rule added to the address guard broke every ordinary
-    /// send for twenty installed minutes, so the ordinary case is pinned
-    /// beside the hostile one rather than assumed — and it is pinned in the
-    /// shapes people actually use, because the rule has been widened twice
-    /// since and each widening had the same exposure.
+    /// Ordinary addresses must still pass when the address guard is tightened.
+    /// Pin common address shapes beside the hostile cases.
     @Test("Ordinary addresses still reach Mail after the whitespace rule")
     func ordinaryAddressesStillReachMail() throws {
         let harness = try ScriptHarness(replyAnswer: "sent from me@example.test")
@@ -864,8 +855,8 @@ struct AppleMailComposeLimitTests {
         #expect(argv.contains("carol@example.test"))
 
         let session = try ScriptSession(harness); defer { session.finish() }
-        for address in ["alice+newsletter@example.com", "ALICE@EXAMPLE.test", "a@b.example",
-                        "12345@67890.example", "alice@mail.corp.eu-west.example.co.uk",
+        for address in ["alice+newsletter@example.com", "ALICE@EXAMPLE.COM", "a@b.test",
+                        "12345@67890.test", "alice@mail.corp.eu-west.example.co.uk",
                         "alice@example.international", "jos\u{e9}@example.com",
                         "\u{7530}\u{4E2D}@\u{4F8B}\u{3048}.jp", "alice@m\u{fc}nchen.de",
                         String(repeating: "a", count: 307) + "@example.test"] {
@@ -877,12 +868,10 @@ struct AppleMailComposeLimitTests {
         }
     }
 
-    /// The address guard used to be a second hand-written list, and it named
-    /// 22 characters out of the 4,174 Unicode itself calls ignorable. The
-    /// rest, measured at the system font: `al<U+00AD>ice@…` and
-    /// `alice@…` draw to the same width, to the same pixel, and both the card
-    /// and the mail carried the hidden one — so the two sides agreed and the
-    /// reader could not. It is a property now, not a list.
+    /// The address guard uses Unicode's ignorable property rather than a
+    /// handwritten list. `al<U+00AD>ice@…` and `alice@…` can render identically,
+    /// so agreement between the card and the server alone cannot reveal the
+    /// hidden character to the reader.
     @Test("Every character Unicode calls ignorable is refused in an address")
     func ignorableCharactersAreRefusedInAddresses() throws {
         let harness = try ScriptHarness(); defer { harness.remove() }
@@ -957,6 +946,7 @@ struct AppleMailComposeLimitTests {
     }
 }
 
+
 /// `o'brien@example.ie` is a real address — the apostrophe is RFC 5321
 /// `atext` — and it was once refused with advice to drop a `Name <addr>` form
 /// it never had. The apostrophe is allowed in a local part. Only there: the
@@ -999,6 +989,7 @@ struct AppleMailApostropheAddressTests {
         }
     }
 }
+
 
 /// The card now shows the body, so the body is one
 /// more field the card and the script must read alike: a body the card drew
@@ -1077,6 +1068,7 @@ struct AppleMailBodyReadsAlikeTests {
         }
     }
 }
+
 
 /// The reply card
 /// names the message by `oneLine(expect_subject)`, and the server found it by

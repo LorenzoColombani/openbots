@@ -11,6 +11,7 @@ public enum TeamArchiveError: Error, Equatable, Sendable {
     case invalidDate
 }
 
+
 /// A team leaves the sidebar and comes back. The lifecycle change, the
 /// unfinished-work check and clearing a
 /// selection of its chat are one transaction. Its chat, memberships and

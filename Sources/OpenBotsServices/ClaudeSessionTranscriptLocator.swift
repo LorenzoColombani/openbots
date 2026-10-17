@@ -1,17 +1,14 @@
 import Foundation
 
-/// Where the CLI keeps a session it may resume: `<profile>/projects/<folder>/<id>.jsonl`,
-/// the folder named after the working directory of the turn that started it.
-/// The CLI finds a session by id whatever the current folder (probed on
-/// 2.1.272), so the check looks one level down every
-/// project folder.
+/// Where the CLI keeps a session it may resume: `<profile>/projects/<folder>/<id>.jsonl`, the
+/// folder named after the working directory of the turn that started it. The CLI finds a
+/// session by id whatever the current folder, so the check looks one level down every project
+/// folder.
 public enum ClaudeSessionTranscriptLocator {
-    /// Whether a project folder under the profile holds the session's
-    /// transcript: a regular file by that name, never a link standing in for
-    /// it, which could point anywhere. A
-    /// folder that cannot be read answers no: a caller that then replaces the
-    /// session's row removes what is left of it first, and that removal throws
-    /// on the same folder, so the row stays.
+    /// Whether a project folder under the profile holds the session's transcript: a regular
+    /// file by that name, never a link standing in for it, which could point anywhere. A folder
+    /// that cannot be read answers no: a caller that then replaces the session's row removes
+    /// what is left of it first, and that removal throws on the same folder, so the row stays.
     public static func exists(profileURL: URL, sessionID: UUID) -> Bool {
         let name = Array((sessionID.uuidString.lowercased() + ".jsonl").utf8CString)
         guard let projects = try? projectsFolder(in: profileURL), let names = try? projectNames(in: projects) else {
@@ -23,13 +20,11 @@ public enum ClaudeSessionTranscriptLocator {
         }
     }
 
-    /// The CLI's `projects` folder under the profile, when it is a real
-    /// folder. A symbolic link in place of `projects` or of one of its folders
-    /// is never followed, so nothing outside `<profile>/projects/` is taken for
-    /// a session's file, and nothing there is removed with one. Nothing there
-    /// is nil; a folder that is there but cannot be read throws, because
-    /// taking it for an empty one would clear a session's row with its files
-    /// still on disk.
+    /// The CLI's `projects` folder under the profile, when it is a real folder. A symbolic link
+    /// in place of `projects` or of one of its folders is never followed, so nothing outside
+    /// `<profile>/projects/` is taken for a session's file, and nothing there is removed with
+    /// one. Nothing there is nil; a folder that is there but cannot be read throws, because
+    /// taking it for an empty one would clear a session's row with its files still on disk.
     private static func projectsFolder(in profileURL: URL) throws -> HeldFolder? {
         try HeldFolder.open(profileURL.appendingPathComponent("projects", isDirectory: true))
     }
@@ -58,21 +53,17 @@ public enum ClaudeSessionTranscriptLocator {
         exists(profileURL: profileURL, sessionID: sessionID)
     }
 
-    /// Removes what the CLI kept of one session under the profile: its
-    /// transcript in every project folder, the session's own folder beside it
-    /// (its helpers' transcripts), and its lines in `history.jsonl`, which is
-    /// rewritten through a temporary file and one rename. Every folder is
-    /// tried before the first failure is thrown, so one stuck file does not
-    /// keep the rest. A profile with none of it is left exactly as found.
-    /// Only a name that is not there counts as nothing to remove: a folder or
-    /// an entry that cannot be read is a failure, never an empty result.
-    ///
-    /// Everything is removed through the descriptor of the project folder that
-    /// was checked, and a session's own folder is walked the same way, each
-    /// level opened without following a link: a folder swapped for a link
-    /// after the look cannot carry a removal out of the profile, and a link is
-    /// removed as a link, never what it points at (the removal once resolved
-    /// the path again).
+    /// Removes what the CLI kept of one session under the profile: its transcript in every
+    /// project folder, the session's own folder beside it (its helpers' transcripts), and its
+    /// lines in `history.jsonl`, which is rewritten through a temporary file and one rename.
+    /// Every folder is tried before the first failure is thrown, so one stuck file does not
+    /// keep the rest. A profile with none of it is left exactly as found. Only a name that is
+    /// not there counts as nothing to remove: a folder or an entry that cannot be read is a
+    /// failure, never an empty result.
+    /// Everything is removed through the descriptor of the project folder that was checked, and
+    /// a session's own folder is walked the same way, each level opened without following a
+    /// link: a folder swapped for a link after the look cannot carry a removal out of the
+    /// profile, and a link is removed as a link, never what it points at.
     public static func remove(profileURL: URL, sessionID: UUID) throws -> ClaudeSessionTranscriptRemoval {
         let id = sessionID.uuidString.lowercased()
         var removed: [String] = []
@@ -91,10 +82,8 @@ public enum ClaudeSessionTranscriptLocator {
                                 }
                             } catch { failure = failure ?? error }
                         }
-                        // One folder per turn's working folder, so most hold one
-                        // session: left empty, it goes too (empty ones were
-                        // once left behind). Only one this removal took
-                        // from, and only while empty.
+                        // Remove a transcript folder only if this operation removed a session
+                        // from it and it is now empty.
                         if tookSomething { projects.removeIfEmpty(named: folderName) }
                     } catch { failure = failure ?? error }
                 }
@@ -110,6 +99,7 @@ public enum ClaudeSessionTranscriptLocator {
     public static let removeFromProfile: @Sendable (URL, UUID) throws -> ClaudeSessionTranscriptRemoval = { profileURL, sessionID in
         try remove(profileURL: profileURL, sessionID: sessionID)
     }
+
 
     /// `history.jsonl` is one JSON object per line, each naming its
     /// `sessionId`. The session's lines go; every other byte stays, a line

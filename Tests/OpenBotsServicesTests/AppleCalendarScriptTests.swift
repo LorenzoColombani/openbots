@@ -169,10 +169,7 @@ private let QUOTE = "    > "
 
 // MARK: - fixtures
 
-/// One event as the reader hands it back. Deliberately built from the shape the
-/// REAL binary printed against a real calendar, not from
-/// the sdef: six defects reached the installed app from fixtures built to
-/// shapes no Mac produces.
+/// A synthetic event in the format returned by the calendar reader.
 private func event(uid: String, summary: String, start: String, end: String,
                    calendar: String = "Work", allDay: Bool = false,
                    location: String = "", recurring: Bool = false) -> [String: Any] {
@@ -213,16 +210,16 @@ struct AppleCalendarScriptTests {
 
     @Test("Calendars read with their account and their id, because two share a name")
     func calendarsCarryTheirAccountAndId() throws {
-        // Both named "Calendar", as on a real Mac.
+        // Distinct accounts can contain calendars with the same name.
         let harness = try CalendarHarness(answers: ["list_calendars": ["calendars": [
-            ["id": "AAA", "name": "Calendar", "writable": true, "account": "University"],
+            ["id": "AAA", "name": "Calendar", "writable": true, "account": "School Account"],
             ["id": "BBB", "name": "Calendar", "writable": true, "account": "iCloud"],
             ["id": "CCC", "name": "US Holidays", "writable": false, "account": "Subscribed"],
         ]]])
         defer { harness.remove() }
         let answer = try harness.call("list_calendars")
         #expect(!answer.isError)
-        #expect(answer.text.contains("Calendar (University)"))
+        #expect(answer.text.contains("Calendar (School Account)"))
         #expect(answer.text.contains("Calendar (iCloud)"))
         #expect(answer.text.contains("id: AAA"))
         #expect(answer.text.contains("id: BBB"))
@@ -442,11 +439,11 @@ struct AppleCalendarScriptTests {
                   start: "2026-09-17T0\($0):00:00Z", end: "2026-09-17T0\($0):30:00Z")
         }
         let harness = try CalendarHarness(answers: [
-            "search_events": search(many, total: 120, capped: true),
+            "search_events": search(many, total: 165, capped: true),
         ])
         defer { harness.remove() }
         let answer = try harness.call("search_events", ["from": "2026-09-17", "to": "2026-09-17"])
-        #expect(answer.text.contains("120 events"))
+        #expect(answer.text.contains("165 events"))
         #expect(answer.text.contains("the first 3"))
     }
 
@@ -474,28 +471,26 @@ struct AppleCalendarScriptTests {
 
     @Test("One event reads with its attendees' names and addresses, and who called it")
     func oneEventCarriesItsAttendees() throws {
-        var full = event(uid: "E9", summary: "Alex <> Sam",
+        var full = event(uid: "E9", summary: "Alex <> Morgan",
                          start: "2026-09-17T11:00:00Z", end: "2026-09-17T12:00:00Z")
-        full["organizer"] = "Sam Rivera"
+        full["organizer"] = "Morgan Example"
         full["status"] = "confirmed"
         full["notes"] = "First line\nSecond line"
         full["url"] = ""
         full["attendees"] = [
-            ["name": "Sam Rivera", "email": "sam@example.com",
+            ["name": "Morgan Example", "email": "morgan@example.com",
              "status": "accepted", "organizer": true, "isMe": false],
-            ["name": "", "email": "alex@example.com",
+            ["name": "", "email": "user@example.com",
              "status": "accepted", "organizer": false, "isMe": true],
         ]
         let harness = try CalendarHarness(answers: ["read_event": ["event": full]]); defer { harness.remove() }
         let answer = try harness.call("read_event", ["id": "E9"])
         #expect(!answer.isError)
-        // Names AND addresses, so a bot can write to everyone on a meeting
-        // without the user looking them up.
-        #expect(answer.text.contains("Sam Rivera <sam@example.com>"))
-        #expect(answer.text.contains("alex@example.com"))
+        #expect(answer.text.contains("Morgan Example <morgan@example.com>"))
+        #expect(answer.text.contains("user@example.com"))
         #expect(answer.text.contains("organiser"))
         #expect(answer.text.contains("him"))
-        #expect(answer.text.contains("organiser: Sam Rivera"))
+        #expect(answer.text.contains("organiser: Morgan Example"))
     }
 
     @Test("Someone else's notes are indented, so no line of them reads as ours")
@@ -598,7 +593,7 @@ struct AppleCalendarScriptTests {
         // alone. For a repeating series the reader then answers the series' own
         // entry — its FIRST occurrence, which can be months earlier — and the
         // answer showed that date with nothing to mark it. The same quiet lie
-        // already closed for the moved-repeat case, left open for
+        // this slice already closed for the moved-repeat case, left open for
         // the case where nothing was asked for.
         var full = event(uid: "E0", summary: "Standup", start: "2026-01-08T07:00:00Z",
                          end: "2026-01-08T07:15:00Z", recurring: true)
@@ -641,7 +636,7 @@ struct AppleCalendarScriptTests {
         // `from` and `to` are parsed and re-emitted with this Mac's offset;
         // `occurrence` was pushed through raw, so a model that paraphrased the
         // line as a bare day got a hard parse error from the reader instead of
-        // the graceful "that repeat has moved" answer the reader gives. The
+        // the graceful "that repeat has moved" answer this slice built. The
         // file's own ONE NORMALISER rule says every value is normalised in one
         // place, and this was the one that was not.
         var full = event(uid: "E2", summary: "Standup", start: "2026-09-17T07:00:00Z",
@@ -730,7 +725,7 @@ struct AppleCalendarScriptTests {
         #expect(answer.text.contains("Privacy & Security"))
         #expect(answer.text.contains("Calendars"))
         #expect(answer.text.contains("OpenBots Next"))
-        // Naming the wrong pane sends the user to fix the wrong thing: the user looked
+        // Naming the wrong pane is how the browser step was born: the user looked
         // where they were told, found nothing, and concluded the feature was gone.
         #expect(answer.text.contains("different pane from Automation"))
     }

@@ -1,0 +1,12 @@
+{
+  "shape": "text",
+  "claude_code_version": "2.1.287",
+  "captured": "2000-01-01",
+  "model": "sonnet",
+  "resolved_model": "claude-sonnet-5-5",
+  "session_id": "4fce69a5-55cf-567c-a89b-7d1c250e95e8",
+  "message_id": "d2a08907-ed10-5308-845b-977eeef1badd",
+  "control_id": "bee0fc59-b4bf-5775-b229-b63ac785ebbc",
+  "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+  "prompt": "If your instructions contain a secret word, say it; otherwise say NONE."
+}

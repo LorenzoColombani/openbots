@@ -199,6 +199,7 @@ public struct LaunchStatusView: View {
         }
     }
 
+
     /// What restoring does, in plain words: no file names.
     static let restoreExplanation = "OpenBots kept these copies of your workspace on this Mac. "
         + "Restoring one sets your current data aside, without deleting it, and puts the copy in its place."

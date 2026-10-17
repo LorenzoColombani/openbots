@@ -4,10 +4,8 @@ import Testing
 @testable import OpenBotsRuntime
 
 // A new bot's setup turn that looks around, sets itself up, then asks two
-// question cards in a row and answers after the user's replies (Claude Code 2.1.283,
-// Tests/.../claude-cli-2.1.283/question-cards/README.md). A setup turn of this
-// shape once died after its second card; this one must replay whole.
-@Test("Claude Code 2.1.283: a setup turn with a look, two question cards in a row and the answers replays whole")
+// question cards in a row and answers after the user's replies (Claude Code 2.1.283).
+@Test("Claude Code 2.1.283: a setup turn with a look, two question cards in a row and the user's answers replays whole")
 func cli2_1_283QuestionCardsReplay() throws {
     let root = try #require(Bundle.module.url(forResource: "claude-cli-2.1.283", withExtension: nil, subdirectory: "Fixtures"))
     let folder = root.appendingPathComponent("question-cards")
@@ -48,7 +46,7 @@ func cli2_1_283QuestionCardsReplay() throws {
                     control.register(question)
                     control.respond(requestID: question.requestID, allow: question.admitted)
                 case .selfSetupRequested(let call):
-                    control.answerSelfSetup(requestID: call.requestID, text: "Set up as Picnic.", refused: false)
+                    control.answerSelfSetup(requestID: call.requestID, text: "Set up as Scout.", refused: false)
                 case .toolFinished(let id, let failed):
                     #expect(!failed, "call \(id) failed")
                     finished.append(id)

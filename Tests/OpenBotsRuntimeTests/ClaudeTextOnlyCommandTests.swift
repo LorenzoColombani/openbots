@@ -12,7 +12,7 @@ func claudeTextCommandContract() throws {
         "--include-partial-messages", "--replay-user-messages", "--verbose", "--safe-mode", "--restricted",
         "--no-session-persistence", "--no-chrome", "--disable-slash-commands", "--strict-mcp-config",
         "--mcp-config", "{\"mcpServers\":{}}", "--settings",
-        "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,\"enabledPlugins\":{\"agents-md@builtin\":false},\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\",\"deny\":[\"*\"]}}",
+        "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,\"enabledPlugins\":{\"agents-md@builtin\":false,\"cc-plugin-plugin-authoring@builtin\":false,\"telemetry@builtin\":false},\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\",\"deny\":[\"*\"]}}",
         "--setting-sources", "", "--permission-mode", "dontAsk", "--tools", "", "--disallowedTools", "*",
         "--model", "sonnet", "--max-turns", "1", "--session-id", request.sessionID.uuidString.lowercased(),
         "--system-prompt-file", ClaudeTextOnlyCommandBuilder.systemPromptFileURL(for: request).path])
@@ -81,7 +81,7 @@ func claudeTextRequestedModelIsLiteral(_ model: String) throws {
     let modelIndex = try #require(arguments.firstIndex(of: "--model"))
     #expect(arguments[modelIndex + 1] == model)
     #expect(request.model == model)
-    #expect(request.expectedResolvedModel == (model == "sonnet" ? "claude-sonnet-5" : model))
+    #expect(request.expectedResolvedModel == ClaudeModelPolicy.current.model(model)?.id)
     #expect(!arguments.contains("--fallback-model"))
     let settingsIndex = try #require(arguments.firstIndex(of: "--settings"))
     let settings = try #require(JSONSerialization.jsonObject(with: Data(arguments[settingsIndex + 1].utf8)) as? [String: Any])
@@ -102,7 +102,7 @@ func claudeTextAcceptsCurrentModels(_ model: String) throws {
 }
 
 @Test("Unknown, retired or unsafe model tokens are refused without falling back",
-      arguments: ["", "opus", "claude-sonnet-retired", "sonnet[1m]", "best", "--model", "sonnet --tools Bash",
+      arguments: ["", "claude-fable-5", "claude-sonnet-retired", "sonnet[1m]", "best", "--model", "sonnet --tools Bash",
                   "claude/sonnet", "sonnet\n", "sonnet\u{0}", "$(touch never)", String(repeating: "a", count: 201)])
 func claudeTextRejectsUnavailableModel(_ model: String) throws {
     #expect(throws: ClaudeTextOnlyRequestError.invalidModel) { try textOnlyTestRequest(model: model) }
@@ -171,7 +171,8 @@ func claudeTextFrozenExecutionRequest() throws {
         let frozen = request.executionRequest
         #expect(try frozen.validated() == frozen)
         #expect(frozen.sessionID == request.sessionID)
-        #expect(frozen.selection == ClaudeExecutionSelection(model: model, effort: effort ?? "default", contextWindow: window))
+        #expect(frozen.selection == ClaudeExecutionSelection(model: model, effort: effort ?? "default", contextWindow: window,
+                                                              resolvedModel: ClaudeModelPolicy.resolvedModel(model)))
         let arguments = ClaudeTextOnlyCommandBuilder.arguments(for: request)
         let modelIndex = try #require(arguments.firstIndex(of: "--model"))
         #expect(arguments[modelIndex + 1] == frozen.launchModel)
@@ -200,7 +201,8 @@ func textOnlyTestRequest(target: ClaudeConnectionTarget? = nil, text: String = "
                          persistsSession: Bool = false, resumesSession: Bool = false,
                          grantsHiring: Bool = false, grantsWorkers: Bool = false,
                          readAccess: ClaudeTextReadAccess? = nil,
-                         sessionHoldsPrivateRead: Bool = false) throws -> ClaudeTextOnlyRequest {
+                         sessionHoldsPrivateRead: Bool = false,
+                         runID: UUID = UUID(uuidString: "00000000-0000-4000-8000-000000000001")!) throws -> ClaudeTextOnlyRequest {
     let fallback = try ClaudeConnectionTarget(
         executableURL: URL(fileURLWithPath: "/private/tmp/not-created-text.noindex/claude"),
         expectedExecutableSHA256: String(repeating: "a", count: 64),
@@ -209,7 +211,7 @@ func textOnlyTestRequest(target: ClaudeConnectionTarget? = nil, text: String = "
         temporaryDirectoryURL: URL(fileURLWithPath: "/private/tmp/not-created-text.noindex/temp"),
         homeDirectoryURL: URL(fileURLWithPath: "/private/tmp/not-created-text.noindex/home"))
     return try ClaudeTextOnlyRequest(target: target ?? fallback,
-        runID: UUID(uuidString: "00000000-0000-4000-8000-000000000001")!,
+        runID: runID,
         sessionID: UUID(uuidString: "00000000-0000-4000-8000-000000000002")!,
         messageID: UUID(uuidString: "00000000-0000-4000-8000-000000000003")!, text: text, systemPrompt: systemPrompt,
         model: model, effort: effort, contextWindow: contextWindow, allowedTools: allowedTools,
@@ -305,7 +307,7 @@ func connectorNamesAreJSONSafe() throws {
                  "mcp__chrome-devtools__navigate_page", "mcp__*", "WebSearch", "Bash"] {
         #expect(ClaudeTextOnlyCommandBuilder.isJSONSafeName(name), "\(name) must survive")
     }
-    for name in ["", "say \"hi\"", "back\\slash", "new\nline", "semi;colon", "Read(//Users/x/**)",
+    for name in ["", "say \"hi\"", "back\\slash", "new\nline", "semi;colon", "Read(//Users/fixture/**)",
                  "sp ace", "emoji🙂", "tab\tname"] {
         #expect(!ClaudeTextOnlyCommandBuilder.isJSONSafeName(name), "\(name) must be refused")
     }

@@ -5,6 +5,7 @@ import OpenBotsRuntime
 @testable import OpenBotsServices
 import Testing
 
+
 /// The Claude Desktop extensions as a third catalog source: every one listed,
 /// only a reviewed one launchable, and that one only as the exact copy
 /// reviewed. Everything here runs on a made-up extensions folder; nothing
@@ -196,6 +197,7 @@ struct ClaudeExtensionConnectorTests {
         #expect(preparation.availability(for: row.launch)
                 == .unavailable("This copy is not the one OpenBots Next checked, so it will not run it."))
     }
+
 
     /// A read that could not tell (a file unreadable for a moment, a manifest
     /// that would not open, a folder that would not list) is not a change: the

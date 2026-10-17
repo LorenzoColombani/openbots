@@ -2,10 +2,10 @@ import Foundation
 import Testing
 @testable import OpenBotsRuntime
 
-// A reply with
-// Control this Mac gets sixty-four rounds, and when they run out a card offers
+
+// A Control this Mac reply gets sixty-four rounds, and when they run out a card offers
 // sixty-four more. The wire of a renewal, replayed through the parser
-// (Fixtures/claude-cli-2.1.281/rounds-renewal, see its README): a
+// (Fixtures/claude-cli-2.1.281/rounds-renewal): a
 // work turn capped at four rounds, then one more message on the same stdin. The
 // app never renews a work turn; the request flag is set here by hand, since
 // Control this Mac cannot be driven in a probe and the renewal does not depend
@@ -169,6 +169,10 @@ func cli2_1_281RenewalReplays() throws {
         return input["command"] as? String
     }
     #expect(commands.count == 6 && commands.last == "echo six", "\(commands)")
+    let receipt = try #require(replayed.stream.completionReceipt(for: replayed.stream.finish(exitCode: 0)))
+    #expect(receipt.stdoutBytes == capture.frames.reduce(0) { $0 + $1.count })
+    #expect(receipt.toolCalls == 6 && receipt.toolResults == 6 && receipt.successfulToolResults == 6)
+    #expect(receipt.renewals == 1)
 }
 
 @Test("Without the user's approval nothing of a second message passes: its lifecycle, and any output, are refused as today")

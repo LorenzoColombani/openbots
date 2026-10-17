@@ -28,10 +28,8 @@ struct ConnectorSettingsModelTests {
 
     @Test("A connector switched off because its version changed says so, instead of going quiet")
     func aChangedDefinitionIsNamed() async throws {
-        // Claude Code once moved its Chrome DevTools plugin from 1.8.0 to
-        // 1.9.0, the row became a different definition, the store correctly
-        // revoked the grant given to the old one — and nothing told the user.
-        // The app just stopped browsing.
+        // A connector definition change revokes the old grant. Settings must
+        // explain the change instead of leaving a silently disabled connector.
         let repository = Repository()
         let before = try Catalog()
         let teammate = TeammateID(UUID())
@@ -55,10 +53,9 @@ struct ConnectorSettingsModelTests {
     }
 
     @Test("The app-wide switch takes a row this build cannot drive, because it records the user's decision")
-    func theAppWideSwitchRecordsTheUsersDecisionEvenForADeadRow() async throws {
-        // The general page is a kill or live switch. A row that cannot run
-        // today is still a row the user may rule on, and refusing it would leave a dead switch under a caption saying
-        // every row below can be turned off.
+    func theAppWideSwitchRecordsHisDecisionEvenForADeadRow() async throws {
+        // The app-wide switch records the user's decision even for a connector
+        // that cannot currently run.
         let fixture = try Catalog(availability: .unavailable("This version cannot drive this connector yet."))
         let store = ConnectorAccessStore(repository: Repository(), catalog: fixture)
         let master = ConnectorSettingsModel(store: store)
@@ -135,10 +132,8 @@ struct ConnectorSettingsModelTests {
         #expect(bot.notice == nil)
     }
 
-    /// Canobi's grant to Claude Code's own iMessage plugin, switched on before
-    /// the row froze, once stayed in the count, so a bot with that one and eight working connectors on was refused
-    /// a ninth, while the launch skips a row no preparation owns and would have
-    /// run all nine. The bound counts what a launch can use.
+    /// A grant no preparation owns must not consume a connector slot because
+    /// launch skips it. The bound counts only connectors a launch can use.
     @Test("A grant nothing in this build can launch takes no place under the bound, and past what a launch can run the switch still refuses")
     func anUnownedGrantTakesNoPlaceUnderTheBound() async throws {
         let bound = ConnectorLaunchService.maximumConnectorsPerBot
@@ -166,10 +161,8 @@ struct ConnectorSettingsModelTests {
         #expect(!bot.reading.selectedIDs.contains(extra.id))
     }
 
-    /// Under a changed row, Settings once said
-    /// "Turn it back on from that bot’s Access sheet", and for a row nothing in
-    /// this build can run that sheet does not list it and no switch can turn
-    /// it on.
+    /// Settings must not direct the user to re-enable a changed connector when
+    /// this build cannot run it and no switch can turn it on.
     @Test("Under a changed row nothing in this build can run, the line says it cannot be turned back on and sends the user to no sheet")
     func theChangedLineUnderAnUnownedRowIsTrue() async throws {
         let repository = Repository()
@@ -225,9 +218,8 @@ struct ConnectorSettingsModelTests {
         #expect(ConnectorCopy.master.contains("Each row below turns one connector on or off for the whole app"))
     }
 
-    /// The per-bot connector switches live on the bot's Access sheet, not on
-    /// Details; "in its settings" would send the user to a pane that does not
-    /// hold them.
+    /// Per-bot connector switches live on the Access sheet; directions must
+    /// name that surface.
     @Test("The master's sentence and the switched-off line send the user to the bot's Access sheet, not its settings")
     func theConnectorSentencesNameTheAccessSheet() {
         #expect(ConnectorCopy.master ==
@@ -324,9 +316,8 @@ struct ConnectorSettingsModelTests {
         #expect(try Data(contentsOf: fixture.configuration) == original)
     }
 
-    /// The browser sent the user back to the app "for the reason", and the
-    /// reason was drawn below every connector row, far from the Connect button
-    /// just pressed.
+    /// A failed connection's reason belongs beside Connect in the Google
+    /// account section, where the user can find it after returning from the browser.
     @Test("A failed connect says why in the Google account section, with the switch's page when there is one")
     func aFailedConnectSaysWhyBesideConnect() async throws {
         let page = "https://console.cloud.google.com/apis/library/drive.googleapis.com?project=123456"

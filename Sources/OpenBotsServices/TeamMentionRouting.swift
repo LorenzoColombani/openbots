@@ -15,8 +15,8 @@ public struct TeamRecipient: Equatable, Sendable {
     }
 }
 
-/// Unmentioned text goes to the designated lead; an explicit mention addresses
-/// the named member. One message routes to one member: the earliest "@Name" that names an active member, else the lead.
+/// Route unmentioned text to the lead. An explicit mention addresses one active member: the
+/// earliest matching @Name, otherwise the lead.
 public enum TeamMentionRouting {
     public static func recipient(for text: String, team: Team, members: [Teammate]) -> TeamRecipient? {
         let active = members.filter { $0.lifecycle == .active && team.memberIDs.contains($0.id) }

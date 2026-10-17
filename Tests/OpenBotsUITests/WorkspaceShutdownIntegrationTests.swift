@@ -263,8 +263,7 @@ struct WorkspaceShutdownIntegrationTests {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let app = try String(contentsOf: root.appendingPathComponent("Apps/OpenBotsPreviewApp/OpenBotsPreviewApp.swift"), encoding: .utf8)
         let guardSource = try String(contentsOf: root.appendingPathComponent("Sources/OpenBotsUI/DraftQuitGuard.swift"), encoding: .utf8)
-        // The reporter is internal (for SwiftUI window restoration), so the slice
-        // ends at the type name, whatever its access level.
+        // End the slice at the reporter's type name, whatever its access level.
         let delegate = try sourceSection(app, from: "private final class PreviewApplicationDelegate", to: "struct WorkspaceWindowReporter")
         let scene = try sourceSection(app, from: "var body: some Scene", to: "/// AppKit owns termination")
         let settings = try #require(scene.range(of: "Settings {"))
@@ -281,7 +280,9 @@ struct WorkspaceShutdownIntegrationTests {
         #expect(delegate.contains("request(begin:") && delegate.contains("flush: saveAvailableState"))
         #expect(delegate.contains("finish: { self.finishShutdown?() }"))
         #expect(delegate.contains("sender.reply(toApplicationShouldTerminate: true)"))
-        #expect(!delegate.contains("reply(toApplicationShouldTerminate: false)"))
+        let normalQuit = try sourceSection(delegate, from: "private func requestNormalTermination", to: "/// True while")
+        #expect(!normalQuit.contains("reply(toApplicationShouldTerminate: false)"), "Ordinary save failure still cannot veto Quit")
+        #expect(delegate.contains("cancelUpdateBeforeQuitting"), "An uncommitted staged update is canceled before entering ordinary Quit")
         #expect(!delegate.contains("NSAlert") && !delegate.contains("runModal"))
         #expect(guardSource.contains("maximumGrace: Duration = .seconds(3)"))
         #expect(guardSource.contains("min(Self.maximumGrace, max(.zero, timeout))"))
@@ -328,9 +329,10 @@ struct WorkspaceShutdownIntegrationTests {
             "let url = try await attachmentService.revealLocation(", "try self.requireOpen()",
             "NSWorkspace.shared.activateFileViewerSelecting([url])"
         ])
-        // These callback routes were removed with the chat-only composition.
-        // The underlying services and their safety tests remain. Do not restore
-        // hidden external callbacks.
+        // These live callback routes were removed with the approved chat-only
+        // composition before baseline 5324322. Their old ordering assertion
+        // referred to code that no longer existed; the underlying services and
+        // their safety tests remain. Do not restore hidden external callbacks.
         #expect(!app.contains("revealer: { [weak self]"))
         #expect(!app.contains("chooseSnapshotDestination: { [weak self]"))
         #expect(!app.contains("createSnapshot: { [weak self]"))

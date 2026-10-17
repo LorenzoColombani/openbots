@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import OpenBotsDomain
 
+
 // A new bot sets itself up: the set_up_self arguments
 // read by the hire's own rules plus a fixed switch list, and what the model
 // and the conversation are told.
@@ -105,8 +106,8 @@ struct BotSelfSetupTextTests {
         #expect(none.toolResultText.contains("No switch was turned on."))
     }
 
-    @Test("When the person had written the profile first, both texts say their words stay")
-    func thePersonsProfileStays() {
+    @Test("When the user had written the profile first, both texts say their words stay")
+    func hisProfileStays() {
         let setup = BotSelfSetup(previousName: "New Bot", name: "Ledger", purpose: "ignored", wroteProfile: false,
                                  turnedOn: [], offForTheApp: [])
         #expect(setup.noteLine == "Ledger kept the profile you wrote. No switches turned on.")
@@ -115,7 +116,7 @@ struct BotSelfSetupTextTests {
 }
 
 struct BotProfileChangeNoteTests {
-    @Test("The person's edit of a bot's words is one line; a change that is not a word says nothing")
+    @Test("The user's edit of a bot's words is one line; a change that is not a word says nothing")
     func lines() throws {
         let before = try TeammateProfile(displayName: "PriceWatch", role: "Watches prices")
         #expect(BotProfileChangeNote.line(before: before, after: before) == nil)

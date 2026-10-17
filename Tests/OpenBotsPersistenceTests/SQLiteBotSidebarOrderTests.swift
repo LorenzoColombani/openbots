@@ -58,8 +58,7 @@ struct SQLiteBotSidebarOrderTests {
         let store = try f.open()
         let empty = try await store.loadBotSidebarOrder()
         #expect(try await store.saveBotSidebarOrder([], expectedRevision: empty.revision) == empty)
-        // Unpinned: a pinned bot always reads first,
-        // and this test is about permutations, not pins.
+        // Keep these bots unpinned to test permutations independently of pin order.
         let a = try await f.seed(store, number: 1, content: true)
         let single = try await store.loadBotSidebarOrder()
         #expect(try await store.saveBotSidebarOrder([a.id], expectedRevision: single.revision) == single)
@@ -77,6 +76,7 @@ struct SQLiteBotSidebarOrderTests {
         #expect(try await f.contentRows(store) == before)
         #expect(try await store.selectedConversationID() == f.conversationID(3))
     }
+
 
     /// Pin Bot once saved the flag and nothing moved, because the saved order
     /// always won. Pinned bots sit above the unpinned ones; the order the user
@@ -116,6 +116,7 @@ struct SQLiteBotSidebarOrderTests {
             .map { try $0.text("teammate_id") } == swapped.teammateIDs.map(\.persistedValue))
         #expect(try await f.chatService(store).activeDirectChats().map(\.teammate.id) == [a.id, b.id, c.id])
     }
+
 
     /// The saved order held hidden bots the list does not show, so a drag never
     /// matched it. A hidden bot keeps its slot.

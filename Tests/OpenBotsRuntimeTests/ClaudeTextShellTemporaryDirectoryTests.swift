@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import OpenBotsRuntime
 
+
 /// Found live and reproduced on Claude Code 2.1.280:
 /// the CLI hands each shell command its own temporary folder, CLAUDE_CODE_TMPDIR,
 /// and the app put that inside its own support root, which a work turn's
@@ -31,6 +32,7 @@ struct ClaudeTextShellTemporaryDirectoryTests {
         #expect(!folder.path.hasPrefix(appRoot))
     }
 
+
     /// Found in the installed app on Claude Code
     /// 2.1.281: the CLI builds each command's temporary folder as
     /// `CLAUDE_CODE_TMPDIR/claude-<uid>` and, when that is over 44 bytes (too long
@@ -39,7 +41,6 @@ struct ClaudeTextShellTemporaryDirectoryTests {
     /// write there. The old folder under `$TMPDIR/OpenBotsNext-Shell.noindex/<uuid>`
     /// was 123 bytes. On 2.1.280 the long folder itself was the shell's TMPDIR and
     /// the sandbox refused writes in it, so `swift` failed with "permissionDenied".
-    /// Fixture: `claude-cli-2.1.281/shell-temp-probe/`.
     @Test("The folder is short enough that the CLI uses it, for any user id")
     func folderFitsTheCLILimit() throws {
         let folder = try #require(ClaudeTextShellTemporaryDirectory.create())
@@ -51,6 +52,7 @@ struct ClaudeTextShellTemporaryDirectoryTests {
         #expect(folder.path.utf8.count + "/claude-\(getuid())".utf8.count <= 44)
         #expect(folder.path.utf8.count + "/claude-4294967295".utf8.count <= 44)
     }
+
 
     /// A work turn whose folder cannot be made must not fall through to the
     /// run's own folder, which the sandbox denies: its scripts would run with no
@@ -64,19 +66,14 @@ struct ClaudeTextShellTemporaryDirectoryTests {
         #expect(ClaudeTextShellTemporaryDirectory.create(parentPath: "/nonexistent-\(UUID().uuidString)") == nil)
     }
 
-    /// The same finding: the CLI's shell snapshot runs the user's zsh startup
-    /// files, and a `~/.zshenv` can put `~/.cargo/bin` ahead of the system
-    /// folders, which is ruled out for any folder the user can write.
-    /// zsh reads its startup files from ZDOTDIR; `/var/empty` is the system's
-    /// own empty folder, owned by root, so no file of the user's and none a bot writes
-    /// is ever read. The system's own `/etc/zprofile` and `/etc/zshrc` still run.
     @Test("A work turn's shell reads no zsh startup file of the user's")
-    func workTurnSkipsUserShellFiles() throws {
+    func workTurnSkipsHisShellFiles() throws {
         let environment = ClaudeTextOnlyCommandBuilder.environment(for: try workRequest(), shellTemporaryDirectory: nil)
         #expect(environment["ZDOTDIR"] == "/var/empty")
         let plain = ClaudeTextOnlyCommandBuilder.environment(for: try textOnlyTestRequest(), shellTemporaryDirectory: nil)
         #expect(plain["ZDOTDIR"] == nil)
     }
+
 
     /// The dictionary alone does not show what zsh makes
     /// of it. The CLI's shell is not a login shell (on 2.1.281 its PATH carried
@@ -102,6 +99,7 @@ struct ClaudeTextShellTemporaryDirectoryTests {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         #expect(printed == environment["PATH"])
     }
+
 
     /// Probed on 2.1.280: with the app's PATH, `node` and `uv` were
     /// "command not found" while Details listed them, and `python3` was Apple's 3.9.

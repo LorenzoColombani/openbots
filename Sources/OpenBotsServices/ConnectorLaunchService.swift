@@ -30,7 +30,7 @@ public actor ConnectorLaunchService: BotConnectorResolving {
         self.temporaryDirectoryURL = temporaryDirectoryURL
     }
 
-    /// The browser alone.
+    /// The browser alone, as the first slice wired it.
     public init(store: ConnectorAccessStore, preparation: BrowserConnectorPreparation,
                 profileRootURL: URL, temporaryDirectoryURL: URL,
                 fence: FenceProxyResource = FenceProxyResource()) {
@@ -84,7 +84,7 @@ public actor ConnectorLaunchService: BotConnectorResolving {
         // once this whole function is certain to hand back a launch, because a
         // directory made for a launch that never happens is a directory nothing
         // owns: the reaper only ever sees the access object that was returned.
-        // Two ways that used to happen — a connector no preparation handles
+        // Two ways that used to happen — a connector this slice cannot prepare
         // (browser-use is `uvx`, playwright is a different package), and a
         // grant withdrawn part-way through a multi-connector bot — are both
         // impossible now rather than merely unlikely.
@@ -92,10 +92,9 @@ public actor ConnectorLaunchService: BotConnectorResolving {
         for connector in configured {
             guard let preparation = preparations.first(where: { $0.prepares(connector.launch) })
             else { continue }
-            // A fresh profile per turn, wiped when the turn ends, and only for
-            // a connector that needs one: the run identifier is in the path
-            // because that path is also how the turn's own browser is told
-            // from the user's. A mail turn writes nothing at all.
+            // Give connectors that need storage a fresh per-turn profile and remove it when the
+            // turn ends. The path includes the run id to distinguish its browser from the
+            // user's. Read-only mail turns write no profile.
             let profileURL = preparation.needsOwnedProfile
                 ? profileRootURL
                     .appendingPathComponent("turn-\(runID.uuidString.lowercased())", isDirectory: true)

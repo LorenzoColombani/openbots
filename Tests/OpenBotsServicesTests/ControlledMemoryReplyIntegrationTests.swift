@@ -101,7 +101,7 @@ struct ControlledMemoryReplyIntegrationTests {
         }
         #expect(savedEvents == [reply])
         let savedIndex = try #require(events.firstIndex(of: .assistantMessageSaved(reply)))
-        let confirmedIndex = try #require(events.firstIndex(of: .modelConfirmed(requested: request.model,
+        let confirmedIndex = try #require(events.firstIndex(of: .modelConfirmed(requested: request.expectedResolvedModel,
             observed: request.expectedResolvedModel)))
         #expect(savedIndex < confirmedIndex)
 

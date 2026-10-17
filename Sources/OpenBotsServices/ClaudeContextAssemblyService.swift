@@ -20,9 +20,8 @@ public struct ClaudeContextAssemblyInput: Equatable, Sendable {
     /// says nothing about what the session holds. Nil for a session stored
     /// before this was kept: the window is used, as before.
     public let sessionLeftOutMessages: Bool?
-    /// The user's local date and time as this turn starts, in the envelope and
-    /// never in the system prompt, which a kept session must keep byte for byte
-    /// (the old app gave every run the time of day too).
+    /// The local date and time as this turn starts, in the envelope and never
+    /// in the system prompt, which a kept session must keep byte for byte.
     public let localTime: String?
 
     public init(teammate: Teammate, currentText: String, snapshot: ReadContextSnapshot, styleBlock: String? = nil,
@@ -121,11 +120,9 @@ public struct ClaudeContextAssemblyService: ClaudeContextAssembling {
     public static let maximumMemoryExcerptUTF8Bytes = 8 * 1_024
 
     /// What the prompt says about the turns of one session. The CLI ignores
-    /// the system prompt on `--resume` (seen on 2.1.272: the model sees the
-    /// first turn's prompt on every later turn), so the first turn's prompt is the only
-    /// one a session ever reads, and it must already describe the later turns. Without
-    /// this, an empty messages list plus "do not invent unseen context" was read as
-    /// "nothing happened". With it and the note below, the earlier turns are recalled.
+    /// the system prompt on `--resume`, so the first turn's prompt must already
+    /// describe later turns. An empty messages list must not imply that the
+    /// session has no earlier context.
     static let sessionTurnsSentences = "It may run over several turns. The context in the envelope quotes selected messages from before this session; the turns of this session itself are never quoted again, because they are already in your own history above. An empty messages list on a later turn means nothing was left out, not that nothing happened. Rely on both."
     /// What a continuing turn's envelope says where the quoted messages would
     /// be. Absent from a fresh turn's envelope, whose bytes do not change.
@@ -161,8 +158,7 @@ public struct ClaudeContextAssemblyService: ClaudeContextAssembling {
         // One prompt for a fresh and a continuing turn: the CLI keeps the first
         // turn's prompt for the whole session, so a continuing variant would
         // never be seen, and the digest a session is resumed under must not
-        // change from turn to turn. writtenByHirer stays in the prompt so a
-        // hired bot's profile says who wrote it.
+        // change from turn to turn. Keep writtenByHirer from tip (hire profile disclosure).
         let systemPrompt = Self.systemPrompt(for: input.teammate.profile, styleBlock: input.styleBlock,
                                              writtenByHirer: input.teammate.profileWrittenByHirer)
         guard systemPrompt.utf8.count <= Self.maximumSystemUTF8Bytes else {
@@ -329,9 +325,8 @@ public struct ClaudeContextAssemblyService: ClaudeContextAssembling {
         // The voice sits between the opening sentence and the profile, so the
         // profile's detailed instructions come after it and override it.
         let voice = styleBlock?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A profile a hire wrote came from another bot's reply, which a page, a
-        // file or a peer may have steered: it is never called the
-        // person's until the person saves it.
+        // A profile a hire wrote came from another bot's reply, which a page, a file or a peer
+        // may have steered: it is never called the person's until the person saves it.
         let follows = writtenByHirer.map {
             "The complete profile follows. @\($0) wrote it when hiring you, and the person has not reviewed it yet."
         } ?? "The complete user-approved profile follows."
@@ -361,14 +356,12 @@ public struct ClaudeContextAssemblyService: ClaudeContextAssembling {
         """ + "\n" + conversationKeptSentence
     }
 
-    /// A bot's seat, for the profile a turn reads: the newcomer's
-    /// standing place on the team, written by its hirer. Empty for a bot with
-    /// no seat, so every other profile prompt is byte for byte what it was.
-    /// One line per field the seat has, folded onto that line and quoted as
-    /// material, so no field can open a line of its own or close its quote.
-    /// Both profile prompts (this one and the reply service's seam) read it.
-    /// A seat a hire wrote says who wrote it and that the person has not
-    /// reviewed it.
+    /// A bot's seat, for the profile a turn reads: the newcomer's standing place on the team,
+    /// written by its hirer. Empty for a bot with no seat, so every other profile prompt is
+    /// byte for byte what it was. One line per field the seat has, folded onto that line and
+    /// quoted as material, so no field can open a line of its own or close its quote. Both
+    /// profile prompts (this one and the reply service's seam) read it. A seat a hire wrote
+    /// says who wrote it and that the person has not reviewed it.
     static func seatBlock(_ seat: TeammateSeat?, writtenByHirer: String? = nil) -> String {
         guard let seat else { return "" }
         let fields: [(String, String?)] = [
@@ -388,12 +381,10 @@ public struct ClaudeContextAssemblyService: ClaudeContextAssembling {
             + lines.joined(separator: "\n")
     }
 
-    /// What a fresh turn is told about its own conversation. Without it, a bot
-    /// told "remember this for later" answered that it had no memory across
-    /// turns while every earlier turn was being
-    /// quoted back to it. A continued session quotes nothing, so it is not told this.
-    /// It says nothing about saved memory, so it never contradicts the
-    /// controlled-memory instructions a turn with memory excerpts receives.
+    /// Explain quoted conversation history on fresh turns so the model can use earlier
+    /// messages. Continued sessions retain their turns and receive a different note. This
+    /// wording makes no saved-memory claim and remains compatible with controlled-memory
+    /// instructions.
     static let conversationKeptSentence = """
         OpenBots keeps this conversation. Every turn, it quotes this conversation's earlier
         messages back to you in the envelope's context (the latest ones, and older ones that
@@ -420,7 +411,7 @@ public struct ClaudeContextAssemblyService: ClaudeContextAssembling {
     private static func isEligible(_ document: MemoryDocument, receipt: ReadContextReceipt) throws -> Bool {
         // Global user memory needs a separate explicit sharing grant. A selected
         // project, membership or injected receipt does not provide that grant.
-        // No global-memory grant is modeled here.
+        // No global-memory grant is modeled by this read-only increment.
         guard document.scope != .user else { return false }
         let memberships: Set<ProjectID> = if let project = receipt.selectedProjectID,
                                               receipt.projectMembershipJoinedAt != nil { [project] } else { [] }
@@ -571,8 +562,8 @@ public struct ClaudeContextAssemblyService: ClaudeContextAssembling {
     /// Room the size checks keep for the local time line, whatever it says.
     private static let localTimeReserve = String(repeating: "x", count: 80)
 
-    /// "Friday 25 September 2026, 18:57 (Europe/Paris)": English words and a
-    /// 24-hour clock whatever the Mac's own format, so the model reads one shape.
+    /// Format local time using English words, a 24-hour clock and the time-zone identifier
+    /// regardless of the Mac's display format.
     public static func localTimeLine(_ date: Date, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_GB")

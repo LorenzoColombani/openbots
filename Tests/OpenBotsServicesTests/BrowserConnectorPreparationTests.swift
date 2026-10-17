@@ -98,7 +98,7 @@ struct BrowserConnectorPreparationTests {
         #expect(try fixture.preparation().resolve(launch(arguments: ["-y", "chrome-devtools-mcp@1.8.0"])).version == "1.8.0")
     }
 
-    @Test("Only the browser server, and only over stdio, is prepared")
+    @Test("Only the browser server, and only over stdio, is prepared by this slice")
     func otherConnectorsAreNotPrepared() throws {
         let fixture = try Fixture(); defer { fixture.remove() }
         #expect(throws: BrowserConnectorPreparation.Failure.notABrowserConnector) {
@@ -133,8 +133,8 @@ struct BrowserConnectorPreparationTests {
     @Test("The interpreter and the browser are found the way they are actually installed")
     func realWorldInstallationsResolve() throws {
         let fixture = try Fixture(); defer { fixture.remove() }
-        // Homebrew installs node as a symlink into the Cellar, which is how it
-        // sits on this Mac. A check that refuses a symlink refuses node itself.
+        // Homebrew installs node as a symlink into the Cellar. A check that
+        // refuses a symlink refuses node itself.
         let cellar = try Fixture.executable(fixture.root.appendingPathComponent("Cellar/node/26.8.2/bin/node"))
         let linked = fixture.root.appendingPathComponent("bin/node-link")
         try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: cellar)

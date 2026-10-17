@@ -5,6 +5,7 @@ import Foundation
 import OpenBotsDomain
 import OpenBotsRuntime
 
+
 /// Finds the Peekaboo the old app ran for Control this Mac, without a package
 /// manager and without the network: the exact pinned
 /// version already in the user's npx cache, its own Swift binary, and that
@@ -13,8 +14,8 @@ import OpenBotsRuntime
 public struct MacControlConnectorPreparation: Sendable {
     public static let packageName = "@steipete/peekaboo"
     public static let pinnedVersion = "4.0.0"
-    /// The SHA-256 of the published 4.0.0 binary, signed by team FWJYW4S8P8.
-    /// A package.json version alone would still run a swapped binary.
+    /// SHA-256 of the supported Peekaboo 4.0.0 binary, signed by team FWJYW4S8P8. Package
+    /// version alone cannot detect a replaced binary.
     public static let pinnedBinarySHA256 = "83abe6af1a4337f78b9324675438a7f71dcf7bf16b30615e8060f13d9b1b64d8"
     public static let minimumSystemMajorVersion = 15
 
@@ -45,10 +46,8 @@ public struct MacControlConnectorPreparation: Sendable {
     private let digests = DigestCache()
     private var fileManager: FileManager { FileManager() }
 
-    /// The digest of a binary already read, kept against the file's identity.
-    /// The 4.0.0 binary is fifty-three megabytes, and hashing it took about a
-    /// tenth of a second at every catalog read and every
-    /// turn's launch.
+    /// Cache the binary digest against file identity to avoid hashing the executable at every
+    /// catalog read and launch.
     final class DigestCache: @unchecked Sendable {
         private let lock = NSLock()
         private var entries: [String: (identity: FileIdentity, digest: String)] = [:]
@@ -178,11 +177,10 @@ extension MacControlConnectorPreparation: ConnectorLaunchPreparing {
         // What it hands back is the user's screen, written by anyone: never unfenced.
         precondition(role.handsBackUntrustedMaterial)
         let program = try fence.fenced(.installedTool(resolved.binaryURL), label: role.fenceLabel)
-        // Foundation takes the home from CFFIXED_USER_HOME and ignores HOME, so
-        // HOME alone left Peekaboo's snapshot copies of the user's screen under
-        // the real ~/.peekaboo (probed); HOME and TMPDIR stay for
-        // anything that reads them directly. Its loose temporary images still
-        // land in the account's own temporary folder, which no variable moves.
+        // Foundation takes the home from CFFIXED_USER_HOME and ignores HOME, so HOME alone left
+        // Peekaboo's snapshot copies of the user's screen under their real ~/.peekaboo; HOME and TMPDIR
+        // stay for anything that reads them directly. Its loose temporary images still land in
+        // the account's own temporary folder, which no variable moves.
         return try ClaudeTextConnectorServer(
             name: launch.serverKey, role: role, program: program, options: [.mcpServe, .ownedHome(home)],
             environment: [

@@ -26,9 +26,19 @@
 	<string>OpenBots Next reads the calendars of teammates you have granted it: what is on a given day, and who is on a meeting, so a teammate can answer whether you are free and write to the people you are meeting. Nothing in your calendars can be added, changed or deleted.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>OpenBots Next shows the names from your Contacts beside your Messages conversations when you choose which chats a bot may read. Names are only shown to you; nothing in Contacts can be changed.</string>
+	<key>OpenBotsGoogleConfigurationVersion</key>
+	<integer>1</integer>
 	<key>OpenBotsGoogleOAuthClientID</key>
 	<string>$(OPENBOTS_GOOGLE_OAUTH_CLIENT_ID)</string>
 	<key>OpenBotsSourceCommit</key>
 	<string>$(OPENBOTS_SOURCE_COMMIT)</string>
+	<key>OpenBotsSourceUpdateEnabled</key>
+	<true/>
+	<key>OpenBotsSourceUpdateFeedURL</key>
+	<string>https://raw.githubusercontent.com/LorenzoColombani/openbots/main/docs/updates/source-update.json</string>
+	<key>OpenBotsSourceUpdatePublicKey</key>
+	<string>yyXOfMuNWEbKofmxdwyo0IJ52QHolLxGT9rXnbDziTU=</string>
+	<key>OpenBotsSourceUpdateRepository</key>
+	<string>LorenzoColombani/openbots</string>
 </dict>
 </plist>

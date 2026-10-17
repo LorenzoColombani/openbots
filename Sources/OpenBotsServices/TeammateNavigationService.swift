@@ -7,8 +7,8 @@ public enum TeammateNavigationError: Error, Equatable, Sendable {
     case notActive
 }
 
-/// Pin/unpin and hide/unhide change navigation only. They never stop a run,
-/// revoke a capability, or rewrite transcript or memory.
+/// Pin/unpin and hide/unhide change navigation only. They never stop a run, revoke a
+/// capability, or rewrite transcript or memory.
 public protocol TeammateNavigating: Sendable {
     func setPinned(id: TeammateID, pinned: Bool, expectedProfileRevision: UInt64) async throws -> Teammate
     func setHidden(id: TeammateID, hidden: Bool, expectedProfileRevision: UInt64) async throws -> Teammate

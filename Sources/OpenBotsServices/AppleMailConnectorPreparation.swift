@@ -8,7 +8,8 @@ import OpenBotsRuntime
 ///
 /// It reads and never installs. The package is pinned, and the version is taken
 /// from the install's own record rather than from the name of a directory —
-/// a resolution that trusts a cache directory's name can run the wrong copy.
+/// the browser slice learned that lesson the expensive way, when a resolution
+/// that trusted a cache directory's name would have run the wrong copy.
 ///
 /// There is no profile and no temporary state: the reader drives Mail.app,
 /// which is already running as the user, so nothing is written to the disk for a
@@ -20,8 +21,8 @@ public struct AppleMailConnectorPreparation: Sendable {
         /// Only a stdio server can be resolved to a local program.
         case unsupportedTransport
         /// Nothing usable at either place a tool install writes it. This is the
-        /// needs-setup state: one command by the user fixes it, and the app
-        /// never runs it for them.
+        /// needs-setup state: one command by the user fixes it, and the app never
+        /// runs it for them.
         case toolNotInstalled
         /// It is installed, but not the version the app pins.
         case wrongVersion(installed: String?)

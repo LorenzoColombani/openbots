@@ -71,15 +71,16 @@ final class ClaudeTurnStatusPresentationTests: XCTestCase {
         // The installed saved row still needs physical appearance verification.
     }
 
-    // A failed turn ended its bubble with the chip
-    // "OpenBots diagnostic: responseMismatch", drawn like a chip that opens,
-    // and a click did nothing. Opening it says what the code means in words
-    // and leads to the conversation's "What happened" record.
+    // A diagnostic chip must open to explain its code in words
+    // and lead to the conversation's "What happened" record.
     func testADiagnosticStatusOpensToAPlainExplanation() throws {
         let explanation = try XCTUnwrap(TranscriptDiagnostic(status: "OpenBots diagnostic: responseMismatch"))
         XCTAssertEqual(explanation.code, .responseMismatch)
         XCTAssertTrue(explanation.sentence.contains("sent something OpenBots does not understand"), explanation.sentence)
         XCTAssertTrue(explanation.sentence.contains("your text is kept"), explanation.sentence)
+        let limit = try XCTUnwrap(TranscriptDiagnostic(status: "OpenBots diagnostic: outputLimitExceeded"))
+        XCTAssertTrue(limit.sentence.contains("output"))
+        XCTAssertFalse(limit.sentence.contains("does not understand"))
         for code in TextTurnDiagnosticCode.allCases {
             let sentence = try XCTUnwrap(TranscriptDiagnostic(status: "OpenBots diagnostic: \(code.rawValue)")).sentence
             XCTAssertFalse(sentence.isEmpty, "\(code)")
@@ -90,8 +91,7 @@ final class ClaudeTurnStatusPresentationTests: XCTestCase {
         XCTAssertNil(TranscriptDiagnostic(status: "OpenBots diagnostic: responseMismatch and more"))
     }
 
-    // A work turn ended "deadlineExceeded", and
-    // nothing said which of the two limits it was. The one code covers both,
+    // The deadlineExceeded code covers both deadline limits,
     // on replies saved before and after card time stopped counting, so the
     // words name both limits and neither number.
     func testTheDeadlineDiagnosticNamesBothLimits() throws {
@@ -106,7 +106,7 @@ final class ClaudeTurnStatusPresentationTests: XCTestCase {
         // button as no NSButton, so the choice the view makes is what is
         // tested here; the popover itself is proved on the installed app.
         let bot = ChatAuthorSnapshot.teammate(TeammateIdentitySnapshot(
-            id: UUID(), name: "Designer", role: "Designer", appearance: .fixture(seed: 3)))
+            id: UUID(), name: "Studio", role: "Designer", appearance: .fixture(seed: 3)))
         let reply = message(author: bot, parts: [
             ChatMessagePartSnapshot(id: UUID(), ordinal: 0, content: .text("Building both files now.")),
             ChatMessagePartSnapshot(id: UUID(), ordinal: 1, content: .status("OpenBots diagnostic: responseMismatch")),

@@ -81,7 +81,7 @@ func textPreparationRequiresOwnedRoot() async throws {
     #expect(await status.calls == 1)
 }
 
-@Test("Pro cannot admit native-1M Opus or create any turn directory", arguments: ["claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5", "claude-fable-5-1"])
+@Test("Pro cannot admit native-1M Opus or create any turn directory", arguments: ["opus", "default", "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5", "claude-fable-5-1"])
 func textPreparationRefusesMaxModelsOnProBeforeRuntimeMaterial(model: String) async throws {
     let fixture = try TextPreparationOwnedRootFixture()
     defer { fixture.remove() }
@@ -116,7 +116,7 @@ func textPreparationAdmitsMaxModelsOnMax(model: String) async throws {
     #expect(try FileManager.default.contentsOfDirectory(atPath: target.temporaryDirectoryURL.path).isEmpty)
 }
 
-@Test("Pro still admits existing Sonnet and pinned Sonnet/Haiku/Opus4.5 choices", arguments: ["sonnet", "claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "claude-sonnet-5", "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101"])
+@Test("Pro still admits existing Sonnet and pinned Sonnet/Haiku/Opus4.5 choices", arguments: ["sonnet", "haiku", "claude-sonnet-4-6", "claude-sonnet-4-5-20250929", "claude-sonnet-5", "claude-haiku-4-5-20251001", "claude-opus-4-5-20251101"])
 func textPreparationAdmitsNonMeteredProChoices(model: String) async throws {
     let status = TextPreparationStatusFixture(.eligible(.pro))
     let preparer = try textPreparationFixture(status: status)
@@ -127,7 +127,7 @@ func textPreparationAdmitsNonMeteredProChoices(model: String) async throws {
     #expect(await status.calls == 1)
 }
 
-@Test("Unknown, floating Opus/Fable, and extended-context choices cannot gain native preparation", arguments: ["opus", "fable", "opus[1m]", "sonnet[1m]", "claude-opus-5[1m]", "claude-fable-5[1m]", "future-model"])
+@Test("Unlisted models and unsupported extended-context spellings cannot gain native preparation", arguments: ["claude-unknown-6", "fable", "opus[1m]", "sonnet[1m]", "claude-opus-5[1m]", "claude-fable-5[1m]", "future-model"])
 func textPreparationRefusesUnreviewedModelsWithoutStatus(model: String) async throws {
     let status = TextPreparationStatusFixture(.eligible(.max))
     let preparer = try textPreparationFixture(status: status)
@@ -174,7 +174,7 @@ func textPreparationRefusesFullSelectionsBeforeStatus() async throws {
     }
 }
 
-@Test("Max admits Opus 5.5 and Fable 5.1 with any supported effort and context (Fable 5.1 runs, warned)",
+@Test("Max admits Opus 5.5 and Fable 5.1 with any supported effort and context",
       arguments: ["claude-opus-5-5", "claude-fable-5-1"])
 func textPreparationAdmitsCurrentModelsOnMax(model: String) async throws {
     for (effort, context) in [("default", "default"), ("max", "standard"), ("medium", "long")] {

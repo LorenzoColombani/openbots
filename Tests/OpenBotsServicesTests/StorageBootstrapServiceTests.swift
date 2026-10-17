@@ -247,7 +247,12 @@ func bootstrapInternalRoots() async throws {
         #expect(isDirectory.boolValue)
     }
     #expect(!FileManager.default.fileExists(atPath: fixture.layout.contentRoot.url.path))
-    #expect(!FileManager.default.fileExists(atPath: fixture.layout.claudeCLIProfileRoot.path))
+    let support = try #require(receipt.verifiedRoots.first { $0.kind == .applicationSupport })
+    #expect(ClaudeProfileInspector().inspect(applicationSupportRoot: support, layout: fixture.layout) == .metadataVerified)
+    let backups = fixture.layout.claudeCLIProfileRoot.appending(path: "backups")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: backups.path).isEmpty)
+    #expect(Set(try FileManager.default.contentsOfDirectory(atPath: fixture.layout.claudeCLIProfileRoot.path))
+        == Set(["backups", ClaudeProfileInspector.markerFilename]))
     #expect(try fixture.stagingItems().isEmpty)
 }
 

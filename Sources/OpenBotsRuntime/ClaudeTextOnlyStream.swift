@@ -13,18 +13,16 @@ struct ClaudeTextOnlyStream {
         category: "ClaudeTextOnlyStream"
     )
     static let maximumOutputBytes = 2_097_152
+    /// Work can return many file reads and command results before its answer.
+    /// This cumulative allowance does not enlarge any line, reply or call.
+    static let maximumWorkOutputBytes = 64 * 1_048_576
     static let maximumLineBytes = 524_288
-    /// A turn carrying a connector that hands back pictures (Control this Mac,
-    /// the browser). Claude Code 2.1.272 writes each picture twice in the frame
-    /// that finishes the call, in the result's content and in `tool_use_result`,
-    /// and caps a picture at 5,242,880 base64 bytes, so a line holds two of the
-    /// largest with room to spare; a turn holds a line that size for every
-    /// call a picture turn may make, so its call budget, not a screenshot-heavy
-    /// total, is what ends a long reply. Probed: a 600×500
-    /// picture came back as one 727,896-byte line. Nothing of a line is kept
-    /// once it is read (its parse drains its own autorelease pool, and a
-    /// picture line's buffer is reserved in one step), so the total bounds a
-    /// stream, not memory.
+    /// Picture-returning connectors need a larger frame limit. CLI 2.1.272 writes each image
+    /// twice, in the result content and `tool_use_result`, with at most 5,242,880 base64 bytes
+    /// per image. One line therefore allows two maximum images plus framing. The turn permits
+    /// one such line per picture call, so the call budget bounds a long picture turn. Parsing
+    /// drains its autorelease pool and reserves a picture buffer in one step; the aggregate
+    /// limit bounds streamed data, not retained memory.
     static let maximumPictureLineBytes = 12 * 1_048_576
     static let maximumPictureOutputBytes = (maximumGrantedToolUses + maximumMacControlCalls) * maximumPictureLineBytes
     static let maximumReplyBytes = 262_144
@@ -40,6 +38,10 @@ struct ClaudeTextOnlyStream {
     /// 2 MB picture frame took 2.9 s; the largest the CLI sends, over a minute).
     private var searchedBytes = 0
     private var totalBytes = 0
+    /// Unlike the per-window limit, diagnostic totals survive an approved renewal.
+    private var lifetimeOutputBytes: Int? = 0
+    private var rejectedInput = false
+    private var resultTurnCount: Int?
     private var model: String?
     private var responseModel: String?
     private var confirmedModel: String?
@@ -70,20 +72,17 @@ struct ClaudeTextOnlyStream {
     private var helperTaskIDs: [String: String] = [:]
     private var nestedModels: [String: String] = [:]
     private var finishedToolUseIDs: Set<String> = []
+    private var failedToolUseIDs: Set<String> = []
     private var helperLifecycleFrameCount = 0
     private let control: ClaudeTextTurnControl?
     private var permissionDeniedFrameCount = 0
     private(set) var grantedToolUseCount = 0
     private(set) var grantedToolResultCount = 0
-    /// A bounded round trip: the distinct tool calls one granted run may make.
-    /// Not the command's turn cap: one assistant round carries several calls at
-    /// once (five searches in one message, then five fetches), so a research
-    /// that stays well inside sixteen rounds passes sixteen calls easily. A cap
-    /// of sixteen once ended a member's research leg at its seventeenth call as
-    /// an invalid stream (`responseMismatch`); a five-language research
-    /// captured from the CLI made seventeen calls in fifty-nine seconds. Sixty-four is a research, not a runaway; past it the
-    /// run ends as the app's own limit, keeping what streamed. A turn that
-    /// carries Control this Mac has more (`maximumMacControlCalls`).
+    /// Maximum distinct tool calls in one granted run, separate from the command's round cap.
+    /// One assistant round can issue several searches or fetches, so sixteen rounds can
+    /// legitimately exceed sixteen calls. The sixty-four-call bound ends excess work as an app
+    /// limit while retaining streamed text. Control this Mac has a separate larger bound
+    /// (`maximumMacControlCalls`).
     static let maximumGrantedToolUses = 64
     static let maximumToolResultBlocks = 8
     /// The answering model plus the internal helpers a granted tool may use.
@@ -136,14 +135,14 @@ struct ClaudeTextOnlyStream {
     static let maximumControlEchoes = 64
     /// Messages the app's hire server may receive in one turn: a handshake of
     /// three, then a call and at most one cancellation for each call. Its own
-    /// budget, so hiring never eats the questions' room (one probed turn alone
+    /// budget, so hiring never eats the questions' room (one recorded hire alone
     /// sent nine). Every answer is echoed, so the echo bound grows by it too.
     static let maximumHireServerMessages = 64
     private var hireServerMessageCount = 0
     private var hireServerMessageIDs: Set<String> = []
     private var maximumEchoes: Int {
         Self.maximumControlEchoes + (request.carriesAppServer ? Self.maximumHireServerMessages : 0)
-            + (grantsMacControl ? Self.maximumMacControlCalls : 0)
+            + extraCalls
     }
     /// The further calls a turn that carries Control this Mac may make, where a
     /// look, a click and a keystroke are each a call. Every one of its calls is
@@ -158,24 +157,36 @@ struct ClaudeTextOnlyStream {
     /// of one window: an approved renewal of the rounds starts them again
     /// (`acceptRenewal`).
     static let maximumMacControlCalls = 128
+    /// The further calls a Work turn may make, for the same reason. Work has
+    /// sixty-four rounds (`ClaudeTextOnlyCommandBuilder.maximumWorkTurns`), and
+    /// `--max-turns` counts a round once however many calls it carries, while
+    /// this stream counts every call: parallel reads in one round, and a
+    /// helper's own calls. At the sixty-four it shared with every other turn,
+    /// a long Work turn ended at its sixty-fifth call, mid-edit and before the
+    /// answer round its prompt promises. Each call may be asked and echoed, so
+    /// questions and echoes grow with it.
+    static let maximumWorkCalls = 128
+    private var extraCalls: Int {
+        (grantsMacControl ? Self.maximumMacControlCalls : 0) + (request.grantsWork ? Self.maximumWorkCalls : 0)
+    }
     private var grantsMacControl: Bool {
         request.connectorAccess?.servers.contains { $0.role == .macControl } ?? false
     }
     /// A turn whose connector hands back pictures reads picture-sized lines and
-    /// output; every other turn keeps the text-sized bounds.
+    /// output. Work has its own cumulative allowance but keeps text-sized lines.
     private var handsBackPictures: Bool {
         request.connectorAccess?.servers.contains { $0.role.handsBackPictures } ?? false
     }
     private var lineLimit: Int { handsBackPictures ? Self.maximumPictureLineBytes : Self.maximumLineBytes }
-    private var outputLimit: Int { handsBackPictures ? Self.maximumPictureOutputBytes : Self.maximumOutputBytes }
-    private var maximumToolUses: Int {
-        Self.maximumGrantedToolUses + (grantsMacControl ? Self.maximumMacControlCalls : 0)
+    private var outputLimit: Int {
+        if handsBackPictures { return Self.maximumPictureOutputBytes }
+        return request.grantsWork ? Self.maximumWorkOutputBytes : Self.maximumOutputBytes
     }
-    private var maximumQuestions: Int {
-        Self.maximumPermissionRequests + (grantsMacControl ? Self.maximumMacControlCalls : 0)
-    }
+    private var maximumToolUses: Int { Self.maximumGrantedToolUses + extraCalls }
+    private var maximumQuestions: Int { Self.maximumPermissionRequests + extraCalls }
     /// Tool calls announced complete, so the activity line sees each one once.
     private var announcedToolUseIDs: Set<String> = []
+
 
     // MARK: Renewing the rounds
 
@@ -188,7 +199,7 @@ struct ClaudeTextOnlyStream {
     private var windowMessageID: UUID
     /// Every message this turn has written. Only these have a queue lifecycle.
     private var sentMessageIDs: Set<UUID>
-    /// An approved renewal whose second init frame (the CLI
+    /// An approved renewal whose second init frame (probe p29b: the CLI
     /// announces itself again for the new message) has not arrived yet, and
     /// whose replay has not. Its model output is refused until both have, in
     /// that order, as the wire showed them.
@@ -199,9 +210,8 @@ struct ClaudeTextOnlyStream {
     /// Approved renewals so far.
     private(set) var renewalCount = 0
 
-    /// The latest frames as the CLI wrote them, each cut to a bound, so a
-    /// refusal can hand over what led to it; without them a refused turn
-    /// leaves nothing to read.
+    /// Keep the latest CLI frames, each bounded, so a refusal can retain its preceding protocol
+    /// context.
     private var recentFrames: [Data] = []
 
     private mutating func remember(_ line: Data) {
@@ -265,14 +275,18 @@ struct ClaudeTextOnlyStream {
     /// read may fail, but cannot retract its already verified prefix. The caller
     /// must stop consuming after any error; offending data is never delivered.
     mutating func consume(_ bytes: Data, onEvent: (ClaudeTextOnlyEvent) -> Void) throws {
+        var accepted = false
+        defer { if !accepted { rejectedInput = true } }
+        if let count = lifetimeOutputBytes {
+            let (total, overflowed) = count.addingReportingOverflow(bytes.count)
+            lifetimeOutputBytes = overflowed ? nil : total
+        }
         let admittedCount = min(bytes.count, outputLimit - totalBytes)
         totalBytes += admittedCount
         if handsBackPictures, pending.count <= Self.maximumLineBytes, pending.count + admittedCount > Self.maximumLineBytes {
-            // A picture line arrives 4,096 bytes a read. Doubling its way up to
-            // ten megabytes, the buffer left the allocator every block it
-            // outgrew, and the allocator kept them (a process 600 MB larger
-            // after 64 screenshot calls, measured). Once a
-            // line is longer than any text line, it gets the picture limit at once.
+            // A picture line arrives in 4,096-byte reads. Repeated buffer doubling can leave
+            // large allocations retained, so a line exceeding the text limit reserves the full
+            // picture limit at once.
             pending.reserveCapacity(Self.maximumPictureLineBytes)
         }
         pending.append(bytes.prefix(admittedCount))
@@ -289,16 +303,16 @@ struct ClaudeTextOnlyStream {
             let line = Data(pending[..<newline])
             pending.removeSubrange(...newline)
             guard line.count <= lineLimit else { throw reject(.outputLimitExceeded, .outputLimitExceeded) }
-            // A turn reads on a thread of its own with no autorelease pool, so
-            // what Foundation autoreleases while parsing would otherwise live
-            // until the turn ends: a screenshot's worth for every picture call
-            // (666 MB over 128 of the largest, measured).
+            // A turn reads on its own thread. Drain a local autorelease pool after each line so
+            // Foundation's temporary parsing objects do not accumulate for the full turn.
             remember(line)
             do {
                 for event in try autoreleasepool(invoking: { try parse(line) }) { onEvent(event) }
             } catch let rejection as ClaudeTextOnlyRejection {
-                // A failed reply keeps the frames that led to it.
-                if rejection.failure != .declined {
+                // A failed reply keeps the protocol context leading to it. Authentication
+                // errors carry provider diagnostics rather than a broken wire; retain only
+                // their static diagnostic code.
+                if rejection.failure != .declined, rejection.failure != .authenticationRequired {
                     ClaudeTextOnlyRefusalLog.reportFrames(runID: request.runID, frames: recentFrames)
                 }
                 throw rejection
@@ -307,6 +321,7 @@ struct ClaudeTextOnlyStream {
         searchedBytes = pending.count
         guard pending.count <= lineLimit else { throw reject(.outputLimitExceeded, .outputLimitExceeded) }
         guard admittedCount == bytes.count else { throw reject(.outputLimitExceeded, .outputLimitExceeded) }
+        accepted = true
     }
 
     func finish(exitCode: Int32, onDiagnostic: (ClaudeTextOnlyDiagnosticCode) -> Void = { _ in }) -> ClaudeTextOnlyResult {
@@ -336,6 +351,27 @@ struct ClaudeTextOnlyStream {
             confirmedActualModel: confirmedModel))
     }
 
+    /// Content-free counts become a candidate only after terminal validation.
+    /// The transport publishes it only after successful cleanup and delivery;
+    /// a cancelled, refused, failed or incomplete run has no success receipt.
+    func completionReceipt(for result: ClaudeTextOnlyResult) -> ClaudeTextOnlyCompletionReceipt? {
+        guard case .success = result, !rejectedInput, completed, pending.isEmpty,
+              let lifetimeOutputBytes else { return nil }
+        return ClaudeTextOnlyCompletionReceipt(runID: request.runID, stdoutBytes: lifetimeOutputBytes,
+            toolCalls: grantedToolUseIDs.count, toolResults: finishedToolUseIDs.count,
+            successfulToolResults: finishedToolUseIDs.subtracting(failedToolUseIDs).count,
+            resultTurns: resultTurnCount, renewals: renewalCount)
+    }
+
+    /// Older streams may omit this diagnostic. Invalid or out-of-window
+    /// provider values are omitted, never rounded, coerced or used as proof.
+    private static func resultTurns(_ value: Any?, maximum: Int) -> Int? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let count = number.doubleValue
+        guard count.isFinite, count >= 1, count <= Double(maximum), count.rounded(.towardZero) == count else { return nil }
+        return Int(count)
+    }
+
     private mutating func parse(_ data: Data) throws -> [ClaudeTextOnlyEvent] {
         guard Self.boundedJSON(data), let decoded = try? JSONSerialization.jsonObject(with: data) else {
             throw reject(.invalidStream, .invalidJSON)
@@ -357,15 +393,13 @@ struct ClaudeTextOnlyStream {
         }
     }
 
-    /// The shape, plus — for a control request, a frame that can end a team
-    /// turn with nothing but "unexpectedEvent" in the log — the nested subtype, the tool's name, whether a helper sent
-    /// it, and the stream's own state: how many questions it had taken, whether
-    /// this id was already seen, and whether the turn was initialized or done.
-    /// Names only; no input value, no id, no text leaves.
+    /// Record frame shape and, for control requests, nested subtype, tool name, helper origin
+    /// and stream state: question count, whether the id was seen, and initialization/completion
+    /// state. Record names only; no input values, ids or text leave.
     func refusalShape(_ root: [String: Any]) -> String {
         var shape = Self.shapeDescription(root)
-        // The same treatment for a stream event, which can end a turn with
-        // nothing but "responseMismatch": the event kind, the
+        // The same treatment for a stream event, which killed Canobi's report
+        // turn the same night with "responseMismatch": the event kind, the
         // content block kind, the delta kind, the stop reason and the reported
         // model are all enumerations, and one of them is the answer.
         if root["type"] as? String == "stream_event", let event = root["event"] as? [String: Any] {
@@ -510,13 +544,10 @@ struct ClaudeTextOnlyStream {
                 throw reject(.invalidStream, .unexpectedEvent)
             }
             permissionRequestCount += 1
-            // A question about a tool this turn was never launched with is not
-            // the end of the turn: it is a question, and the only safe answer
-            // is no. The CLI asks such questions on its own account — on
-            // 2.1.272 a sandboxed shell command reaching for a host arrives as
-            // `SandboxNetworkAccess`, which no turn grants and which once killed
-            // two team legs. It is surfaced marked unadmitted;
-            // the host can only deny it, and nothing here records it as a call.
+            // An ungranted tool question does not end the turn; it can only be denied. CLI
+            // 2.1.272 may emit `SandboxNetworkAccess` when a sandboxed shell command requests a
+            // host. Mark it unadmitted so the host can only deny it, and do not record it as an
+            // admitted call.
             guard admitsToolName(name) else {
                 return [.permissionRequested(ClaudeTextPermissionRequest(
                     requestID: id, toolUseID: toolUseID, toolName: name, inputJSON: inputJSON, admitted: false,
@@ -579,12 +610,10 @@ struct ClaudeTextOnlyStream {
                 return []
             }
             if root["subtype"] as? String == "thinking_tokens" {
-                // Headless turns on CLI 2.1.261+ stream a live thinking-token
-                // estimate. Read as "unexpectedSystemEvent" it would fail every
-                // text reply on the current CLI. Progress metadata only: after initialization,
-                // own session, flat, at most twelve snake_case keys, values that
-                // are numbers, null or UUIDs. It never proves input, a reply or a
-                // result; anything shaped otherwise still closes the turn.
+                // Headless turns on CLI 2.1.261+ stream live thinking-token estimates. Accept
+                // them only after initialization, for the current session, as flat metadata
+                // with at most twelve snake_case keys and number, null or UUID values. They
+                // prove no input, reply or result; other shapes still close the turn.
                 guard model != nil, uuid(root["session_id"]) == request.sessionID, root.count <= 12,
                       Self.isThinkingTokenFrame(root) else {
                     throw reject(.unsafeInitialization, .unexpectedSystemEvent)
@@ -596,19 +625,13 @@ struct ClaudeTextOnlyStream {
                 return []
             }
             if root["subtype"] as? String == "permission_denied" {
-                // A permissions rule the app wrote refused a tool call (seen live
-                // on 2.1.263: a protected-root Read). The CLI
-                // goes on with the turn and so does this stream; the refusal
-                // becomes an event the record keeps. Turns that carry the
-                // channel — work or a connector, whose tools are admitted
-                // by their namespace rather than by name — and a turn that
-                // reads without one, for its three read tools only: the CLI
-                // itself refuses a Read outside its folders (--restricted), and
-                // by rule a Glob or Grep with no path, which searches the run
-                // folder under the app's own data (a 2.1.272
-                // capture). Own session, a tool and a call
-                // this turn announced, a small flat frame of bounded strings,
-                // and a budget.
+                // A permissions rule can refuse a tool while the CLI continues the turn.
+                // Preserve the refusal as a record event. Admit it for controlled
+                // work/connector turns, or for the three read tools on a read-only turn. The
+                // CLI itself refuses Read outside granted folders under --restricted; rules
+                // refuse Glob or Grep with no path, which would search app-owned run data.
+                // Require the current session, an announced tool and call, bounded flat
+                // strings, and a budget.
                 guard model != nil, uuid(root["session_id"]) == request.sessionID,
                       let toolName = canonicalToolName(root["tool_name"]), admitsToolName(toolName),
                       request.requiresPermissionControl
@@ -622,6 +645,7 @@ struct ClaudeTextOnlyStream {
                     throw reject(.invalidStream, .unexpectedSystemEvent)
                 }
                 permissionDeniedFrameCount += 1
+                failedToolUseIDs.insert(toolUseID)
                 return [.toolRefused(toolUseID: toolUseID, toolName: toolName)]
             }
             if root["subtype"] as? String == "status" {
@@ -674,7 +698,7 @@ struct ClaudeTextOnlyStream {
                 return []
             }
             // One init a turn, and one more for each approved renewal, before
-            // its replay. The second passes every fence the first
+            // its replay (probe p29b). The second passes every fence the first
             // did, below, and must name the same session and the same model.
             guard model == nil || (renewalInitPending && renewalReplayPending) else {
                 throw reject(.unsafeInitialization, .duplicateInitialization)
@@ -711,16 +735,12 @@ struct ClaudeTextOnlyStream {
                   Self.absentOrEmpty(root["mcp_server_errors"]) else { throw reject(.unsafeInitialization, .initializationMCPInvalid) }
             guard let plugins = root["plugins"] as? [Any], plugins.isEmpty,
                   Self.absentOrEmpty(root["plugin_errors"]) else { throw reject(.unsafeInitialization, .initializationPluginsInvalid) }
-            // Nothing loads from a folder. The command disables memory files,
-            // settings sources, slash commands and the Skill tool, and defines
-            // the one helper itself; a quiet write inside the bot's own folder
-            // can still plant .claude/skills, .claude/commands or
-            // .claude/agents there. So the CLI must announce no skill, no
-            // slash command, the default output style and, on a work turn,
-            // exactly the app's helper (2.1.272 captures).
-            // A CLI that stops naming them is refused too: these keys are
-            // fences, not information, and a fence that went quiet is a
-            // fence that may have moved.
+            // The command disables memory files, settings sources, slash commands and Skill,
+            // and defines its helper explicitly. A quiet write can still plant .claude/skills,
+            // .claude/commands or .claude/agents in a bot folder. Initialization must therefore
+            // announce no skills or slash commands, the default output style, and exactly the
+            // app's helper on a work turn. Missing announcement keys are refused because they
+            // represent required fences.
             let unloaded: [(String, Bool)] = [
                 ("skills", (root["skills"] as? [Any])?.isEmpty == true),
                 ("slash_commands", (root["slash_commands"] as? [Any])?.isEmpty == true),
@@ -737,7 +757,7 @@ struct ClaudeTextOnlyStream {
             }
             guard root["apiKeySource"] as? String == "none" else { throw reject(.unsafeInitialization, .initializationKeySourceInvalid) }
             guard let actual = root["model"] as? String,
-                  ClaudeTextOnlyRequest.normalizedReportedModel(actual) == request.expectedResolvedModel else { throw reject(.unsafeInitialization, .initializationModelInvalid) }
+                  ClaudeTextOnlyRequest.normalizedReportedModel(actual) != nil else { throw reject(.unsafeInitialization, .initializationModelInvalid) }
             if let initialized = model {
                 // A renewal's: nothing new to tell the host, which holds one
                 // initialization a turn and would refuse a second.
@@ -815,6 +835,7 @@ struct ClaudeTextOnlyStream {
                 let fetchFailed = results.count == 1 && toolNamesByID[results[0].toolUseID] == "WebFetch"
                     && Self.isErrorStatus(root["tool_use_result"])
                 let fetchReason = fetchFailed ? Self.errorStatus(root["tool_use_result"]).map { "The page answered with status \($0)." } : nil
+                failedToolUseIDs.formUnion(results.filter { $0.failed || fetchFailed }.map(\.toolUseID))
                 return pictures.map { .screenPicture($0) }
                     + results.flatMap { result -> [ClaudeTextOnlyEvent] in
                         let reason = result.failed ? result.reason : (fetchFailed ? fetchReason : nil)
@@ -912,12 +933,10 @@ struct ClaudeTextOnlyStream {
                 }
             case "content_block_stop", "message_stop": break
             case "ping":
-                // The provider's keep-alive while a reply stalls, passed through
-                // since Claude Code 2.1.283: every 20 to 30 seconds while a long
-                // Write's arguments wait (a work turn died on the first one before
-                // it was admitted). Only the bare event, nothing in
-                // it; like keep_alive it carries no text and needs no budget of
-                // its own, since the turn's output limit already bounds it.
+                // The provider's keep-alive while a reply stalls, passed through since Claude
+                // Code 2.1.283: every 20 to 30 seconds while a long Write's arguments wait.
+                // Only the bare event, nothing in it; like keep_alive it carries no text and
+                // needs no budget of its own, since the turn's output limit already bounds it.
                 guard event.count == 1 else { throw reject(.invalidStream, .responseMismatch) }
             default: throw reject(.invalidStream, .responseMismatch)
             }
@@ -929,6 +948,24 @@ struct ClaudeTextOnlyStream {
             guard ["allowed", "allowed_warning"].contains(status) else { throw reject(.providerFailed, .providerFailure) }
             return []
         case "assistant":
+            // CLI 2.1.296 reports expired authentication as a synthetic root
+            // assistant, not a model reply. Its text and sentinel model must
+            // never reach the transcript or model evidence. Retry notices
+            // remain inert; only this correlated terminal signal qualifies.
+            if root["is_api_error_message"] as? Bool == true || root["error"] as? String == "authentication_failed"
+                || (root["message"] as? [String: Any])?["model"] as? String == "<synthetic>" {
+                guard model != nil, acknowledged, parentID == nil,
+                      root["parent_tool_use_id"] is NSNull,
+                      uuid(root["session_id"]) == request.sessionID,
+                      !renewalInitPending, !renewalReplayPending,
+                      uuid(root["user_message_uuid"]) == windowMessageID,
+                      let messageIDs = root["user_message_uuids"] as? [String],
+                      messageIDs.count == 1, uuid(messageIDs[0]) == windowMessageID,
+                      Self.isAuthenticationFailure(root) else {
+                    throw reject(.invalidStream, .responseMismatch)
+                }
+                throw reject(.authenticationRequired, .providerFailure)
+            }
             guard model != nil, uuid(root["session_id"]) == request.sessionID, isInCurrentWindow(root, parentID: parentID),
                   let message = root["message"] as? [String: Any], message["role"] as? String == "assistant",
                   let actual = message["model"] as? String,
@@ -1025,11 +1062,12 @@ struct ClaudeTextOnlyStream {
                           usage.values.allSatisfy({ $0 is [String: Any] }) else {
                         throw reject(.unsafeInitialization, .finalModelMismatch)
                     }
+                    let answerModel = responseModel ?? model.flatMap(ClaudeTextOnlyRequest.normalizedReportedModel)
                     let answering = usage.keys.filter {
-                        ClaudeTextOnlyRequest.normalizedReportedModel($0) == request.expectedResolvedModel
+                        ClaudeTextOnlyRequest.normalizedReportedModel($0) == answerModel
                     }
                     guard answering.count == 1, let actual = answering.first,
-                          responseModel == nil || responseModel == request.expectedResolvedModel else {
+                          ClaudeTextOnlyRequest.normalizedReportedModel(actual) != nil else {
                         throw reject(.unsafeInitialization, .finalModelMismatch)
                     }
                     confirmedModel = actual
@@ -1060,6 +1098,7 @@ struct ClaudeTextOnlyStream {
                 reply = result
             }
             finalText = reply
+            resultTurnCount = Self.resultTurns(root["num_turns"], maximum: request.maximumTurns)
             completed = true
             return [.textSnapshot(reply)]
         case "tool_progress":
@@ -1087,13 +1126,12 @@ struct ClaudeTextOnlyStream {
         }
     }
 
-    /// One message for the app's hire server. Only a turn that
-    /// carries the server gets them, only for that one server name, each
-    /// request id once, within a bound. They come before the init frame (the
-    /// CLI connects its servers first) and a cancellation can follow the
-    /// result, so neither initialization nor completion is required. The turn's
-    /// control answers the handshake, a notification, the tool list and any
-    /// other method at once; a call to the hire tool is handed to the host.
+    /// One message for the app's hire server. Only a turn that carries the server gets them,
+    /// only for that one server name, each request id once, within a bound. They come before
+    /// the init frame (the CLI connects its servers first) and a cancellation can follow the
+    /// result, so neither initialization nor completion is required. The turn's control answers
+    /// the handshake, a notification, the tool list and any other method at once; a call to the
+    /// hire tool is handed to the host.
     private mutating func hireServerMessage(_ root: [String: Any]) throws -> [ClaudeTextOnlyEvent] {
         guard request.carriesAppServer, let control,
               root["session_id"] == nil || uuid(root["session_id"]) == request.sessionID,
@@ -1236,7 +1274,7 @@ struct ClaudeTextOnlyStream {
     private func responseModelMatches(_ resolved: String, parentID: String?) -> Bool {
         guard let parentID else { return responseModel == nil || responseModel == resolved }
         if toolNamesByID[parentID] == ClaudeTextHelperPolicy.toolName,
-           resolved != request.expectedResolvedModel { return false }
+           resolved != model.flatMap(ClaudeTextOnlyRequest.normalizedReportedModel) { return false }
         return nestedModels[parentID] == nil || nestedModels[parentID] == resolved
     }
 
@@ -1438,6 +1476,26 @@ struct ClaudeTextOnlyStream {
 
     private static func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Accept only the CLI's reviewed terminal authentication signal. Optional
+    /// transport/message metadata is bounded by the JSON parser and ignored;
+    /// the content itself can contain only one bounded text diagnostic.
+    private static func isAuthenticationFailure(_ root: [String: Any]) -> Bool {
+        let keys: Set<String> = ["type", "error", "is_api_error_message", "message", "parent_tool_use_id",
+                                 "session_id", "timestamp", "user_message_uuid", "user_message_uuids", "uuid"]
+        let messageKeys: Set<String> = ["container", "content", "context_management", "diagnostics", "id", "model",
+                                       "role", "stop_details", "stop_reason", "stop_sequence", "type", "usage"]
+        guard root.keys.allSatisfy(keys.contains), root["error"] as? String == "authentication_failed",
+              let flag = root["is_api_error_message"] as? NSNumber,
+              CFGetTypeID(flag) == CFBooleanGetTypeID(), flag.boolValue,
+              let message = root["message"] as? [String: Any], message.keys.allSatisfy(messageKeys.contains),
+              message["role"] as? String == "assistant", message["model"] as? String == "<synthetic>",
+              let blocks = message["content"] as? [[String: Any]], blocks.count == 1,
+              let block = blocks.first, Set(block.keys) == ["type", "text"], block["type"] as? String == "text",
+              let text = block["text"] as? String, !text.isEmpty, text.utf8.count <= 16_384 else { return false }
+        if let id = root["uuid"], uuidString(id) == nil { return false }
+        return true
     }
 
     /// The retry frame's reviewed shape: attempt counters and a delay as
@@ -1713,6 +1771,7 @@ struct ClaudeTextOnlyStream {
         return agents.count == expected.count && agents.compactMap { $0 as? String } == expected
     }
 
+
     /// A bound on the connector tools one turn may announce, across all of its
     /// servers together, so a replaced or hostile server cannot flood the turn's
     /// vocabulary. Over it, the turn fails at start. The browser alone announces
@@ -1724,10 +1783,42 @@ struct ClaudeTextOnlyStream {
 
 extension ClaudeTextOnlyFailure: Error {}
 
-/// Where a refused frame's line goes besides the unified log, which drops
-/// such lines within about a day, so a refusal found later has nothing to
-/// read. The app points this at its own
-/// diagnostics file; the line is the code and the shape, names only.
+/// Transport evidence only: counts and the app's run ID, with no conversation,
+/// tool input/output, path, model or account content. Tool counts are distinct
+/// IDs over the whole run; resultTurns names only the final approved window.
+public struct ClaudeTextOnlyCompletionReceipt: Equatable, Sendable {
+    public let runID: UUID
+    public let stdoutBytes: Int
+    public let toolCalls: Int
+    public let toolResults: Int
+    public let successfulToolResults: Int
+    public let resultTurns: Int?
+    public let renewals: Int
+}
+
+/// Mirrors the refusal diagnostic observer without retaining any stream data.
+/// A receipt is emitted only for the successful result returned by the native
+/// runner, after cleanup and after its queued event callbacks have drained.
+public enum ClaudeTextOnlyCompletionLog {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var observers: [UUID: @Sendable (ClaudeTextOnlyCompletionReceipt) -> Void] = [:]
+
+    @discardableResult
+    public static func observe(_ handler: @escaping @Sendable (ClaudeTextOnlyCompletionReceipt) -> Void) -> UUID {
+        let token = UUID()
+        lock.withLock { observers[token] = handler }
+        return token
+    }
+
+    public static func removeObserver(_ token: UUID) { _ = lock.withLock { observers.removeValue(forKey: token) } }
+
+    static func report(_ receipt: ClaudeTextOnlyCompletionReceipt) {
+        for handler in lock.withLock({ Array(observers.values) }) { handler(receipt) }
+    }
+}
+
+/// Destination for refused-frame diagnostics in addition to the unified log, which may omit
+/// them. The app uses its diagnostics file; the line contains only code and shape names.
 public enum ClaudeTextOnlyRefusalLog {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var lineObservers: [UUID: @Sendable (String) -> Void] = [:]
@@ -1747,10 +1838,9 @@ public enum ClaudeTextOnlyRefusalLog {
         return token
     }
 
-    /// Adds a receiver of a refused turn's latest frames, the refused one
-    /// last. Unlike the line these carry what was said, so the app keeps them
-    /// only in its own private folder, the last few failures. Returns the
-    /// token that removes it.
+    /// Adds a receiver of a refused turn's latest frames, the refused one last. Unlike the line
+    /// these carry what was said, so the app keeps them only in its own private folder, the
+    /// last few failures. Returns the token that removes it.
     @discardableResult
     public static func observeFrames(_ handler: @escaping @Sendable (UUID, [Data]) -> Void) -> UUID {
         let token = UUID()

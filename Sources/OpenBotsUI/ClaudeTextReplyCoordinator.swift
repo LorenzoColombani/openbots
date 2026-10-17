@@ -7,6 +7,8 @@ import OpenBotsServices
 public struct ClaudeModelRunPresentation: Equatable {
     var requested: String?
     var observedAtStart: String?
+    /// The model resolution frozen when the confirmed turn started. For an
+    /// alias, this is OpenBots' expectation, not the literal CLI argument.
     var confirmedRequest: String?
     var confirmedModel: String?
     /// The intensity and context the confirmed reply was requested with (its
@@ -17,8 +19,19 @@ public struct ClaudeModelRunPresentation: Equatable {
     /// True when the confirmation was read back from the saved turn record
     /// rather than observed in this app session.
     var isFromSavedRecord = false
-    /// The Claude Code version the saved turn's init frame named, if it did.
+    /// The Claude Code version the confirmed turn's init frame named, if it did.
     var claudeCodeVersion: String?
+
+    public var mismatchNotice: String? {
+        guard let expected = confirmedRequest, let actual = confirmedModel,
+              !ClaudeModelCatalog.matches(requested: expected, observed: actual) else { return nil }
+        let notice = "The last reply with confirmed model information used \(ClaudeModelCatalog.label(for: actual)). OpenBots expected \(ClaudeModelCatalog.label(for: expected)) for that turn. Your saved preference is unchanged."
+        // The picker warns about usage credits only for the model it saves, so
+        // a substitute that can bill them is named here, where it is seen.
+        guard ClaudeModelCatalog.creditsWarning(for: expected) == nil,
+              let credits = ClaudeModelCatalog.creditsWarning(for: actual) else { return notice }
+        return notice + " " + credits
+    }
 }
 
 public enum ClaudeTextReplyPhase: Equatable, Sendable {
@@ -51,12 +64,13 @@ public enum ClaudeTextReplyPhase: Equatable, Sendable {
         }
     }
 
-    /// A refused wire is almost always Claude Code updating itself under the
-    /// app (every turn once died at the init frame of 2.1.272),
-    /// so the sentence names the version and the code instead of hinting at a
-    /// breakage in the app.
+    /// Protocol refusal may indicate a CLI update. Name the observed version and diagnostic
+    /// code so the user has a concrete explanation.
     public static func explanation(_ problem: ClaudeTextTurnProblem, refusedFrame: ClaudeTextRefusedFrame?) -> String {
         guard problem == .invalidResponse, let refusedFrame else { return explanation(problem) }
+        if refusedFrame.code == .outputLimitExceeded {
+            return "Claude Code sent more output than OpenBots accepts for one turn, so the turn was stopped. Nothing was resent; your text is kept."
+        }
         let sender = refusedFrame.claudeCodeVersion.map { "Claude Code \($0)" } ?? "Claude Code"
         return "OpenBots stopped this reply: \(sender) sent something OpenBots does not understand (\(refusedFrame.code.rawValue)). Nothing was resent; your text is kept."
     }
@@ -75,16 +89,16 @@ public enum ClaudeTextReplyPhase: Equatable, Sendable {
         case .memoryAcknowledgementPending: "The memory change is saved, but its confirmation could not be added to this conversation. It has not been undone."
         case .setupRequired: "Claude setup needs attention under Settings → General & Claude Code."
         case .subscriptionNotVerified: "The Claude.ai subscription could not be verified. Check Settings → General & Claude Code."
+        case .authenticationRequired: "Claude needs you to sign in again. Press Sign in with Claude to reconnect. Your saved text is kept; nothing will be resent automatically."
         case .managedPolicyPresentOrUnknown: "Claude’s required tool-free configuration could not be verified. Nothing was sent."
         case .invalidResponse: "Claude’s response could not be verified. Saved text is kept; no retry will run automatically."
         case .timedOut: "Claude did not finish in time: it went quiet for too long, or the whole reply ran past its time limit. Saved text is kept; no retry will run automatically."
         case .persistenceFailed: "The reply could not be confirmed saved. Any already-saved messages are kept; do not resend automatically."
-        case .turnLimitReached: "Claude used up its rounds of tool calls before it finished this reply. Saved text is kept; no retry will run automatically."
-        case .macControlRoundsUsedUp: "The bot used up its rounds on your Mac before it finished this reply. Saved text is kept; no retry will run automatically."
+        case .turnLimitReached: "The bot reached its tool-use limit before finishing this reply. Saved text is kept; no retry will run automatically."
+        case .macControlRoundsUsedUp: "The bot reached its tool-use limit on your Mac before finishing this reply. Saved text is kept; no retry will run automatically."
         case .sessionLost: "The bot’s saved session could not be continued, so this message was not answered. Send it again and the bot starts fresh."
-        // Not a fault of the app's, so it does not read as one. A refusal
-        // reported as "Claude's response could not be verified" would send the
-        // person looking for a breakage that was never there.
+        // A declined response is a provider decision, so describe it directly rather than
+        // implying an app verification failure.
         case .declined: "The bot decided not to answer this one. Nothing went wrong, your text is kept and nothing will be resent."
         }
     }
@@ -96,6 +110,13 @@ public enum ClaudeTextReplyPhase: Equatable, Sendable {
 final class ClaudeTextReplyCoordinator {
     private let service: any ClaudeTextReplyServing
     private let changed: @MainActor () -> Void
+    private let authenticationEpoch: @MainActor () -> UInt64
+    private let authenticationRequired: @MainActor (UInt64) -> Void
+    private struct AuthenticationReservation: Hashable {
+        let conversationID: UUID
+        let messageID: UUID
+    }
+    private var authenticationEpochs: [AuthenticationReservation: UInt64] = [:]
     private var messages: [UUID: UUID] = [:]
     private var phases: [UUID: ClaudeTextReplyPhase] = [:]
     private var contextDisclosures: [UUID: ClaudeContextDisclosure] = [:]
@@ -108,9 +129,8 @@ final class ClaudeTextReplyCoordinator {
     /// `activities` remains the newest line for the one-line caption.
     private var activityHistories: [UUID: [String]] = [:]
     private static let maximumActivityHistoryLines = 100
-    /// What Control this Mac last saw in the open turn, per conversation (the
-    /// screen preview). The user's screen: held here only, never written, and gone
-    /// with the turn's activity lines.
+    /// The latest Control this Mac screen preview per conversation, held only in memory and
+    /// cleared with the turn's activity lines.
     private var screenPictures: [UUID: Data] = [:]
     private var bubbles: [UUID: [String]] = [:]
     private var tasks: [UUID: Task<ClaudeTextTurnResult, Never>] = [:]
@@ -122,8 +142,18 @@ final class ClaudeTextReplyCoordinator {
     private var superseded: [UUID: UUID] = [:]
     private var closing = false
 
-    init(service: any ClaudeTextReplyServing, changed: @escaping @MainActor () -> Void) {
+    var hasUpdateBlockingActivity: Bool {
+        !authenticationEpochs.isEmpty || !tasks.isEmpty || phases.values.contains(where: \.isBusy)
+            || !approvals.isEmpty || !questions.isEmpty || !superseders.isEmpty || !superseded.isEmpty
+    }
+
+    init(service: any ClaudeTextReplyServing,
+         authenticationEpoch: @escaping @MainActor () -> UInt64 = { 0 },
+         authenticationRequired: @escaping @MainActor (UInt64) -> Void = { _ in },
+         changed: @escaping @MainActor () -> Void) {
         self.service = service
+        self.authenticationEpoch = authenticationEpoch
+        self.authenticationRequired = authenticationRequired
         self.changed = changed
     }
 
@@ -210,6 +240,7 @@ final class ClaudeTextReplyCoordinator {
         _ = await service.replaceMissingFile(id: approval.id, with: url)
     }
 
+
     /// Approve the card and let the same tool work in the same folder for the
     /// rest of this turn. The service refuses
     /// a card that is gone or carries no such scope.
@@ -245,6 +276,7 @@ final class ClaudeTextReplyCoordinator {
         changed()
     }
 
+
     /// True when a message reserved for this conversation is a correction to a
     /// turn that was still running.
     /// Whether this reservation still holds its conversation: false once a
@@ -257,6 +289,7 @@ final class ClaudeTextReplyCoordinator {
         superseders[conversationID] == messageID
     }
 
+
     /// The reservation for a turn the app starts itself: a handoff leg, a
     /// report, a worker's wake. It takes only a free chat, and never stops a
     /// running turn the way a message the user types does.
@@ -266,11 +299,13 @@ final class ClaudeTextReplyCoordinator {
     }
 
     func reserve(conversationID: UUID, messageID: UUID) -> Bool {
+        guard ApplicationUpdateGate.shared.allowsWork else { return false }
         guard !closing else { return false }
         if phases[conversationID]?.isBusy == true {
             // Send stays live while a bot works: the new message stops the
             // running turn (finished work kept) and takes its place.
             guard superseders[conversationID] == nil else { return false }
+            authenticationEpochs[.init(conversationID: conversationID, messageID: messageID)] = authenticationEpoch()
             superseders[conversationID] = messageID
             superseded[conversationID] = messages[conversationID]
             messages[conversationID] = messageID
@@ -285,6 +320,7 @@ final class ClaudeTextReplyCoordinator {
             return true
         }
         messages[conversationID] = messageID
+        authenticationEpochs[.init(conversationID: conversationID, messageID: messageID)] = authenticationEpoch()
         contextDisclosures[conversationID] = nil
         modelPresentations[conversationID]?.requested = nil
         modelPresentations[conversationID]?.observedAtStart = nil
@@ -311,6 +347,7 @@ final class ClaudeTextReplyCoordinator {
             return
         }
         if superseders[conversationID] == messageID {
+            authenticationEpochs.removeValue(forKey: .init(conversationID: conversationID, messageID: messageID))
             // The correction never started, but it already stopped the turn it
             // was replacing (left "correcting", the chat would refuse every
             // later message). A replaced turn still running gets
@@ -336,6 +373,7 @@ final class ClaudeTextReplyCoordinator {
             return
         }
         guard tasks[conversationID] == nil else { return }
+        authenticationEpochs.removeValue(forKey: .init(conversationID: conversationID, messageID: messageID))
         messages[conversationID] = nil
         phases[conversationID] = nil
         changed()
@@ -448,6 +486,7 @@ final class ClaudeTextReplyCoordinator {
         return result
     }
 
+
     /// A worker's holder woken with its result, under the
     /// same reservation rules as a report: one holder per conversation, Stop ends it.
     func sendWorkerResult(_ submission: WorkerResultSubmission, conversationID: UUID, messageID: UUID,
@@ -478,6 +517,7 @@ final class ClaudeTextReplyCoordinator {
         return result
     }
 
+
     /// The end of one transport task. A correction can take the conversation
     /// while this turn is still settling, and the stopped turn's call
     /// resumes after the correction's has started its own task: it must leave
@@ -489,6 +529,7 @@ final class ClaudeTextReplyCoordinator {
         if messages[conversationID] == messageID {
             if phases[conversationID] != .stopping { phases[conversationID] = .saving }
         } else if messages[conversationID] == nil, tasks[conversationID] == nil, phases[conversationID] == .stopping {
+            authenticationEpochs.removeValue(forKey: .init(conversationID: conversationID, messageID: messageID))
             // Stop withdrew the correction that was waiting for this turn
             // (`stop`), so no `finish` names this conversation again: this
             // turn's end is the Stop's end, or it would read "Stopping…" for good.
@@ -501,10 +542,12 @@ final class ClaudeTextReplyCoordinator {
     }
 
     func finish(conversationID: UUID, messageID: UUID, outcome: ClaudeTextTurnOutcome) {
+        let observedEpoch = authenticationEpochs.removeValue(forKey: .init(conversationID: conversationID, messageID: messageID))
         guard messages[conversationID] == messageID else {
             releaseReplacedTurn(conversationID: conversationID, messageID: messageID)
             return
         }
+        let canReportAuthentication = !closing && phases[conversationID]?.isBusy == true
         approvals[conversationID] = nil
         questions[conversationID] = nil
         clearActivity(for: conversationID)
@@ -512,7 +555,11 @@ final class ClaudeTextReplyCoordinator {
         switch outcome {
         case .completed: phases[conversationID] = .completed
         case .stopped: phases[conversationID] = .stopped
-        case .failed(let problem, let refusedFrame): phases[conversationID] = .failed(problem, refusedFrame: refusedFrame)
+        case .failed(let problem, let refusedFrame):
+            phases[conversationID] = .failed(problem, refusedFrame: refusedFrame)
+            if problem == .authenticationRequired, canReportAuthentication, let observedEpoch {
+                authenticationRequired(observedEpoch)
+            }
         }
         changed()
         conversationFreed?(conversationID)
@@ -521,6 +568,7 @@ final class ClaudeTextReplyCoordinator {
     /// A replaced turn that ended while its correction waited has no claim
     /// left: were the correction abandoned, there would be no end to wait for.
     private func releaseReplacedTurn(conversationID: UUID, messageID: UUID) {
+        authenticationEpochs.removeValue(forKey: .init(conversationID: conversationID, messageID: messageID))
         if superseded[conversationID] == messageID { superseded[conversationID] = nil }
     }
 
@@ -534,6 +582,7 @@ final class ClaudeTextReplyCoordinator {
         // withdrawn too; nothing restarts on its own.
         superseded[conversationID] = nil
         if let superseder = superseders.removeValue(forKey: conversationID), messages[conversationID] == superseder {
+            authenticationEpochs.removeValue(forKey: .init(conversationID: conversationID, messageID: superseder))
             messages[conversationID] = nil
         }
         phases[conversationID] = .stopping
@@ -544,6 +593,7 @@ final class ClaudeTextReplyCoordinator {
     func beginShutdown() {
         closing = true
         for id in Array(phases.keys) { stop(conversationID: id) }
+        authenticationEpochs.removeAll()
     }
 
     private func receive(_ progress: ClaudeTextTurnProgress, conversationID: UUID, messageID: UUID) {
@@ -592,10 +642,11 @@ final class ClaudeTextReplyCoordinator {
             modelPresentations[conversationID] = presentation
             changed()
         }
-        if case .modelConfirmed(let requested, let observed) = progress {
+        if case .modelConfirmed(let requested, let observed, let claudeCodeVersion) = progress {
             var presentation = modelPresentations[conversationID] ?? .init()
             presentation.confirmedRequest = requested
             presentation.confirmedModel = observed
+            presentation.claudeCodeVersion = claudeCodeVersion
             presentation.confirmedEffort = nil
             presentation.confirmedContextWindow = nil
             presentation.isFromSavedRecord = false

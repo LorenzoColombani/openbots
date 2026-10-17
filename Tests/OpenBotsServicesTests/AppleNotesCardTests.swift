@@ -4,6 +4,7 @@ import OpenBotsRuntime
 @testable import OpenBotsServices
 import Testing
 
+
 /// The cards for Apple Notes, through the Claude Desktop extension. The
 /// extension is pinned and cannot be changed, so the
 /// card is the only side that checks anything: every value it shows is read
@@ -47,8 +48,8 @@ struct AppleNotesCardTests {
         #expect(try decide("list_notes", ["folder": 3]) == .allowQuietly(activity: "Listed your notes"))
     }
 
-    /// The review's list is held to the real server's `tools/list` by a
-    /// separate probe of the extension; this holds the policy to it.
+
+    /// The policy's tool list must match the pinned extension's tools.
     @Test("The reads and writes the policy knows are exactly the tools the pinned extension announces")
     func theToolsAreTheExtensionsOwn() {
         let known = ClaudeTextAppleNotesApprovalPolicy.quietReads.union(
@@ -119,6 +120,7 @@ struct AppleNotesCardTests {
         #expect(try replace(["note_name": "A", "new_content": "B", "folder": ["x"]])?
             .contains("`folder` must be a string") == true)
     }
+
 
     /// Notes reads a note's text as web markup (the extension sets `body`), so
     /// `hunter&#50;2` shows as a secret the card never showed, `&#x200B;` as a

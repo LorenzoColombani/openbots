@@ -78,6 +78,7 @@ extension SQLiteStore: BotSidebarOrderRepository {
             .map { try parseID(TeammateID.self, $0.text("id")) })
     }
 
+
     /// The order the sidebar shows: pinned bots first, then the rest, each group in
     /// its saved positions, and no hidden bot, since the list shows none. Pinning and unpinning write no
     /// positions: the flag alone moves a bot between the groups, and an unpinned bot

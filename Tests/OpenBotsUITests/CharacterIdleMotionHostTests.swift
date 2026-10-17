@@ -113,12 +113,9 @@ final class CharacterIdleMotionHostTests: XCTestCase {
         XCTAssertTrue(body.transforms.allSatisfy { $0.horizontalScale == 1 && $0.yaw == 0 })
     }
 
-    /// Seen on screen: the painted Canobi face turned a full circle about its
-    /// own centre over a flat backing that stayed still, so mid-turn it showed
-    /// half a face on a brown disc; turning the backing with it made a flat
-    /// coin flip (the head looked 2D). A flat picture turned side-on is a line. The
-    /// drawn faces look round because the head outline stays and the face slides
-    /// across it and narrows; the painted face now does the same, inside its own
+    /// A flat picture turned side-on is a line. The drawn faces look
+    /// round because the head outline stays and the face slides across it
+    /// and narrows; the painted face now does the same, inside its own
     /// outline, with the back of the head in its hair colour.
     func testRasterFaceSlidesAroundAStillHeadOutline() throws {
         let frames = CharacterWorkingMotion.keyframes(seed: 815, part: .rasterBody)
@@ -219,6 +216,10 @@ final class CharacterIdleMotionHostTests: XCTestCase {
         XCTAssertEqual(animation.values?.count, keyframes.transforms.count)
         XCTAssertEqual(animation.keyTimes?.map(\.doubleValue), keyframes.keyTimes)
         XCTAssertEqual(animation.timingFunctions?.count, keyframes.transforms.count - 1)
+        XCTAssertTrue(keyframes.linearInterpolation)
+        var point: [Float] = [0, 0]
+        animation.timingFunctions?.first?.getControlPoint(at: 1, values: &point)
+        XCTAssertEqual(point, [0, 0], "Dense idle samples interpolate without an ease-to-stop at every sample")
         XCTAssertEqual(animation.duration, CharacterIdleMotion.cycleDuration(seed: 7))
         XCTAssertEqual(animation.timeOffset, keyframes.phaseOffset)
         XCTAssertEqual(animation.repeatCount, .infinity)

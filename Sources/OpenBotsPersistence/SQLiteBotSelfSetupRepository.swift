@@ -1,6 +1,7 @@
 import Foundation
 import OpenBotsDomain
 
+
 /// One `app_metadata` row per bot waiting to set itself up, keyed
 /// `bot_self_setup_v1.<teammate id>`, its value the placeholder name the bot
 /// was born with. The setup deletes it, so the table lists only waiting bots.

@@ -2,6 +2,7 @@ import OpenBotsServices
 import Testing
 @testable import OpenBotsUI
 
+
 /// The sentence that tells the user where a web grant applies. It lived twice,
 /// in the bot Details caption and in Settings, and both once still said "only
 /// inside a job" after a granted bot could search inside an ordinary
@@ -11,11 +12,8 @@ import Testing
 /// retired runner's jobs switch and its sentences are gone.
 @Suite("What the app says a web grant covers")
 struct AgenticWebCopyTests {
-    /// The per-bot switches live on the bot's Access sheet, not in Details
-    /// (opened with Access… from Details or from the bot's row in the
-    /// sidebar), so a caption that sends the user to Details sends them to a
-    /// pane that no longer holds them. The retired runner's jobs switch left
-    /// Settings too, so no caption may name a job.
+    /// Per-bot switches live on the bot's Access sheet, opened from Details or
+    /// the sidebar row. Captions must name that surface and omit retired jobs.
     @Test("The settings caption names the surface, the two-switch rule, where the bot's switch lives, the stop, that the web switches survive a relaunch, and no retired job")
     func settingsCaptionIsExact() {
         #expect(AgenticWebCopy.settingsCaption ==
@@ -27,6 +25,7 @@ struct AgenticWebCopyTests {
             + "These switches stay as you left them the next time OpenBots starts.")
         #expect(!AgenticWebCopy.settingsCaption.contains("job"))
     }
+
 
     /// An edit inside the bot's own folder goes through with no card; an
     /// added folder, anywhere outside and every command still ask. The work
@@ -50,16 +49,14 @@ struct AgenticWebCopyTests {
     @Test("A turn that ran out of tool-call rounds says so, and does not blame the connection")
     func turnCapSentenceIsHonest() {
         #expect(ClaudeTextReplyPhase.explanation(.turnLimitReached) ==
-            "Claude used up its rounds of tool calls before it finished this reply. "
+            "The bot reached its tool-use limit before finishing this reply. "
             + "Saved text is kept; no retry will run automatically.")
     }
 
-    // A Control this Mac reply's rounds are on the user's Mac. The sentence claims no card: the call
-    // budget of a window ends the reply the same way, with none offered.
     @Test("A Control this Mac reply that ran out of rounds says rounds on the user's Mac, never web tool calls")
     func macRoundsSentenceNamesNoWeb() {
         let sentence = ClaudeTextReplyPhase.explanation(.macControlRoundsUsedUp)
-        #expect(sentence == "The bot used up its rounds on your Mac before it finished this reply. "
+        #expect(sentence == "The bot reached its tool-use limit on your Mac before finishing this reply. "
             + "Saved text is kept; no retry will run automatically.")
         #expect(!sentence.contains("web"))
     }

@@ -3,6 +3,7 @@ import Foundation
 import OpenBotsDomain
 import OpenBotsRuntime
 
+
 /// Recognise a Bash call that runs a script file with an interpreter
 /// already on the Mac, and shape the approval card (interpreter, script, folder).
 public enum ClaudeTextRunCodePolicy: Sendable {
@@ -19,6 +20,7 @@ public enum ClaudeTextRunCodePolicy: Sendable {
         public let allowanceKey: String?
     }
 
+
     /// The interpreters and runners a run card covers. `uv run` is included.
     private static let interpreterTokens: Set<String> = [
         "python3", "python", "node", "ruby", "swift", "uv"
@@ -34,9 +36,10 @@ public enum ClaudeTextRunCodePolicy: Sendable {
     private static let pythonFlags: Set<String> = ["-u", "-B", "-O", "-OO", "-E", "-I", "-s", "-S", "-q", "-b", "-bb"]
     private static let pythonValueFlags: Set<String> = ["-X", "-W"]
 
+
     /// When the Bash command is one script run and nothing else that acts,
     /// return the structured invocation. The shapes are the ones Claude Code
-    /// 2.1.280 sent (fixture `run-code-probe`): the run alone, a
+    /// 2.1.280 sent: the run alone, a
     /// `cd` into one of the bot's folders before it, `2>&1`, and read-only
     /// commands after it or piped from it. Anything else is not a run card:
     /// the allowance a run card offers is keyed on the script, so a command
@@ -189,11 +192,10 @@ public enum ClaudeTextRunCodePolicy: Sendable {
         return standardized
     }
 
-    /// The allowance key: the script's path as the disk knows it, when that
-    /// sits inside one of the bot's folders and off the deny list; nil
-    /// otherwise, so a run outside asks every time.
-    /// "absent" for a script not on disk yet: once written, its bytes differ
-    /// and the rerun asks. Nil (no allowance) for one over 16 MB or unreadable.
+    /// The allowance key: the script's path as the disk knows it, when that sits inside one of
+    /// the bot's folders and off the deny list; nil otherwise, so a run outside asks every
+    /// time. "absent" for a script not on disk yet: once written, its bytes differ and the
+    /// rerun asks. Nil (no allowance) for one over 16 MB or unreadable.
     static func scriptDigest(_ path: String) -> String? {
         guard FileManager.default.fileExists(atPath: path) else { return "absent" }
         guard let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber,

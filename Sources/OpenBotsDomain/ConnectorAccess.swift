@@ -4,6 +4,7 @@ public enum ConnectorAccessError: Error, Equatable, Sendable {
     case invalidState, staleRevision, revisionExhausted, unavailable, busy, definitionChanged
 }
 
+
 /// Where a catalog row came from. Three sources, and a row's own identity says
 /// which: the servers Claude Code has configured on this Mac, the servers the
 /// app itself pins and ships, and the Claude Desktop extensions installed on
@@ -67,12 +68,9 @@ public struct ConnectorIdentity: Codable, Equatable, Hashable, Sendable {
 
 public enum ConnectorTransport: String, Codable, Sendable { case stdio, http, sse }
 
-/// Whether a row can be turned on at all, and if not, in the user's words why.
-///
-/// "Needs setup" is something the user
-/// can fix from here — a permission, a login, an install — so the switch stays
-/// live and turning it on opens the connect card; "unavailable" is something
-/// that is simply not on this Mac, and the switch is dead.
+/// Whether a connector can be enabled, and its reason otherwise. `needsSetup` is actionable
+/// through permission, login or installation, so its switch opens setup. `unavailable` cannot
+/// run on this Mac and disables the switch.
 public enum ConnectorAvailability: Equatable, Sendable {
     case ready
     case needsSetup(String)
@@ -118,8 +116,8 @@ public enum ConnectorAvailability: Equatable, Sendable {
         }
     }
 
-    /// Where a row of this state belongs in the list the user reads. A row that
-    /// works comes first, then one the user can fix, then one this build cannot
+    /// Where a row of this state belongs in the list the user reads. A row that works
+    /// comes first, then one they can fix themselves, then one this build cannot
     /// drive at all. The order hides nothing: the dead row is still there, at
     /// the bottom, where it is no longer the first thing anyone meets. What a
     /// surface leaves out is that surface's own rule, not the order's: a bot's
@@ -169,12 +167,9 @@ extension ConnectorDefinition {
         "Configured in Claude Code · \(pluginName)"
     }
 
-    /// The order the list is read in: what works, then what the user can fix,
-    /// then what this build cannot drive, and within each the same identity
-    /// order the catalog already mints, so two reads of the same state never
-    /// reshuffle. Sorted by id alone, a user looking for browsing met
-    /// `browser-use` first — a row with a dead switch, sitting above
-    /// the browser that works, purely because "b" sorts before "c".
+    /// Order connectors by availability: working, fixable, then unsupported. Within each group,
+    /// retain the catalog's stable identity order so repeated reads never reshuffle the list or
+    /// bury working connectors beneath unavailable ones.
     public static func inListOrder(_ definitions: [ConnectorDefinition]) -> [ConnectorDefinition] {
         definitions.sorted {
             ($0.availability.listRank, $0.id) < ($1.availability.listRank, $1.id)
@@ -189,9 +184,9 @@ public struct ConnectorBotGrant: Codable, Equatable, Sendable {
     /// Off because the row changed underneath it, rather than because the user
     /// turned it off. Recorded rather than inferred: an identity that no
     /// longer matches the catalog was the first guess and it is wrong in both
-    /// directions — a switch the user turned off keeps the identity of that
-    /// day and later looks changed, and a plugin rolled back to the version
-    /// the user allowed matches again and goes silent while the switch is still off.
+    /// directions — a switch they turned off themselves keeps the identity of that
+    /// day and later looks changed, and a plugin rolled back to the version they
+    /// allowed matches again and goes silent while the switch is still off.
     public let revokedByChange: Bool
     public init(teammateID: TeammateID, identity: ConnectorIdentity, enabled: Bool,
                 revokedByChange: Bool = false) {
@@ -203,13 +198,12 @@ public struct ConnectorBotGrant: Codable, Equatable, Sendable {
         teammateID = try container.decode(TeammateID.self, forKey: .teammateID)
         identity = try container.decode(ConnectorIdentity.self, forKey: .identity)
         enabled = try container.decode(Bool.self, forKey: .enabled)
-        // Written by every save of current builds; absent in a record from an
-        // older build, which `ConnectorAccessState.seedingGrantFlags` fills in
-        // once from the identity check rather than leaving the user with a row
-        // that says nothing.
+        // Older records omit this flag. `ConnectorAccessState.seedingGrantFlags` initializes it
+        // once from the identity check so changed grants remain visible.
         revokedByChange = try container.decodeIfPresent(Bool.self, forKey: .revokedByChange) ?? false
     }
 }
+
 
 /// The chats one bot may read through the app's Messages connector, kept in
 /// the connector record beside its switch. Kept when the switch goes off, so
@@ -236,17 +230,12 @@ public struct ConnectorAccessState: Codable, Equatable, Sendable {
     /// Whether `revokedByChange` has been filled in for a record written before
     /// the field existed. One migration, marked, so the guess is made once and
     /// never again — a guess made at every load would keep re-blaming a version
-    /// bump for a switch the user turned off.
+    /// bump for a switch the user turned off themselves.
     public var grantFlagsSeeded: Bool
-    /// The connectors the user has switched off for the whole app, by identity id
-    /// rather than by identity: killing the browser must stay killed when the
-    /// plugin names a new version, which is the one thing a digest cannot do.
-    ///
-    /// What is stored is the KILLED set, not the allowed one, so a row nobody
-    /// has decided on — a new plugin, a row that appears after an update — is
-    /// live: a kill-or-live switch. Storing the allowed set instead would
-    /// silently kill every grant the user already had the moment this field
-    /// arrived.
+    /// App-wide disabled connectors are keyed by identity id rather than digest so a version
+    /// change cannot re-enable one.
+    /// Store the disabled set rather than the allowed set: a new catalog entry starts live, and
+    /// decoding an older record must not silently disable existing grants.
     public var appDisabledIDs: [String]
     /// The chats each bot may read in Messages, one entry per bot that has
     /// any. A bot with no entry reads none.
@@ -281,26 +270,22 @@ public struct ConnectorAccessState: Codable, Equatable, Sendable {
         grants = try container.decode([ConnectorBotGrant].self, forKey: .grants)
             .filter { $0.identity.source != nil }
         grantFlagsSeeded = try container.decodeIfPresent(Bool.self, forKey: .grantFlagsSeeded) ?? false
-        // Absent in every record written by an older build, and absent means
-        // nothing is killed. A plain `decode` here would fail such a
-        // record outright and take every connector dark with it.
+        // An absent field in an older record means no connector is disabled. Requiring the
+        // field would reject the whole record and disable every connector.
         appDisabledIDs = try container.decodeIfPresent([String].self, forKey: .appDisabledIDs) ?? []
-        // Absent in every record written by an older build, and absent means
-        // no chats are named, so every bot reads none. A plain `decode`
-        // would fail such a record outright and take every connector dark.
+        // An absent field in an older record means no chats are named, so every bot reads none.
+        // Requiring the field would reject the whole record.
         messagesChats = try container.decodeIfPresent([ConnectorBotMessagesChats].self,
                                                       forKey: .messagesChats) ?? []
-        // Absent in every record written by an older build, and absent
-        // means no count has started: each gone kill starts counting at the
-        // next reconciliation, so no kill is ever let go early by the upgrade.
+        // An absent count starts at the next reconciliation, so migration never releases a
+        // disabled connector early.
         appDisabledAbsentSince = try container.decodeIfPresent([String: Date].self,
                                                                forKey: .appDisabledAbsentSince) ?? [:]
     }
 
-    /// The one-time fill-in for a record written before the field existed: a
-    /// grant that is off while the catalog holds its id at a different digest
-    /// was, as far as anything can now tell, turned off by that change, and
-    /// starting it at false would show the user nothing.
+    /// Initialize records that predate this field. A disabled grant whose id remains in the
+    /// catalog under a different digest is treated as disabled by that change, so the user can
+    /// see and resolve it.
     public func seedingGrantFlags() -> ConnectorAccessState {
         guard !grantFlagsSeeded else { return self }
         let live = Dictionary(catalog.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

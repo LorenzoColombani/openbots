@@ -9,6 +9,7 @@ public enum ConversationAttachmentError: Error, Equatable, Sendable {
     case invalidPreviewPage
 }
 
+
 /// Turns the files a bot made into chips on its saved reply.
 public protocol ProducedFileAttaching: Sendable {
     /// Copies each file into the app's attachment store and links it to the

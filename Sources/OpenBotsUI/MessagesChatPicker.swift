@@ -3,6 +3,7 @@ import OpenBotsDomain
 import OpenBotsServices
 import SwiftUI
 
+
 /// The chats one bot may read in Messages, ticked in a list of the user's
 /// conversations. Nothing is saved until the user presses Save; the list is
 /// the user's conversations by the names they know, never their messages.
@@ -12,9 +13,9 @@ public final class MessagesChatPickerModel: ObservableObject, Identifiable {
     public let botName: String
     @Published public var search = ""
     @Published public private(set) var selected: Set<String>
-    /// Every conversation, the chats the user already chose first: those
-    /// Messages still keeps in the list's own order, then any it no longer
-    /// keeps, so the user can untick them.
+    /// Every conversation, the chats the user already chose first: those Messages
+    /// still keeps in the list's own order, then any it no longer keeps, so they
+    /// can untick them.
     public let choices: [MessagesChatChoice]
 
     public init(botName: String, choices: [MessagesChatChoice], chosen: AppleMessagesChatScope) {

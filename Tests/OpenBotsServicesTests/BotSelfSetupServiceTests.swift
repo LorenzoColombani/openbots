@@ -5,6 +5,7 @@ import OpenBotsRuntime
 @testable import OpenBotsServices
 import Testing
 
+
 /// A new bot sets itself up: New Bot makes the bot at
 /// once with its question and its waiting mark, and one setup call writes its
 /// profile and its own switches. Over the real store and the real switches.
@@ -120,7 +121,7 @@ struct BotSelfSetupServiceTests {
     }
 
     @Test("The user's edits win: a role they wrote before answering stays, and the switches still come on")
-    func theUsersEditWins() async throws {
+    func hisEditWins() async throws {
         let f = try HiringFixture(); defer { f.remove() }
         let s = try await newBot(f)
         var edited = try #require(try await s.store.teammate(id: s.bot))
@@ -173,7 +174,7 @@ struct BotSelfSetupServiceTests {
         #expect(try await s.store.teammate(id: f.kite)?.profile.displayName == "Kite")
     }
 
-    @Test("An edit's line is saved as the app's own status line at the end of the chat")
+    @Test("The user's edit's line is saved as the app's own status line at the end of the chat")
     func statusLine() async throws {
         let f = try HiringFixture(); defer { f.remove() }
         let s = try await newBot(f)

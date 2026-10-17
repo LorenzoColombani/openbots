@@ -50,7 +50,7 @@ struct TranscriptTextDigest: Hashable {
     /// SHA-256, truncated to 128 bits. A cheaper 64-bit hash would be fast
     /// enough — this runs once per row build, four microseconds for a
     /// six-kilobyte reply — but a collision here is a wrong row height, which is
-    /// the one failure this cache is not allowed to introduce.
+    /// the one failure this digest must never introduce.
     static func make(_ declaration: TranscriptTextDeclaration) -> TranscriptTextDigest {
         var sha = SHA256()
         var header = Data([declaration.kind.rawValue, declaration.tone])
@@ -73,18 +73,9 @@ struct TranscriptTextDigest: Hashable {
     }
 }
 
-/// Measured heights and parsed markdown that outlive the row that produced them.
-///
-/// Any row whose hosting views are rebuilt — as happened on every scroll back
-/// while the transcript was a `LazyVStack`, and still happens whenever a row is
-/// recreated — starts with a brand-new label with an empty per-label cache and
-/// a brand-new markdown coordinator with an empty parse. Without these stores,
-/// a rebuilt row would cost a full markdown parse and a full text layout on
-/// the main thread, about 47 ms for a long reply and three dropped frames, once
-/// per message. These two stores make the second build free.
-///
-/// Bounded, so a long session cannot grow them without end, and keyed by a
-/// digest, so nothing here holds a reply by value.
+/// Cache measured heights and parsed markdown beyond the lifetime of their hosting rows.
+/// Recreated rows otherwise start with empty per-label caches and repeat parsing and layout
+/// when revisited. Bound both stores and key them by digest so they retain no reply by value.
 @MainActor
 enum SharedTranscriptTextCaches {
     /// The backing scale and the appearance are in the key rather than reasons to
@@ -290,9 +281,8 @@ struct StableSelectableText: NSViewRepresentable {
         return Self.measuredSize(proposedWidth: proposal.width, field: field)
     }
 
-    /// Diagnostics only; built solely while the counters are enabled. Two
-    /// `enclosingScrollView` walks and seven interpolations would otherwise run
-    /// here on every SwiftUI update pass.
+    /// Build diagnostics only while counters are enabled to avoid view-hierarchy walks and
+    /// string interpolation on ordinary SwiftUI updates.
     private static func updateDetail(_ field: NSTextField) -> String {
         let scroll = field.enclosingScrollView
         return "chars=\(field.stringValue.count) y=\(Int(field.frame.origin.y)) h=\(Int(field.frame.height)) doc=\(Int(scroll?.documentView?.frame.height ?? -1)) off=\(Int(scroll?.contentView.bounds.origin.y ?? -1)) vis=\(Int(scroll?.contentView.bounds.height ?? -1)) superH=\(Int(field.superview?.frame.height ?? -1))"
@@ -314,21 +304,15 @@ struct StableSelectableText: NSViewRepresentable {
     }
 
     private static func measuredSizeAtWidth(_ width: CGFloat, field: NSTextField) -> CGSize {
-        // SwiftUI proposes the alignment rectangle, while NSTextFieldCell
-        // measures the full frame including its text margins. Passing the
-        // alignment width straight to the cell subtracts those margins twice:
-        // a one-line intrinsic size can remeasure as two lines at its own width.
-        // Use AppKit's inverse geometry conversions without mutating the view.
-        // Measure at the width the view can actually be given: SwiftUI hands
-        // the platform view a frame snapped to the backing pixel grid, so a
-        // fractional proposal measured as-is can wrap one line less than the
-        // final frame does. That half-point mismatch inside a scroll view is
-        // enough for a relayout that never settles (main thread at 100 %,
-        // observed live with the details pane open).
+        // SwiftUI proposes alignment width, while NSTextFieldCell measures its frame including
+        // text margins. Use AppKit's inverse geometry conversion to avoid subtracting margins
+        // twice. Snap measurement width to the backing pixel grid, matching the eventual
+        // platform-view frame; fractional differences can change wrapping and cause layout to
+        // oscillate.
         let scale = field.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let snappedWidth = max(1, floor(width * scale) / scale)
         // The height below is a complete text layout: 49 ms for a six-kilobyte
-        // reply on a test Mac, and nothing used to remember it, while SwiftUI asks
+        // reply on this Mac, and nothing used to remember it, while SwiftUI asks
         // several times per pass and AppKit asks again on its own schedule. It
         // is a pure function of the snapped width, the text, the font and the
         // alignment insets, so the label remembers it per snapped width and
@@ -419,17 +403,10 @@ struct StableSelectableText: NSViewRepresentable {
     }
 }
 
-/// A wrapping label whose AppKit intrinsic size follows the width SwiftUI gave it.
-///
-/// Without a preferred maximum layout width, `NSTextField` reports the widest
-/// unbreakable line as its intrinsic width (5,594 pt for one sandbox error line
-/// holding a 200-character path) and remembers the previous frame's wrapping.
-/// Inside `PlatformViewHost` that disagreement with the frame invalidates layout,
-/// SwiftUI re-proposes, and with a transcript column that just changed width the
-/// cycle never settled: main thread at 100 %, window gone (seen in the installed app,
-/// details pane opening over long report lines). Keeping the
-/// preferred width equal to the alignment width makes intrinsic and measured
-/// sizes agree; the write is changed-only so an unchanged frame writes nothing.
+/// A wrapping label whose intrinsic size follows the width SwiftUI supplies. Without a
+/// preferred maximum width, NSTextField uses the widest unbreakable line and previous wrapping,
+/// which can trigger repeated PlatformViewHost invalidation. Keep preferred width equal to
+/// alignment width; write only when changed.
 final class StableWrappingLabel: NSTextField {
     private var invalidations = 0
     /// Heights this label has already laid its text out for, by snapped width.
@@ -471,19 +448,12 @@ final class StableWrappingLabel: NSTextField {
     /// hashes and never checks the declaration is still true.
     var isContentDeclared: Bool { declaration != nil }
 
-    /// Nil until a row has declared this label's content, and nil again the
-    /// moment the label can see that the declaration is no longer true. Nil
-    /// means the shared stores are neither read nor written, which costs a text
-    /// layout and can never hand another row a wrong height.
-    ///
-    /// The declaration is checked here rather than dropped on
-    /// `invalidateIntrinsicContentSize`, because AppKit invalidates a label for
-    /// reasons that change nothing — being inserted into a window is enough —
-    /// and dropping it there turned the shared stores off for the first
-    /// measurement of every row that scrolled in, which is the whole cost this
-    /// cache exists to remove. What the non-settling relayout actually does is
-    /// write a font through the cell, and that is caught exactly below rather
-    /// than inferred from an invalidation whose cause is unknown.
+    /// Nil until the row declares this label's content, and again when that declaration no
+    /// longer matches. Nil disables shared-cache access so stale dimensions cannot be borrowed.
+    /// Check the declaration directly rather than clearing it on every intrinsic-size
+    /// invalidation. AppKit also invalidates for harmless events such as insertion into a
+    /// window. Detect actual cell-level font changes below instead of guessing an
+    /// invalidation's cause.
     var contentDigest: TranscriptTextDigest? {
         guard let declaration else { return nil }
         // The cell's font is what wraps a plain message, so a write to it is
@@ -558,11 +528,9 @@ final class StableWrappingLabel: NSTextField {
         measuredHeights[width] = height
     }
 
-    /// Everything that can change a measured height ends here: the text, the
-    /// attributed text and the font written below, a backing-scale or
-    /// appearance change, and AppKit's own invalidation, which is the path a
-    /// cell-level font write takes and therefore the one that catches the
-    /// non-settling relayout the property overrides cannot see.
+    /// All height-affecting changes invalidate here: plain or attributed text, font, backing
+    /// scale, appearance, and AppKit's own invalidation. The last path catches cell-level font
+    /// writes that property overrides cannot see.
     private func discardMeasurements() {
         if !measuredHeights.isEmpty { measuredHeights.removeAll(keepingCapacity: true) }
         if !appKitIntrinsicSizes.isEmpty { appKitIntrinsicSizes.removeAll(keepingCapacity: true) }

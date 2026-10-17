@@ -212,12 +212,11 @@ public actor TeammateProfileService: TeammateProfileEditing {
             role: draft.role,
             detailedInstructions: .some(draft.detailedInstructions)
         )
-        // The person has saved the words, so they are theirs: a hirer that wrote
-        // them is no longer named as their author. A save that changes
-        // no word — picking a model, an effort or a notification choice, the
-        // fields the editor shows first while the role and the instructions sit
-        // inside Advanced, collapsed — leaves the words as the hirer wrote them,
-        // and its author line with them.
+        // The person has saved the words, so they are theirs: a hirer that wrote them is no
+        // longer named as their author. A save that changes no word — picking a model, an
+        // effort or a notification choice, the fields the editor shows first while the role and
+        // the instructions sit inside Advanced, collapsed — leaves the words as the hirer wrote
+        // them, and its author line with them.
         if teammate.profile.displayName != asItWas.displayName || teammate.profile.title != asItWas.title
             || teammate.profile.role != asItWas.role
             || teammate.profile.detailedInstructions != asItWas.detailedInstructions {

@@ -76,6 +76,7 @@ public enum ClaudeConnectionCommandBuilder {
             "CLAUDE_CONFIG_DIR": target.profileURL.path,
             "NETRC": "/dev/null",
             "DISABLE_AUTOUPDATER": "1",
+            "DISABLE_UPDATES": "1",
             "DISABLE_TELEMETRY": "1",
             "DISABLE_ERROR_REPORTING": "1",
             "DISABLE_BUG_COMMAND": "1",

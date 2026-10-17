@@ -922,7 +922,7 @@ public final class ChatMessageModel: ObservableObject, Identifiable {
 
     /// Replaces exactly one stable part in this row while preserving both the
     /// message model and the part's stream identity/ordinal. This is the only
-    /// mutation cards need when an immutable service snapshot changes.
+    /// mutation S2B cards need when an immutable service snapshot changes.
     @discardableResult
     public func replacePart(
         id partID: UUID,
@@ -1041,6 +1041,7 @@ public struct ConversationMessagePageSnapshot: Equatable, Sendable {
         self.hasEarlierMessages = hasEarlierMessages
     }
 }
+
 
 /// Which bot is working inside a conversation right now.
 public struct ConversationWorkingAvatar: Equatable, Sendable {
@@ -1296,11 +1297,10 @@ public final class ConversationModel: ObservableObject {
         historyRequestGeneration += 1
     }
     public typealias Submission = @Sendable (UUID, UUID, String) async -> Void
-    /// What the workspace does before a message leaves the composer. It
-    /// returns nil when the message may go, or the sentence the person reads
-    /// when it may not (a refused send used to return with no word).
-    /// `keepsAttachments` is the text-only send: the draft's files stay where they are and nothing is frozen into the
-    /// message.
+    /// What the workspace does before a message leaves the composer. It returns nil when the
+    /// message may go, or the sentence the person reads when it may not. `keepsAttachments` is
+    /// a text-only send: the draft's files stay where they are and nothing is frozen
+    /// into the message.
     public typealias BeforeSubmission = @MainActor (_ messageID: UUID, _ conversationID: UUID, _ rawText: String,
                                                    _ keepsAttachments: Bool) -> String?
     public typealias LatestPageLoader = @MainActor () async -> Void
@@ -1342,6 +1342,7 @@ public final class ConversationModel: ObservableObject {
     @Published public private(set) var attachmentsAvailable = true
     @Published public private(set) var hasAttachmentContent = false
     @Published public private(set) var textReplyPhase: ClaudeTextReplyPhase?
+    @Published public private(set) var modelMismatchNotice: String?
     /// A work turn's card waiting for the user, shown above the composer.
     @Published public private(set) var textReplyApproval: ClaudeTextApproval?
     /// The bot's question waiting for the user, shown above the composer.
@@ -1356,8 +1357,8 @@ public final class ConversationModel: ObservableObject {
     /// A worker runs in this chat, or its result waits: Stop beside the lines
     /// ends them.
     @Published public private(set) var canStopBackgroundWorkers = false
-    /// What Control this Mac last saw in the open turn, decoded once (the
-    /// screen preview). Memory only; nil when nothing was seen or it did not decode.
+    /// The latest Control this Mac screen preview, decoded once in memory; nil when absent or
+    /// invalid.
     @Published public private(set) var textReplyScreenPicture: NSImage?
     private var textReplyScreenPictureData: Data?
     /// Why the last Send did nothing, in one sentence; cleared by the next
@@ -1432,6 +1433,7 @@ public final class ConversationModel: ObservableObject {
     }
 
     public func setTextReplyPhase(_ phase: ClaudeTextReplyPhase?) { textReplyPhase = phase }
+    public func setModelMismatchNotice(_ notice: String?) { modelMismatchNotice = notice }
     public func setTextReplyApproval(_ approval: ClaudeTextApproval?) {
         if textReplyApproval != approval { textReplyApproval = approval }
     }
@@ -1653,8 +1655,8 @@ public final class ConversationModel: ObservableObject {
         submitCurrentText(now: now, messageID: messageID, locally: false)
     }
 
-    /// Sends the text and leaves the draft's files exactly where they are.
-    /// Nothing from the draft is frozen into the message; the chips stay.
+    /// Sends the text and leaves the draft's files exactly where they are. Nothing from the
+    /// draft is frozen into the message; the chips stay.
     public func submitTextKeepingAttachments(now: Date = Date(), messageID: UUID = UUID()) {
         guard canSendTextOnly else { return }
         submitCurrentText(now: now, messageID: messageID, locally: false, keepsAttachments: true)
@@ -1663,6 +1665,7 @@ public final class ConversationModel: ObservableObject {
     public static let attachmentBusyRefusal = "The file is still being added. Try again in a moment."
 
     private func submitCurrentText(now: Date = Date(), messageID: UUID = UUID(), locally: Bool, keepsAttachments: Bool = false) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard !isShuttingDown else { return }
         lastSubmissionRefusal = nil
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)

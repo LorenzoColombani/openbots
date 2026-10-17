@@ -38,6 +38,7 @@ public actor NativeAgenticJobPreparation: AgenticJobPreparing {
     private let root: @Sendable () async -> VerifiedOwnedRoot?
     private let status: any ClaudeStatusChecking
     private let policy: any ClaudeTextPolicyInspecting
+    private let installationInspector: any ClaudeInstallationInspecting
     private var workspaces: [OpenBotsDomain.RunID: NativeAgenticJobWorkspace] = [:]
     private var eligibility: [OpenBotsDomain.RunID: Eligibility] = [:]
     private var workerDirectories: [OpenBotsDomain.RunID: URL] = [:]
@@ -45,8 +46,10 @@ public actor NativeAgenticJobPreparation: AgenticJobPreparing {
     public init(layout: PreviewStorageLayout,
                 applicationSupportRoot: @escaping @Sendable () async -> VerifiedOwnedRoot?,
                 status: any ClaudeStatusChecking = NativeClaudeStatusChecker(),
-                policy: any ClaudeTextPolicyInspecting = NativeClaudeTextPolicyInspector()) {
+                policy: any ClaudeTextPolicyInspecting = NativeClaudeTextPolicyInspector(),
+                installationInspector: (any ClaudeInstallationInspecting)? = nil) {
         self.layout = layout; root = applicationSupportRoot; self.status = status; self.policy = policy
+        self.installationInspector = installationInspector ?? ClaudeInstallationInspector(homeDirectory: layout.homeDirectory)
     }
 
     public nonisolated static func folder(runID: OpenBotsDomain.RunID) -> URL {
@@ -57,7 +60,8 @@ public actor NativeAgenticJobPreparation: AgenticJobPreparing {
                         webCapabilities: Set<AgenticWebCapability>) async throws -> FirstToolJobLaunchPlan {
         try Task.checkCancellation()
         guard let support = await root() else { throw NativeAgenticJobFailure.setupRequired }
-        let admission = try await FirstToolJobAdmission(layout: layout, applicationSupportRoot: support).inspect()
+        let admission = try await FirstToolJobAdmission(layout: layout, applicationSupportRoot: support,
+            installationInspector: installationInspector).inspect()
         guard policy.inspect(profileURL: layout.claudeCLIProfileRoot) == .admitted else {
             throw NativeAgenticJobFailure.policyNotAdmitted
         }
@@ -110,7 +114,8 @@ public actor NativeAgenticJobPreparation: AgenticJobPreparing {
         // Every individual process gets another current static identity check.
         workspaces[request.runID] = workspace
         published = true
-        let current = try await FirstToolJobAdmission(layout: layout, applicationSupportRoot: support).inspect()
+        let current = try await FirstToolJobAdmission(layout: layout, applicationSupportRoot: support,
+            installationInspector: installationInspector).inspect()
         guard current.installation == admission.installation, current.profile == admission.profile else {
             throw NativeAgenticJobFailure.changedInstallation
         }

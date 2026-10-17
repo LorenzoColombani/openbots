@@ -3,17 +3,16 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsRuntime
 
+
 // The screen preview: what Control this Mac last saw, handed up from the
-// stream. Recorded on Claude Code 2.1.280 with
-// Peekaboo 4.0.0 run the way the app runs it: `see` finishes with one user
+// stream. With Claude Code 2.1.280 and Peekaboo 4.0.0, `see` finishes with one user
 // frame whose tool result holds its text and a PNG, and `tool_use_result`
 // holds the same two again beside a `_meta`; `image` finishes with text only,
-// "Captured 1 image(s)", and no picture at all. The pixels here are a stand-in:
-// the recording was of the user's screen and stays out of the repository.
+// "Captured 1 image(s)", and no picture at all. The fixture pixels are synthetic.
 
 private let macServer = "openbots_" + String(repeating: "5ee1", count: 16)
 private let browserServer = "openbots_" + String(repeating: "b0b0", count: 16)
-/// A 1×1 PNG, standing in for the recorded screenshot.
+/// A synthetic 1×1 PNG used as a screenshot fixture.
 private let stubPNG = Data(base64Encoded:
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==")!
 

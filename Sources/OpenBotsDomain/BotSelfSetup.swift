@@ -1,5 +1,6 @@
 import Foundation
 
+
 // A new bot sets itself up. The person clicks plus, the
 // bot asks what it is for, and from the answer it writes its own profile with
 // the app's `set_up_self` tool: the hire tool's fields, read by the hire's own
@@ -37,7 +38,7 @@ public enum BotSetupSwitch: String, CaseIterable, Codable, Sendable {
 /// Why one setup call was refused. The model reads it as the tool's result.
 public enum BotSelfSetupRefusal: Error, Equatable, Sendable {
     /// This bot is not waiting to be set up: it already was, or the turn was
-    /// not its direct chat.
+    /// not the user's direct chat.
     case notPending
     /// The call did not come from the bot's own reply.
     case notTheBot
@@ -114,6 +115,7 @@ public struct BotSelfSetupRequest: Equatable, Sendable {
         }
     }
 
+
     /// The switch card's title and words: what the bot wants to
     /// become, what it asks for, and what each button does. The name and the
     /// purpose are the model's words, so the purpose is quoted.
@@ -159,7 +161,7 @@ public struct BotSelfSetup: Equatable, Sendable {
     public let previousName: String
     public let name: String
     public let purpose: String
-    /// False when the person had already changed the profile: their words stay.
+    /// False when the person had already changed the profile: the user's words stay.
     public let wroteProfile: Bool
     /// The switches turned on for this bot, in the list's order.
     public let turnedOn: [BotSetupSwitch]
@@ -203,6 +205,7 @@ public struct BotSelfSetup: Equatable, Sendable {
         return line
     }
 }
+
 
 /// The line the person's own edit of a bot's words leaves in its chat: a later
 /// change to a profile is said in the chat. Nil when no word changed:

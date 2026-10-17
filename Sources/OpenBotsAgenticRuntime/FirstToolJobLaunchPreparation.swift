@@ -1,6 +1,7 @@
 import OpenBotsExecutionRules
 import Foundation
 import OpenBotsContent
+import enum OpenBotsDomain.ClaudeModelPolicy
 import OpenBotsSecurity
 
 public enum FirstToolJobProcessRole: String, CaseIterable, Sendable {
@@ -89,7 +90,7 @@ public enum FirstToolJobLaunchPreparation {
                                 limits: FirstToolJobLaunchLimits = .firstJob,
                                 webCapabilities: Set<AgenticWebCapability> = []) throws -> FirstToolJobLaunchPlan {
         try validate(paths: paths, admission: admission)
-        guard ["sonnet", "haiku", "opus"].contains(model) else { throw FirstToolJobLaunchPreparationError.invalidModel }
+        guard ClaudeModelPolicy.current.admittedModels.contains(model) else { throw FirstToolJobLaunchPreparationError.invalidModel }
         guard (1...8).contains(limits.maximumRequests), (1...16).contains(limits.maximumTurnsPerRequest),
               limits.maximumRequests * limits.maximumTurnsPerRequest <= 64,
               limits.maximumWallTimeSeconds.isFinite, (1...300).contains(limits.maximumWallTimeSeconds),
@@ -143,10 +144,20 @@ public enum FirstToolJobLaunchPreparation {
         let expectedRequested = paths.homeDirectory.appending(path: ".local/bin/claude").path
         let versions = paths.homeDirectory.appending(path: ".local/share/claude/versions")
         let filename = installation.versionFilename
-        guard exact(installation.requestedPath, expectedRequested), !filename.isEmpty, filename.utf8.count <= 255,
+        let admittedLocation: Bool
+        if let retained = installation.verifiedRetainedProvenance {
+            admittedLocation = retained.matches(executableURL: paths.claudeExecutable,
+                sha256: installation.sha256, homeDirectory: paths.homeDirectory)
+                && retained.installationID == admission.profile.installationID
+                && retained.rootID == admission.profile.rootID
+                && exact(installation.requestedPath, installation.resolvedPath)
+        } else {
+            admittedLocation = exact(installation.requestedPath, expectedRequested)
+                && exact(installation.resolvedPath, versions.appending(path: filename).path)
+        }
+        guard admittedLocation, !filename.isEmpty, filename.utf8.count <= 255,
               filename != ".", filename != "..", !filename.contains("/"),
               exact(installation.resolvedPath, paths.claudeExecutable.path),
-              exact(installation.resolvedPath, versions.appending(path: filename).path),
               hex(installation.sha256, count: 64),
               installation.signature.identifier == ClaudeInstallationInspector.expectedIdentifier,
               installation.signature.teamIdentifier == ClaudeInstallationInspector.expectedTeamIdentifier,
@@ -206,10 +217,11 @@ public enum FirstToolJobLaunchPreparation {
             "filesystem": filesystem, "network": network, "credentials": credentials
         ]
         // Claude Code 2.1.281 announces its built-in AGENTS.md plugin unless
-        // this switches it off, and the job session refuses any plugin.
+        // this switches it off, 2.1.287 its plugin-authoring one, and the job
+        // session refuses any plugin.
         let object: [String: Any] = [
             "disableAutoMode": "disable",
-            "enabledPlugins": ["agents-md@builtin": false],
+            "enabledPlugins": ["agents-md@builtin": false, "cc-plugin-plugin-authoring@builtin": false, "telemetry@builtin": false],
             "permissions": permissions,
             "sandbox": sandbox
         ]
@@ -221,7 +233,7 @@ public enum FirstToolJobLaunchPreparation {
         return [
             "HOME": paths.homeDirectory.path, "LANG": "en_US.UTF-8", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "TMPDIR": temporary, "CLAUDE_CODE_TMPDIR": temporary, "CLAUDE_CONFIG_DIR": paths.configurationDirectory.path,
-            "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1", "DISABLE_AUTOUPDATER": "1", "DISABLE_TELEMETRY": "1",
+            "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1", "DISABLE_AUTOUPDATER": "1", "DISABLE_UPDATES": "1", "DISABLE_TELEMETRY": "1",
             "DISABLE_ERROR_REPORTING": "1", "DISABLE_BUG_COMMAND": "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
             "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
             "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "CLAUDE_CODE_DISABLE_CRON": "1", "CLAUDE_CODE_SKIP_PROMPT_HISTORY": "1",

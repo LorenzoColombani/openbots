@@ -13,6 +13,7 @@ public struct TeammateWorkerSubmission: Equatable, Sendable {
     /// The call came from a turn that answers a worker's result.
     public let answersWorkerResult: Bool
 
+
     /// The workers and fetchers switches as they were when the reply began.
     /// They hold for its calls: switching either off takes effect once the
     /// bot has finished its turn, as with hiring. Nil reads them at the call. A worker still starts only after
@@ -40,6 +41,7 @@ public protocol TeammateWorking: Sendable {
     /// Runs one started worker to its end. Cancelling the calling task stops it.
     func run(_ worker: TeammateWorker) async -> TeammateWorkerResult
 }
+
 
 /// Throwaway workers. The call is admitted here, by
 /// the switches read at the call; the worker is one blank reading turn of the
@@ -156,8 +158,10 @@ public actor TeammateWorkerService: TeammateWorking {
         }
         guard !folders.isEmpty || !web.isEmpty else { return .failed("it had no folder to read") }
         let runID = uuidGenerator.next()
+        let modelCatalog = ClaudeModelPolicy.current
         let selection = ClaudeExecutionSelection(model: holder.requestedClaudeModel,
-            effort: holder.requestedClaudeEffort, contextWindow: holder.requestedClaudeContextWindow)
+            effort: holder.requestedClaudeEffort, contextWindow: holder.requestedClaudeContextWindow,
+            resolvedModel: modelCatalog.model(holder.requestedClaudeModel)?.id)
         guard case .ready(let target) = await preparer.prepareTextLaunch(runID: runID, selection: selection) else {
             return .failed("OpenBots could not start Claude for it")
         }
@@ -171,7 +175,8 @@ public actor TeammateWorkerService: TeammateWorking {
                 model: holder.requestedClaudeModel,
                 effort: holder.requestedClaudeEffort == "default" ? nil : holder.requestedClaudeEffort,
                 contextWindow: holder.requestedClaudeContextWindow, allowedTools: web,
-                readAccess: folders.isEmpty ? nil : try ClaudeTextReadAccess(folderURLs: folders, protectedPaths: protectedPaths))
+                readAccess: folders.isEmpty ? nil : try ClaudeTextReadAccess(folderURLs: folders, protectedPaths: protectedPaths),
+                modelCatalog: modelCatalog)
         } catch {
             return .failed("its folders could not be given to it")
         }
@@ -248,6 +253,7 @@ public actor TeammateWorkerService: TeammateWorking {
         case .timedOut: "it ran out of time"
         case .turnLimitReached: "it needed more steps than a worker is given"
         case .declined: "Claude declined the task"
+        case .authenticationRequired: "Claude needs you to sign in again"
         case .launchRejected, .launchFailed, .processFailed, .providerFailed, .sessionNotFound:
             "Claude could not run it"
         case .unsafeInitialization, .invalidStream, .inputRejected, .outputLimitExceeded:
@@ -255,9 +261,8 @@ public actor TeammateWorkerService: TeammateWorking {
         }
     }
 
-    /// The worker's whole standing prompt: the old app's worker CLAUDE.md,
-    /// re-expressed, with the fetcher's web paragraph (the condition on the web
-    /// exception) only when it has the web.
+    /// The worker's standing prompt includes the fetcher's web paragraph only when web access
+    /// is granted.
     static func systemPrompt(kind: TeammateWorkerKind) -> String {
         var prompt = """
         # Background worker

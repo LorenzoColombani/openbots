@@ -3,21 +3,12 @@ import Darwin
 import Foundation
 import OpenBotsDomain
 
-/// The connectors the app itself pins, listed beside the ones Claude Code has
-/// configured on this Mac.
-///
-/// Why a second source at all: the connector catalog contains rows no
-/// plugin provides — Apple Mail and its sender, Messages — and a row imported
-/// from a plugin may carry no environment of its own by design, which the app's
-/// own servers need. So these entries are written here, in the app, pinned to
-/// an exact version, and they say plainly what they drive and what they need.
-///
-/// Like the plugin catalog, this reads and never runs: it checks whether the
-/// program is on the disk and whether the app it drives is installed, and turns
-/// that into the row's badge. It never launches a server, a package manager or
-/// an Apple Event, so opening Settings costs nothing and asks nobody for
-/// permission. Whether an Apple Event will actually be *allowed* cannot be
-/// known without sending one, so that answer belongs to the turn, not here.
+/// App-owned pinned connectors appear beside imported Claude Code connectors. These entries
+/// cover services absent from plugins and provide environment values that imported definitions
+/// cannot supply.
+/// Catalog reads inspect installed programs and bundled resources without launching servers,
+/// package managers or Apple Events. Availability badges do not claim macOS permission; that is
+/// determined when the turn runs.
 public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
     /// The pinned reader for Apple Mail. With `--read-only` the package
     /// registers only its reading tools; no send or delete tool exists to be
@@ -66,6 +57,8 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
     private let messagesApplicationCandidateURLs: [URL]
     private let calendarHelperCandidateURLs: [URL]
     private let googleHelperCandidateURLs: [URL]
+    /// The effective ID from `GoogleWorkspaceConfigurationService`, passed by
+    /// every caller: the bundle's own value would bypass the saved one.
     private let googleClientID: String?
     private let tools: InstalledToolResolution
 
@@ -75,7 +68,7 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
                 messagesApplicationCandidateURLs: [URL] = AppOwnedConnectorCatalog.messagesApplicationURLs,
                 calendarHelperCandidateURLs: [URL] = AppOwnedConnectorCatalog.appleCalendarHelperURLs,
                 googleHelperCandidateURLs: [URL] = GoogleWorkspaceConnectorPreparation.helperURLs,
-                googleClientID: String? = GoogleWorkspaceClientConfiguration.clientID(),
+                googleClientID: String?,
                 ownerUID: uid_t = getuid()) {
         self.homeDirectoryURL = homeDirectoryURL
         self.mailApplicationCandidateURLs = mailApplicationCandidateURLs
@@ -102,6 +95,7 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
         ServicesResourceBundle.url(forResource: "apple-calendar", withExtension: "js")
     }
 
+
     /// The identity id of the app's own Messages row, the one row whose bots
     /// read only the chats the user chose.
     public static let messagesConnectorID = "openbots:apple-messages:apple-messages"
@@ -127,26 +121,12 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
     /// The name of the binary that does the actual reading.
     public static let appleCalendarHelperName = "openbots-calendar-read"
 
-    /// Where that binary is, and it is the one app-owned connector that needs a
-    /// program of its own rather than a script.
-    ///
-    /// Why a binary at all is argued in `apple-calendar.js`: Apple Events
-    /// cannot expand a recurring series, so no JavaScript reader can be
-    /// correct. EventKit can, and EventKit is not reachable from node.
-    ///
-    /// In the installed app it sits in `Contents/MacOS`, beside the app's own
-    /// executable — `project.yml` copies it there with `destination:
-    /// executables` — so it is inside the bundle and signed with the app, and
-    /// macOS attributes its calendar access to the app rather than to the
-    /// helper. Proved on a real Mac: one prompt, answered once, covered it. A
-    /// helper signed separately would be asked about separately, which on the
-    /// user's screen looks exactly like a prompt they never answered.
-    ///
-    /// `Contents/Helpers` is looked at first anyway. Nothing puts it there
-    /// today; it is the conventional location and costs one `stat`. Under
-    /// `swift test` there is no bundle at all, so the last candidate is whatever
-    /// directory the running program sits in, which is where SwiftPM puts an
-    /// executable product.
+    /// Locate the app-owned Calendar helper. EventKit expands recurring series correctly and
+    /// cannot be called directly from node.
+    /// The installed helper is signed with the app and copied by `project.yml` into
+    /// `Contents/MacOS` so macOS attributes its Calendar access to the app. Check the
+    /// conventional `Contents/Helpers` location first. SwiftPM tests have no app bundle, so
+    /// also look beside the running executable.
     public static var appleCalendarHelperURLs: [URL] {
         var candidates: [URL] = []
         if let helpers = Bundle.main.builtInPlugInsURL?
@@ -211,10 +191,9 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
             identityBinding: state.identityBinding, holdsPriorIdentity: state.holdsPriorIdentity)
     }
 
-    /// Sending from the OpenBots Gmail account, in its own row and grant:
-    /// reading and sending are different powers, as they are for Apple
-    /// Mail. It uses the permission the account already holds, so turning it on
-    /// asks for no new sign-in.
+    /// Sending from the OpenBots Gmail account, in its own row and grant: reading and sending
+    /// are different powers, as they are for Apple Mail. It uses the permission the account
+    /// already holds, so turning it on asks for no new sign-in.
     private func googleGmailSend(_ state: GoogleCatalogState) -> ConfiguredConnector {
         row(connector: "google-gmail-send", server: "google-gmail-send",
             title: "Gmail — send (OpenBots account)",
@@ -312,19 +291,10 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
         }
     }
 
-    /// The user's address book, read and nothing else.
-    ///
-    /// It comes before the rest of the catalog: without it the mail and
-    /// Messages rows guess at addresses the user's Mac already holds, or
-    /// interrupt the user for one they saved years ago.
-    ///
-    /// The row cannot say whether macOS will *allow* the lookup — Automation is
-    /// asked for per target app and answered by the user at the first Apple event,
-    /// and a Mac that already lets this app drive Mail has still never been
-    /// asked about Contacts. So the badge answers only what can be known
-    /// without sending one: Contacts is on the disk, and the reader is in the
-    /// bundle. The permission itself is the turn's business, and the reader
-    /// says so in plain words when it is refused.
+    /// Read-only Contacts lookup supplies saved addresses to mail and Messages.
+    /// Availability proves only that Contacts is installed and its reader is bundled.
+    /// Automation permission is separate for each target app and is requested on its first
+    /// Apple event. The reader reports permission refusals during the turn.
     private func appleContactsReadOnly() -> ConfiguredConnector {
         let availability: ConnectorAvailability
         if !contactsApplicationCandidateURLs.contains(where: { FileManager().fileExists(atPath: $0.path) }) {
@@ -379,6 +349,7 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
                                  command: AppleCalendarConnectorPreparation.command, arguments: []))
     }
 
+
     /// Texts from the user's own number, and their conversations read back.
     ///
     /// Ported from the old app's own server. One row, because the old app had one: the reads
@@ -413,6 +384,7 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
                                  command: AppleMessagesConnectorPreparation.command, arguments: []))
     }
 
+
     /// Control this Mac: the old app's Peekaboo connector, carried over as a
     /// trial. The pinned package is part of the
     /// row's identity, so a different Peekaboo version revokes every grant.
@@ -437,10 +409,10 @@ public struct AppOwnedConnectorCatalog: ConnectorCatalogReading {
 
     /// Sending as the user, in its own row and its own grant.
     ///
-    /// Separate from reading on purpose: reading the user's mailbox and sending as them
+    /// Separate from reading on purpose: reading their mailbox and sending as them
     /// are different powers, and the old app kept them apart for the same
     /// reason. This one is the app's own node server, so its answers are the
-    /// app's own words and it is not fenced; every send is shown to the user as a
+    /// app's own words and it is not fenced; every send is shown to them as a
     /// card naming the account, the recipient and the subject.
     private func appleMailSend() -> ConfiguredConnector {
         let availability: ConnectorAvailability

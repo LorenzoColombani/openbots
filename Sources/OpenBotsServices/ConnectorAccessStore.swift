@@ -8,14 +8,9 @@ public struct ConnectorAccessReading: Equatable, Sendable {
     public let selectedIDs: Set<String>
     public let revision: Int64
     public let isAvailable: Bool
-    /// Connectors that were allowed once and are off now because the row itself
-    /// changed underneath the grant — a plugin naming a new version is the
-    /// usual way. Turning them off is right and deliberate; saying nothing is
-    /// not. A browser connector went dark this way when Claude Code moved its
-    /// Chrome DevTools plugin from 1.8.0 to 1.9.0, and the app simply looked
-    /// broken. The state is durable rather than an event: the stale
-    /// grant keeps the identity it was given, so the mismatch can be seen at
-    /// any launch, not only the one where it happened.
+    /// Previously allowed connectors disabled because their catalog identity changed, commonly
+    /// after plugin updates. Retain this durably so each launch can explain stale grants and
+    /// let the user resolve them.
     public let changedSinceAllowed: Set<String>
     /// Connectors the user has switched off for the whole app. A bot's own grant is
     /// left exactly as it was — killing a connector app-wide is not a decision
@@ -57,6 +52,7 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
+
     /// How long a killed id must be gone from the catalog, without a break,
     /// before its kill is let go.
     public static let killPruneInterval: TimeInterval = 90 * 86_400
@@ -74,6 +70,8 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
     /// A disappeared or changed definition turns its old grants off durably.
     /// A failed read/write leaves access unavailable instead of reviving grants.
     public func restore() async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+        defer { withExtendedLifetime(updateOperation) {} }
         await beginChange()
         defer { endChange() }
         do {
@@ -103,6 +101,8 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
     }
 
     public func refreshCatalog() async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+        defer { withExtendedLifetime(updateOperation) {} }
         await beginChange(revokes: false)
         defer { endChange() }
         guard available else { throw ConnectorAccessError.unavailable }
@@ -162,12 +162,12 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
                 : .init(guids: []))
     }
 
-    /// The app-wide switch for one connector, a kill switch. Off here and no bot may launch it, whatever its own
-    /// switch says; on again and every bot gets back exactly the grant it had.
-    ///
-    /// Keyed by identity id rather than identity, so a plugin naming a new
-    /// version cannot resurrect something the user killed.
+    /// The app-wide connector switch overrides each bot's grant without deleting it.
+    /// Re-enabling restores those grants. Key by identity id so a plugin update cannot
+    /// re-enable a disabled connector.
     public func setConnectorAppEnabled(_ enabled: Bool, id: String) async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+        defer { withExtendedLifetime(updateOperation) {} }
         await beginChange()
         defer { endChange() }
         try Task.checkCancellation()
@@ -184,6 +184,8 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
     }
 
     public func setAppEnabled(_ enabled: Bool) async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+        defer { withExtendedLifetime(updateOperation) {} }
         await beginChange()
         defer { endChange() }
         try Task.checkCancellation()
@@ -195,6 +197,8 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
     }
 
     public func setBotEnabled(_ enabled: Bool, identity: ConnectorIdentity, teammateID: TeammateID) async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+        defer { withExtendedLifetime(updateOperation) {} }
         await beginChange()
         defer { endChange() }
         try Task.checkCancellation()
@@ -202,8 +206,8 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
         guard state.catalog.contains(identity) else { throw ConnectorAccessError.definitionChanged }
         let index = state.grants.firstIndex { $0.teammateID == teammateID && $0.identity.id == identity.id }
         // A grant still carrying "switched off by a change" is not settled even
-        // when the switch already reads the way the user just set it: the caption
-        // is still on the row, and the user's hand on the switch is what answers it.
+        // when the switch already reads the way the user just set it: the caption is
+        // still on the row, and their hand on the switch is what answers it.
         if let index, state.grants[index].identity == identity, state.grants[index].enabled == enabled,
            !state.grants[index].revokedByChange { return }
         if index == nil, !enabled { return }
@@ -214,11 +218,11 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
         try await persist(next)
     }
 
-    /// A deleted bot's grants go with it, and so do the
-    /// chats it could read in Messages. Through this actor, never by editing
-    /// the record under it: the record's revision must stay the one held here,
-    /// or the next switch fails and takes access dark.
+    /// Remove a deleted bot's grants and Messages scope through this actor. Editing its record
+    /// elsewhere would desynchronize the held revision and break subsequent switches.
     public func forgetGrants(teammateID: TeammateID) async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+        defer { withExtendedLifetime(updateOperation) {} }
         await beginChange(revokes: false)
         defer { endChange() }
         guard available else { throw ConnectorAccessError.unavailable }
@@ -247,6 +251,8 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
     /// ends a turn whose chats were taken away (`wasWithdrawn`), and a chat
     /// added waits for the next turn.
     public func setMessagesChats(_ guids: [String], teammateID: TeammateID) async throws {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+        defer { withExtendedLifetime(updateOperation) {} }
         let chats = AppleMessagesChatScope(guids: guids)
         guard chats.isValid, guids.allSatisfy(AppleMessagesChatScope.isChoosable) else {
             throw ConnectorAccessError.invalidState
@@ -342,6 +348,7 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
         }
     }
 
+
     /// Every write into the record passes here, so every writer is checked by
     /// the store the same way. The launch write that carried only the one-time
     /// fill-in used to reach the repository unchecked;
@@ -383,8 +390,8 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
             next.catalog = identities
             next.grants = prior.grants.map {
                 // Only a grant this reconciliation takes away carries the reason.
-                // One already off keeps whatever it had, so a switch the user
-                // turned off themselves is never blamed on a version bump, and one revoked
+                // One already off keeps whatever it had, so a switch the user turned
+                // off themselves is never blamed on a version bump, and one revoked
                 // by an earlier change keeps saying so if that version comes back.
                 let revoked = $0.enabled && !identities.contains($0.identity)
                 return ConnectorBotGrant(teammateID: $0.teammateID, identity: $0.identity,
@@ -403,6 +410,7 @@ public actor ConnectorAccessStore: ConnectorGrantForgetting {
         try next.validate()
         return next
     }
+
 
     /// A kill outlives the catalog it was made in — that is what stops a
     /// version bump handing back something the user refused — but not forever: once

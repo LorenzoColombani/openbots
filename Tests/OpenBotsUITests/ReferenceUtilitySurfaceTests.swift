@@ -9,8 +9,8 @@ import XCTest
 /// Actual utility views in never-ordered fixture windows. These tests do not
 /// inspect the installed app, call accessibility APIs or use a real setup
 /// inspector; the one pixel read is offline Vision over this fixture's own
-/// render, as NormalAppPresentationTests does. The captured images need a
-/// person's look; passing layout checks is not visual acceptance.
+/// render, as NormalAppPresentationTests does. Visual review of the generated
+/// images remains a separate check.
 @MainActor
 final class ReferenceUtilitySurfaceTests: XCTestCase {
     /// A row that says a feature isn't available is removed
@@ -54,11 +54,9 @@ final class ReferenceUtilitySurfaceTests: XCTestCase {
         let pixels = try recognisedText(in: host.content, filename: "workspace-no-dead-rows-1080x720.png")
         XCTAssertTrue(pixelsContain(pixels, "OpenBots Next"), "The sidebar footer must render: \(pixels)")
         XCTAssertTrue(pixelsContain(pixels, draft), "The composer draft must render: \(pixels)")
-        // "Preview" stays out of the displayed name, and the account button
-        // is where the name is displayed. In this 720-point host the button's
-        // second line fell below the bottom edge (seen in the red run's
-        // render), so the pixels are a guard here and the source sweep below
-        // is the proof.
+        // The account button displays the app name without "Preview". Its
+        // second line may fall below this 720-point host's edge, so the source
+        // sweep complements the pixel check.
         for dead in ["Plugins", "unavailable", "no account connected", "Preview"] {
             XCTAssertFalse(pixelsContain(pixels, dead), "Rendered pixels still show \(dead): \(pixels)")
         }
@@ -86,11 +84,8 @@ final class ReferenceUtilitySurfaceTests: XCTestCase {
         host.assertNeverPresented()
     }
 
-    /// The sealed sample-folder job runner was retired, and its switches lived
-    /// on: an app-wide
-    /// "Allow sample-folder jobs" in Settings, a per-bot toggle in a control
-    /// nothing has shown since the Access sheet replaced it, and a banner
-    /// under the composer while the switch was on. Three reads: the
+    /// The retired sample-folder job runner must have no remaining settings,
+    /// per-bot toggle or composer banner. Three reads: the
     /// Permissions pane's pixels with a live switch store, the workspace's
     /// pixels with the jobs switch mirrored on for its bot, and the source of
     /// the two files that drew them, because the per-bot control was already
@@ -367,7 +362,7 @@ private final class UtilitySurfaceHost {
         XCTAssertGreaterThan(data.count, 1_000, "An empty bitmap is not render evidence")
         // Contrast ink in the real rendered regions prevents a black image
         // (or a lone divider) being accepted merely because it is a valid PNG.
-        // This does not identify text or replace a person's look at the image.
+        // This does not identify text or replace visual review.
         XCTAssertGreaterThan(brightPixels(in: bitmap, horizontal: 0.025...0.22), 150,
                              "Settings navigation labels must render, not just the sidebar background")
         XCTAssertGreaterThan(brightPixels(in: bitmap, horizontal: 0.29...0.95), 500,
@@ -386,7 +381,7 @@ private final class UtilitySurfaceHost {
     /// Counts "ink" pixels: those clearly brighter than the region's own background. An absolute
     /// 0.55 bar was tuned on macOS 26, where sidebar labels render near-white; on macOS 15 the
     /// same labels in this never-key fixture window render dimmed (min component ≈ 0.38 over a
-    /// 0.10 background — see the ui-evidence-macos-15 CI artifact) and vanished from the count
+    /// 0.10 background) and vanished from the count
     /// although they are plainly visible. Contrast against the region's median keeps the intent
     /// (a black or divider-only image still counts 0) on both systems.
     private func brightPixels(in bitmap: NSBitmapImageRep, horizontal: ClosedRange<Double>) -> Int {

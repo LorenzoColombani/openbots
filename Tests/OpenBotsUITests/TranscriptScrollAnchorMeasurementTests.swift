@@ -5,10 +5,9 @@ import XCTest
 
 /// What `.defaultScrollAnchor(.bottom)` costs a lazy transcript.
 ///
-/// Reported in use: scrolling in a conversation got slow. The transcript
-/// was a `ScrollView` over a `LazyVStack`, and a bottom scroll
-/// anchor had been added to it so that a reader sitting at the end of a conversation
-/// stayed at the end when the details pane narrowed the column. A bottom anchor
+/// A transcript built from a `ScrollView` over a `LazyVStack` can use a bottom
+/// scroll anchor to keep a reader at the end when the details pane narrows
+/// the column. A bottom anchor
 /// needs the scroll view's total content height, and the suspicion is that
 /// needing it defeats the lazy stack: every row measured whenever the transcript
 /// lays out, instead of the two or three the viewport actually shows, and every
@@ -82,8 +81,6 @@ final class TranscriptScrollAnchorMeasurementTests: XCTestCase {
         // The verdict, pinned. `.defaultScrollAnchor(.bottom)` does not defeat
         // the lazy stack: it starts the viewport at the end and estimates the
         // rows above exactly as the plain scroll view estimates the rows below.
-        // Measured: two rows realized and six full text layouts
-        // at open, against four rows and eight layouts without the anchor.
         XCTAssertLessThanOrEqual(
             counted.anchored.open.realizedLabels, Self.rowCount / 4,
             "the bottom anchor now realizes most of the transcript at open: \(counted.anchored.open.realizedLabels) of \(Self.rowCount) rows"
@@ -97,10 +94,9 @@ final class TranscriptScrollAnchorMeasurementTests: XCTestCase {
     /// Where the scroll pass spends its time, and what the shared cache bought.
     ///
     /// A row that leaves the viewport is thrown away by the lazy stack, so its
-    /// label goes with it. When the measurement cache lived on the label,
-    /// scrolling back over rows already read paid the full AppKit text layout
-    /// again: the return sweep cost what the first one cost, 46 text layouts
-    /// then 47. The cache is now shared across labels.
+    /// label goes with it. A cache owned by the label would make scrolling back
+    /// over read rows pay for AppKit layout again. Sharing the cache across
+    /// labels preserves those measurements.
     ///
     /// The guarantee this asserts is exact rather than approximate: **no text is
     /// ever laid out twice at the same width.** A miss is classified at the
@@ -171,17 +167,11 @@ final class TranscriptScrollAnchorMeasurementTests: XCTestCase {
         }
     }
 
-    /// The shipped view, `OpenBotsRootView`, with its transcript and its anchor
-    /// over forty rows. This once asserted the opposite of what
-    /// it asserts now: that the transcript realized only a handful of rows at
-    /// open, because it was a `LazyVStack`. That lazy stack is what the installed
-    /// app looped inside (rows placed and un-placed, their
-    /// estimates re-measured, the anchor translated, a prefetch queueing the next
-    /// transaction in the same flush, never returning to the run loop), so the
-    /// transcript is a plain stack now and every loaded row is realized at open.
-    /// This pins that: a lazy stack coming back would fail here before it could
-    /// freeze the app again. The harness above still measures the lazy variant
-    /// on purpose, as the record of what the anchor cost when the stack was lazy.
+    /// The shipped `OpenBotsRootView` realizes all forty loaded rows at open.
+    /// A lazy stack can repeatedly place rows, remeasure estimates and translate
+    /// the anchor within one layout flush without returning to the run loop.
+    /// Pin the plain stack here; the harness above measures the lazy variant
+    /// separately to compare its anchor cost.
     func testShippedTranscriptRealizesEveryLoadedRowAtOpen() throws {
         // Cold, for the same reason `measureVariant` starts cold: the counts
         // below describe what opening a conversation costs, not what it costs
@@ -229,7 +219,7 @@ final class TranscriptScrollAnchorMeasurementTests: XCTestCase {
         // estimate that a scroll or a pane can turn into a placement loop.
         XCTAssertGreaterThanOrEqual(
             counted.open.realizedLabels, Self.rowCount,
-            "the shipped transcript realized only \(counted.open.realizedLabels) of \(Self.rowCount) rows at open; a lazy stack is back in the transcript, and that is what froze the installed app before"
+            "the shipped transcript realized only \(counted.open.realizedLabels) of \(Self.rowCount) rows at open; a lazy stack can cause repeated transcript layout"
         )
         // And it still opens on its latest message. The transcript's own bottom
         // padding (24 pt) may sit below the viewport: opening scrolls the last
@@ -254,10 +244,8 @@ final class TranscriptScrollAnchorMeasurementTests: XCTestCase {
 
     // MARK: - The guarantee the anchor was added for
 
-    /// Seen live: the installed app hung when the details pane opened over a
-    /// conversation whose reader sat at the end. `.defaultScrollAnchor(.bottom)`
-    /// fixed it, and `SelectableTextLayoutRegressionTests` pins that in the real
-    /// root view. This pins the narrower rule the transcript has to keep however
+    /// `SelectableTextLayoutRegressionTests` pins `.defaultScrollAnchor(.bottom)`
+    /// in the real root view. This pins the narrower rule the transcript has to keep however
     /// the tail is followed: a reader at the end of the transcript is still at
     /// the end after the column narrows, with no row appended and no
     /// conversation change to trigger a follow.
@@ -292,8 +280,8 @@ final class TranscriptScrollAnchorMeasurementTests: XCTestCase {
     // MARK: - Measuring one variant
 
     private func measureVariant(anchored: Bool, extraSweeps: Int = 0) throws -> ScrollAnchorVariant {
-        // Every variant reads the same forty rows at the same width, and a
-        // measured height outlives the label that produced it and
+        // Every variant reads the same forty rows at the same width. A measured
+        // height outlives the label that produced it and
         // is shared across the whole process. Without this the second variant
         // would find the first one's answers waiting, report almost no text
         // layout, and pass the comparison below for the wrong reason. Each

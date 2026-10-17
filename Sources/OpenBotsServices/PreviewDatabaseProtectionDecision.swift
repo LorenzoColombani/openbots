@@ -2,8 +2,7 @@ import Foundation
 import OpenBotsPersistence
 import OpenBotsSecurity
 
-/// The explicit product decision for the preview database: ordinary SQLite.
-/// Keeping the selection and immutable receipt together prevents dependency failures from
+/// Keeping the storage selection and immutable receipt together prevents dependency failures from
 /// inventing a different mode at runtime.
 public enum PreviewDatabaseProtectionDecision {
     public static let selection: DatabaseProtectionSelection = .ordinarySQLite

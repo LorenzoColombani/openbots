@@ -1,20 +1,18 @@
 import Foundation
 
-// Bots that hire bots. A bot whose hire switch is on, with the
-// app-wide hire switch on, may ask the app for a new teammate from its own
-// reply. The app creates it; the bot only asks. Everything here is pure: the
-// request as the tool's arguments carry it, the ledger that holds one reply to
-// three calls, the sentences the model and the person read, and the creature a
-// new bot is born with. The old app's rules are kept (HireDirective, HireGate):
-// the hirer writes the seat, long text is clipped rather than refused, and a
-// refusal is reported, never dropped.
+// Bots that hire bots. A bot whose hire switch is on, with the app-wide hire switch on, may ask
+// the app for a new teammate from its own reply. The app creates it; the bot only asks.
+// Everything here is pure: the request as the tool's arguments carry it, the ledger that holds
+// one reply to three calls, the sentences the model and the person read, and the creature a new
+// bot is born with. The hirer writes
+// the seat, long text is clipped rather than refused, and a refusal is reported, never dropped.
 
 /// A bot's seat: the work that is theirs by default, the work they hand to a
 /// named teammate instead, who they work with, and what they bring back rather
 /// than deciding alone. A hirer writes it at hire time; the person edits it in
 /// the profile. A hired bot never writes its own.
 public struct TeammateSeat: Codable, Equatable, Sendable {
-    /// The old app's cap for one seat field (`AgentStore.maxSeatField`).
+    /// Bound for one seat field.
     public static let maximumFieldLength = 600
     public let purview: String?
     public let never: String?
@@ -164,8 +162,7 @@ public enum TeammateHireOutcome: Equatable, Sendable {
 /// once: a repeat gets the first answer and is not counted again, and a call
 /// still being handled is not handled a second time.
 public struct TeammateHireLedger: Equatable, Sendable {
-    /// The old app's `HireGate.maxPerReply`: enough for any deliberate staffing
-    /// move in one breath, and a bound on a confused reply.
+    /// Bound the number of staffing changes one reply can request.
     public static let maximumCallsPerReply = 3
 
     public enum Admission: Equatable, Sendable {
@@ -321,12 +318,12 @@ public struct CreatureAllocation: Equatable, Sendable {
 /// is text and bounded. A field of the wrong kind, a field the tool does not
 /// take, or a handle that is not one plain word is refused; text that is only
 /// too long is clipped to its bound, because a wordy hirer must not lose the
-/// hire (the old app's rule for its seat fields).
+/// hire.
 public struct TeammateHireRequest: Equatable, Sendable {
     public static let maximumHandleLength = 32
     /// The profile's own bound for a role, which the purpose becomes.
     public static let maximumPurposeLength = 240
-    /// The old app's cap for standing instructions (`AgentStore.maxInstructions`).
+    /// Bound for standing instructions.
     public static let maximumInstructionsLength = 4_000
     /// Arguments larger than this are refused before anything is read out of
     /// them. It is a bound on the wire, not on the text: long text is clipped,

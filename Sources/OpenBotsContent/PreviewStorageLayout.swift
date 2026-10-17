@@ -33,22 +33,31 @@ public struct OwnedRootDescriptor: Hashable, Sendable {
 }
 
 /// Pure path derivation. Constructing this value never creates a directory.
+public enum ClaudeProfilePurpose: String, Hashable, Sendable {
+    case primary, compatibility
+
+    var directoryName: String { self == .primary ? "CLIProfile" : "CompatibilityProfile" }
+}
+
 public struct PreviewStorageLayout: Hashable, Sendable {
     public static let installationReceiptFileName = ".openbots-installation.json"
 
     public let homeDirectory: URL
     public let systemTemporaryDirectory: URL
+    public let claudeProfilePurpose: ClaudeProfilePurpose
 
     public let applicationSupportRoot: OwnedRootDescriptor
     public let cacheRoot: OwnedRootDescriptor
     public let temporaryRoot: OwnedRootDescriptor
     public let contentRoot: OwnedRootDescriptor
 
-    public init(homeDirectory: URL, systemTemporaryDirectory: URL) {
+    public init(homeDirectory: URL, systemTemporaryDirectory: URL,
+                claudeProfilePurpose: ClaudeProfilePurpose = .primary) {
         let home = FileURLNormalization.lexical(homeDirectory)
         let temporary = FileURLNormalization.lexical(systemTemporaryDirectory)
         self.homeDirectory = home
         self.systemTemporaryDirectory = temporary
+        self.claudeProfilePurpose = claudeProfilePurpose
 
         applicationSupportRoot = OwnedRootDescriptor(
             kind: .applicationSupport,
@@ -154,7 +163,29 @@ public struct PreviewStorageLayout: Hashable, Sendable {
     public var claudeCLIProfileRoot: URL {
         runtimeRoot
             .appending(path: "Claude", directoryHint: .isDirectory)
-            .appending(path: "CLIProfile", directoryHint: .isDirectory)
+            .appending(path: claudeProfilePurpose.directoryName, directoryHint: .isDirectory)
+    }
+
+    public func withClaudeProfilePurpose(_ purpose: ClaudeProfilePurpose) -> PreviewStorageLayout {
+        PreviewStorageLayout(homeDirectory: homeDirectory, systemTemporaryDirectory: systemTemporaryDirectory,
+                             claudeProfilePurpose: purpose)
+    }
+
+    public var claudeRetainedRoot: URL {
+        runtimeRoot.appending(path: "Claude/Retained", directoryHint: .isDirectory)
+    }
+
+    public var claudeRuntimeStateURL: URL {
+        runtimeRoot.appending(path: "Claude/runtime-state.json", directoryHint: .notDirectory)
+    }
+
+    public var claudeRuntimeChecksRoot: URL {
+        claudeRetainedRoot.appending(path: "Checks", directoryHint: .isDirectory)
+    }
+
+    public func claudeRetainedExecutableURL(sha256: String) -> URL {
+        claudeRetainedRoot.appending(path: sha256, directoryHint: .isDirectory)
+            .appending(path: "claude", directoryHint: .notDirectory)
     }
 
     public var generatedConfigurationRoot: URL {
@@ -205,13 +236,16 @@ public struct PreviewStorageLayout: Hashable, Sendable {
     }
 
     public var internalRequiredDirectoryURLs: [URL] {
-        // `claudeCLIProfileRoot` is intentionally not materialized here. The separate
-        // authenticated Claude bootstrap owns that exact, disclosed side effect.
+        // Empty app-owned Claude storage is part of first launch. Authentication
+        // still requires the user's separate sign-in action.
         [
             highChurnRoot,
             databaseDirectory,
             databaseBackupsRoot,
             runtimeRoot,
+            claudeCLIProfileRoot.deletingLastPathComponent(),
+            claudeCLIProfileRoot,
+            claudeCLIProfileRoot.appending(path: "backups", directoryHint: .isDirectory),
             queueRoot,
             leaseRoot,
             checkpointRoot,

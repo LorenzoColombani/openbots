@@ -155,6 +155,7 @@ final class AttachmentPresentationTests: XCTestCase {
         // VoiceOver, Finder, or accessibility-helper verification.
     }
 
+
     /// The chip offers Open, Reveal in Finder and Save to…, all
     /// through the presentation's revealers; the view itself never touches
     /// NSWorkspace or builds a URL.

@@ -77,6 +77,17 @@ public struct PreviewRootCreationPlan: Sendable {
         generated.append(contentsOf: layout.internalRequiredDirectoryURLs.map {
             RootCreationStep(url: $0, kind: .ownedChildDirectory(mode: 0o700))
         })
+        var profileMarker = ClaudeProfileOwnershipMarker()
+        if layout.claudeProfilePurpose == .compatibility {
+            profileMarker.role = "compatibility"
+            profileMarker.profileID = UUID()
+        }
+        generated.append(RootCreationStep(
+            url: layout.claudeCLIProfileRoot.appending(path: ClaudeProfileInspector.markerFilename),
+            kind: .exclusiveOwnershipMarker(
+                data: try encoder.encode(profileMarker), mode: 0o600
+            )
+        ))
         steps = generated
     }
 }

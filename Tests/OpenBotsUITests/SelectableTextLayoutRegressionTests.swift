@@ -35,10 +35,9 @@ final class SelectableTextLayoutRegressionTests: XCTestCase {
         XCTAssertEqual(withoutProposal.height, ideal.height, accuracy: 0.5)
     }
 
-    /// The mechanism behind the transcript freezes: AppKit's intrinsic width for a
-    /// line with a 200-character token was 5,594 pt regardless of the frame, and its
-    /// intrinsic height followed the previous frame, so intrinsic and measured sizes
-    /// never agreed after the transcript column changed width.
+    /// Long unbreakable tokens can give AppKit an intrinsic width much larger
+    /// than the frame. Intrinsic and measured sizes must agree after the
+    /// transcript column changes width to avoid repeated layout.
     func testIntrinsicSizeFollowsTheFrameWidthForUnbreakableTokens() {
         let field = StableSelectableText.makeField(longTokenReportBody)
         field.font = NSFont.preferredFont(forTextStyle: .body)
@@ -112,9 +111,8 @@ final class SelectableTextLayoutRegressionTests: XCTestCase {
         try runBoundedChild(testMethod: "testActualLazyTranscriptSendStreamAndCardUpdatesHaveBoundedLayout")
     }
 
-    /// The installed app once froze twice (main thread at 100 %, window gone)
-    /// with a transcript message whose lines hold ~200-character unbreakable tokens,
-    /// as soon as the transcript column changed width (details pane opened).
+    /// Messages with long unbreakable tokens must settle when opening the
+    /// details pane changes the transcript column's width.
     func testLongUnbreakableTokensSettleAcrossColumnWidthChanges() throws {
         if ProcessInfo.processInfo.environment[Self.childFlag] == "1" {
             try exerciseLongTokenTranscriptResize()
@@ -124,11 +122,9 @@ final class SelectableTextLayoutRegressionTests: XCTestCase {
         try runBoundedChild(testMethod: "testLongUnbreakableTokensSettleAcrossColumnWidthChanges")
     }
 
-    /// The installed app once hung (main thread at 100 %, memory
-    /// climbing) as soon as the details pane opened over a bot's ordinary
-    /// conversation: short user lines, formatted replies and status parts, no long
-    /// tokens. Both samples show the transcript's lazy stack re-measuring the
-    /// native labels without end. Same message shape here, synthetic words.
+    /// Ordinary conversation shapes also exercise layout: short user lines,
+    /// formatted replies and status parts must settle after the details pane
+    /// opens, without repeatedly remeasuring native labels.
     func testOrdinaryConversationSurvivesDetailsPaneOpening() throws {
         if ProcessInfo.processInfo.environment[Self.childFlag] == "1" {
             try exerciseOrdinaryConversationDetailsToggle()
@@ -301,14 +297,14 @@ private func exerciseActualLazyTranscript() throws {
     XCTAssertEqual(fixture.secret.transientInput, "")
 }
 
-/// A worker report (sandbox refusals), public-safe:
-/// error codes and system paths only, no account or machine-specific values.
+/// A synthetic error report with long unbreakable path tokens for layout tests.
 private let longTokenReportBody: String = {
-    let tls = "step 1 exit=1 out= err=Auto configuration failed 8528781696:error:02FFF001:system library:func(4095):"
-        + "Operation not permitted:/AppleInternal/Library/BuildRoots/4~CVR0ugD7d_x9KkNiDhb6ZUdowAfhsgliSKtR7QU/Library/Caches/"
-        + "com.apple.xbs/TemporaryDirectory.kapob0/Sources/libressl/libressl-3.3/crypto/bio/bss_file.c:122:fopen('/private/etc/ssl/openssl.cnf', 'rb') "
-        + "8528781696:error:20FFF002:BIO routines:CRYPTO_internal:system lib:/AppleInternal/Library/BuildRoots/4~CVR0ugD7d_x9KkNiDhb6ZUdowAfhsgliSKtR7QU/Library/Caches/"
-        + "com.apple.xbs/TemporaryDirectory.kapob0/Sources/libressl/libressl-3.3/crypto/bio/bss_file.c:127: 8528781696:error:0EFFF002:configuration file routines:CRYPTO_internal:system lib"
+    let tls = "step 1 exit=1 out= err=Auto configuration failed 1000000000:error:02FFF001:system library:func(4095):"
+        + "Operation not permitted:/fixture/Library/BuildRoots/" + String(repeating: "a", count: 50) + "/Library/Caches/"
+        + "fixture.build/TemporaryDirectory.fixture/Sources/libressl/libressl-3.3/crypto/bio/bss_file.c:122:fopen('/private/etc/ssl/openssl.cnf', 'rb') "
+        + "1000000000:error:20FFF002:BIO routines:CRYPTO_internal:system lib:/fixture/Library/BuildRoots/"
+        + String(repeating: "a", count: 50) + "/Library/Caches/"
+        + "fixture.build/TemporaryDirectory.fixture/Sources/libressl/libressl-3.3/crypto/bio/bss_file.c:127: 1000000000:error:0EFFF002:configuration file routines:CRYPTO_internal:system lib"
     let shim = "step 2 exit=1 out= err=xcode-select: error: unable to read data link at '/var/select/developer_dir', expected symbolic link (Operation not permitted)"
     return [tls, shim, shim.replacingOccurrences(of: "step 2", with: "step 3"),
             "step 4 exit=1 out= err=cat: /private/tmp/OpenBotsJob-canary-sibling.noindex/secret.txt: Operation not permitted",
@@ -731,9 +727,8 @@ private func exerciseOrdinaryConversationDetailsToggle() throws {
     try pumpMainRunLoop(for: 0.4, phase: "pane animation")
     try settleSelectableHost(host, phase: "real details pane after animation")
     // The rows re-wrapped and the content grew; a reader who was at the end is
-    // still at the end. Before `.defaultScrollAnchor(.bottom)` the viewport was
-    // left mid-transcript here, and the installed app never finished the
-    // transaction at all (in Canobi's conversation).
+    // still at the end. `.defaultScrollAnchor(.bottom)` must keep the viewport
+    // at the end while the layout transaction settles.
     XCTAssertLessThanOrEqual(distanceFromEnd(of: transcript), 1,
         "a reader at the end must stay at the end when the details pane narrows the transcript: document \(document.bounds.height) visible \(transcript.documentVisibleRect)")
     // The live hang was a SwiftUI update storm: the labels' updateNSView ran

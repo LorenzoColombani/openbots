@@ -179,6 +179,7 @@ private struct HandoffHireAccess: ClaudeTextReplyWebAccessResolving {
     func hireGranted(teammateID: TeammateID) async -> Bool { hirers.contains(teammateID) }
 }
 
+
 /// A hiring service no call reaches in these turns: what a turn is told is the subject.
 /// Web for every bot; a Contacts connector for the readers.
 private struct HandoffPrivateReadAccess: ClaudeTextReplyWebAccessResolving {
@@ -378,7 +379,6 @@ struct HandoffTextReplyTests {
         #expect(page.map(\.outputClass) == [.conversation, .conversation, .workAudit, .workAudit, .conversation, .conversation])
     }
 
-    // The fence a private read closes follows the words to a teammate and back.
     @Test("A lead that read the user's contacts hands off: the member's leg asks before every web call; one that read nothing does not fence it",
           arguments: [true, false])
     func theFenceTravelsWithTheBrief(_ leadReads: Bool) async throws {
@@ -396,8 +396,8 @@ struct HandoffTextReplyTests {
         let leg = try #require(await runner.requests.dropFirst().first)
         #expect(leg.connectorAccess == nil && leg.asksBeforeWeb == leadReads, "\(leg.asksBeforeWeb)")
         #expect(leg.preApprovedToolNames.contains("WebFetch") == !leadReads)
-        // What the CLI is actually launched with (a member's leg must not have
-        // the web pre-allowed in its settings and no channel).
+        // Check the actual launch arguments so a member's leg cannot pre-allow
+        // web access in its settings without the required permission channel.
         #expect(ClaudeTextOnlyCommandBuilder.arguments(for: leg).contains("--permission-prompt-tool") == leadReads)
         #expect(await runner.controlled.dropFirst().first == leadReads)
         // And the fetch the member asks for goes up on a card naming who read what.
@@ -425,6 +425,7 @@ struct HandoffTextReplyTests {
         let report = try #require(await runner.requests.last)
         #expect(report.connectorAccess == nil && report.asksBeforeWeb, "the lead compiles words the member read")
     }
+
 
     // A report that never ran leaves the leg
     // succeeded, and the lead's next user turn quotes the member's words.
@@ -580,6 +581,7 @@ struct HandoffTextReplyTests {
         #expect(await runner.requests.count == 5)
     }
 
+
     /// A chain whose next leg ends needing recovery, declined by the user or
     /// its bot deleted, goes no further, so the
     /// member results it already holds come back on the lead's next turn
@@ -615,6 +617,7 @@ struct HandoffTextReplyTests {
         #expect(try await store.record(id: first.id)?.state == .returnedToOrigin)
         #expect(try await store.record(id: second.id)?.state == .needsRecovery)
     }
+
 
     /// A report that staged the next leg and then
     /// failed leaves a staged leg in a chain that holds a leg needing
@@ -656,6 +659,7 @@ struct HandoffTextReplyTests {
         let after = try #require(await runner.requests.last).systemPrompt
         #expect(!after.contains("ADA_FINDING") && !after.contains("Results returned from members"))
     }
+
 
     /// A lead user turn takes in the results of every
     /// chain that ended, and carries their chips. Over one reply's limit the
@@ -811,6 +815,7 @@ struct HandoffTextReplyTests {
         #expect(lastRequest.systemPrompt.contains("member-leg budget is exhausted"))
         #expect(!lastRequest.systemPrompt.contains("Delegating:"))
     }
+
 
     /// A call made while building hiring: the lead is told
     /// to brief a newcomer only on a turn that can hand off. At the last hop
@@ -1265,6 +1270,7 @@ private actor ProgressRecorder {
     private(set) var events: [ClaudeTextTurnProgress] = []
     func append(_ event: ClaudeTextTurnProgress) { events.append(event) }
 }
+
 
 // MARK: A member's file that is gone
 

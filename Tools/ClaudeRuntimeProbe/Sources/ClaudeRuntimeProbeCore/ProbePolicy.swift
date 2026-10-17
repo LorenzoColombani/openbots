@@ -193,6 +193,7 @@ public enum ChildEnvironmentPolicy {
             "TMPDIR": temporaryDirectory.path,
             "CLAUDE_CODE_TMPDIR": temporaryDirectory.path,
             "DISABLE_AUTOUPDATER": "1",
+            "DISABLE_UPDATES": "1",
             "DISABLE_TELEMETRY": "1",
             "DISABLE_ERROR_REPORTING": "1",
             "DISABLE_BUG_COMMAND": "1",

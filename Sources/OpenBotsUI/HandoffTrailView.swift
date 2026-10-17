@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A static, provenance-first handoff trail. It deliberately adds no motion:
+/// A static, provenance-first handoff trail. S3A deliberately adds no motion:
 /// Reduce Motion therefore preserves exactly the same identities, chronology,
 /// recovery, and fan-in result rather than substituting a weaker state.
 struct HandoffTrailView: View {

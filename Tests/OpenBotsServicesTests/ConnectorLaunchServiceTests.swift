@@ -162,7 +162,7 @@ struct ConnectorLaunchServiceTests {
         #expect(!FileManager.default.fileExists(atPath: profile.path))
     }
 
-    @Test("A connector this version cannot prepare leaves no folder behind")
+    @Test("A connector this slice cannot prepare leaves no folder behind")
     func unpreparableConnectorsMakeNoProfile() async throws {
         let f = try ServiceFixture(); defer { f.remove() }
         try await f.grantBoth()
@@ -268,7 +268,7 @@ struct TwoConnectorLaunchTests {
         #expect(access.role(forToolNamed: "mcp__\(mailKey)__get_messages") == .appleMailRead)
         #expect(access.role(forToolNamed: "mcp__\(browserKey)__new_page") == .browser)
         // One directory, the browser's — the mail reader must not leave a
-        // folder nothing owns, a defect this once had.
+        // folder nothing owns, which is the defect `d46abe8` fixed.
         #expect(access.ownedProfileURLs.count == 1)
         let turnDirectory = profileRoot.appendingPathComponent("turn-\(runID.uuidString.lowercased())",
                                                                isDirectory: true)
@@ -371,7 +371,8 @@ struct ConnectorLaunchSelectionBoundTests {
         #expect(await service.connectorAccess(teammateID: teammateID, runID: UUID()) == nil)
     }
 
-    /// Why the per-bot switch counts only rows a launch can use: a grant no preparation owns is skipped here, so
+    /// The per-bot switch counts only rows a launch can use:
+    /// a grant no preparation owns is skipped here, so
     /// it never takes one of the bound's places.
     @Test("A grant no preparation owns is skipped by the launch, so the bound's places all go to connectors that run")
     func anUnownedGrantTakesNoPlaceInTheLaunch() async throws {

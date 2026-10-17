@@ -2,6 +2,7 @@ import Foundation
 @testable import OpenBotsServices
 import Testing
 
+
 /// Claude Code updates itself under the app, and each version can change how it talks to
 /// it. Settings says when the installed one is newer than the last one tested.
 @Suite("Settings says when Claude Code is newer than the version OpenBots was last tested with")

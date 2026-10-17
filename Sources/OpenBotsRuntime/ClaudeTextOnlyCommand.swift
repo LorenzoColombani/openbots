@@ -156,6 +156,7 @@ public enum ClaudeTextWorkAccessError: Error, Equatable, Sendable {
     case invalidDirectory, invalidProtectedPath
 }
 
+
 /// What a turn without Work may read (every bot reads the team's shared folder
 /// and its own skills): those folders, with
 /// Glob, Grep and Read only, nothing written and no shell. Construction checks
@@ -210,15 +211,13 @@ public struct ClaudeTextPermissionRequest: Equatable, Sendable {
     /// with. Such a question can only be answered no; it is surfaced rather
     /// than ending the turn.
     public let admitted: Bool
-    /// False when a string in the question's line opens with U+FEFF. Foundation
-    /// drops one such mark from the start of every string it reads, keys
-    /// included, and keeps the first of two keys that then match; the CLI and
-    /// a node server keep both and read the last (probed).
-    /// So `inputJSON` is not what the model asked for. An allow sends
-    /// `inputJSON` back as `updatedInput`, which Claude Code 2.1.278 runs in
-    /// place of the model's input, so the call would still be what the card
-    /// showed; this is the second layer, for a CLI that stops doing that. Such
-    /// a question, for any tool, built-in or connector, is answered no.
+    /// False when a string in the question's line opens with U+FEFF. Foundation drops one such
+    /// mark from the start of every string it reads, keys included, and keeps the first of two
+    /// keys that then match; the CLI and a node server keep both and read the last. So
+    /// `inputJSON` is not what the model asked for. An allow sends `inputJSON` back as
+    /// `updatedInput`, which Claude Code 2.1.278 runs in place of the model's input, so the
+    /// call would still be what the card showed; this is the second layer, for a CLI that stops
+    /// doing that. Such a question, for any tool, built-in or connector, is answered no.
     public let inputReadsAsSent: Bool
 
     public init(requestID: String, toolUseID: String, toolName: String, inputJSON: Data, admitted: Bool = true,
@@ -228,6 +227,7 @@ public struct ClaudeTextPermissionRequest: Equatable, Sendable {
         self.inputReadsAsSent = inputReadsAsSent
     }
 }
+
 
 /// The app's own MCP server for hiring: `openbots`, carried
 /// over the control channel with one tool, `hire_teammate`. Probed on Claude
@@ -276,6 +276,7 @@ public enum ClaudeTextHirePolicy {
     }
 }
 
+
 /// The login handoff: a bot on Control this Mac that
 /// reaches a sign-in, a password, a captcha or a permission dialog hands the
 /// user the screen with this tool, on the app's own `openbots` server, carried by
@@ -316,6 +317,7 @@ public enum ClaudeTextScreenHandoffPolicy {
         ]
     }
 }
+
 
 /// A new bot sets itself up: the one tool a bot whose
 /// setup is pending is offered in the user's direct chat, on the app's own `openbots`
@@ -394,9 +396,8 @@ public struct ClaudeTextHireCall: Equatable, Sendable {
     }
 }
 
-/// App-hosted spawn_worker tool (throwaway workers). Shares the
-/// `openbots` MCP server name with hire; distinct tool. Host answers through
-/// `ClaudeTextTurnControl.answerWorker`.
+/// App-hosted spawn_worker tool. Shares the `openbots` MCP server name with hire; distinct
+/// tool. Host answers through `ClaudeTextTurnControl.answerWorker`.
 public enum ClaudeTextWorkerPolicy {
     public static let serverName = ClaudeTextHirePolicy.serverName
     public static let toolName = "spawn_worker"
@@ -460,14 +461,9 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     public static let maximumTextBytes = 65_536
     public static let maximumSystemPromptBytes = 98_304
     public static let maximumModelBytes = 200
-    /// Reviewed first-party choices. Unknown saved values stay in storage but
-    /// cannot start an unreviewed model. The legacy alias retains its exact argv.
-    public static let supportedModels: Set<String> = [
-        "sonnet", "claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5-5", "claude-opus-5",
-        "claude-fable-5-1", "claude-fable-5",
-        "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
-        "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929"
-    ]
+    /// Current canonical choices and advertised aliases, with a bundled fallback.
+    /// Removed saved values stay in storage but cannot start an unavailable model.
+    public static var supportedModels: Set<String> { ClaudeModelPolicy.current.admittedModels }
     public let target: ClaudeConnectionTarget
     public let runID: UUID
     public let sessionID: UUID
@@ -476,6 +472,7 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     public let systemPrompt: String
     /// Frozen for this run. A later saved bot choice cannot alter these arguments.
     public let model: String
+    private let resolvedModel: String
     /// Nil preserves the provider's documented default by omitting --effort.
     public let effort: String?
     /// Requested CLI configuration, never proof of the actual context capacity.
@@ -493,8 +490,8 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     /// turn is exactly the shipped web-or-nothing command. Independent of
     /// `workAccess`: a bot may browse with files and shell switched off.
     public let connectorAccess: ClaudeTextConnectorAccess?
-    /// Both hire switches were on when the turn launched: the
-    /// turn carries the app's hire server and its one tool.
+    /// Both hire switches were on when the turn launched: the turn carries the app's hire
+    /// server and its one tool.
     public let grantsHiring: Bool
     /// The workers switches were on when the turn launched: the turn carries the app's server with `spawn_worker`.
     public let grantsWorkers: Bool
@@ -537,7 +534,8 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     /// sixteen for every other granted turn.
     public var maximumTurns: Int {
         guard grantsTools else { return 1 }
-        return grantsMacControl ? ClaudeTextOnlyCommandBuilder.maximumMacControlTurns
+        if grantsMacControl { return ClaudeTextOnlyCommandBuilder.maximumMacControlTurns }
+        return grantsWork ? ClaudeTextOnlyCommandBuilder.maximumWorkTurns
             : ClaudeTextOnlyCommandBuilder.maximumGrantedTurns
     }
     /// When the CLI ends this turn at its round cap, the turn waits for the
@@ -587,14 +585,12 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     /// connector names are carried by the configuration and narrowed by the
     /// deny list, and putting them in `--tools` would say nothing.
     public var grantedToolNames: [String] {
-        // The question tool is not part of working on the Mac: it is how a bot
-        // puts a choice to the user instead of typing the question into the chat
-        // and guessing from the answer. A connector turn needs it as much as a
-        // work turn — choosing which address a new mail goes from must be a picker, not a sentence, and a
-        // bot with mail and no Work switch had no way to raise one.
+        // The question tool lets a bot present a choice instead of guessing from prose.
+        // Connector turns need it independently of Work access, including for choosing a mail
+        // sending account.
         if grantsWork {
             // Unchanged order, so a work turn's command stays byte-for-byte
-            // the same as before.
+            // what the eight allowlist rounds reviewed.
             return Self.workToolNames + [Self.questionToolName, ClaudeTextHelperPolicy.toolName]
                 + allowedToolNames
         }
@@ -604,15 +600,11 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     /// A turn that asks the host runs under Claude Code's own rules; a turn that
     /// cannot ask keeps the shipped mode that denies every prompt.
     public var expectedPermissionMode: String { requiresPermissionControl ? "default" : "dontAsk" }
-    /// The modes the CLI may announce for this turn. The command line asks for
-    /// `expectedPermissionMode`, byte for byte as built; since 2.1.272 the
-    /// CLI forces `default` whenever `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` is set
-    /// (its own "allowed_non_write_users hardening", probed)
-    /// and says so on stderr. For a turn with no control channel that changes
-    /// nothing: it runs in `--print` with no prompt tool, so a prompt is denied
-    /// by the CLI itself, and its fences are the empty (or web-only) tool set
-    /// and the deny list, never the mode. A turn that must be asked still
-    /// refuses a mode that would never ask, act on its own or only plan.
+    /// The command requests `expectedPermissionMode`. Since CLI 2.1.272,
+    /// `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` forces `default` and reports it on stderr. A turn
+    /// without a control channel runs with `--print` and no prompt tool, so the CLI denies
+    /// prompts; its tool set and deny list provide the fence. A turn requiring approval still
+    /// refuses modes that never ask, act autonomously, or only plan.
     public var acceptedAnnouncedPermissionModes: Set<String> {
         requiresPermissionControl ? ["default"] : ["dontAsk", "default"]
     }
@@ -629,7 +621,8 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     /// What a turn without Work reads with.
     public static let readToolNames = ["Glob", "Grep", "Read"]
     public var executionSelection: ClaudeExecutionSelection {
-        ClaudeExecutionSelection(model: model, effort: effort ?? "default", contextWindow: contextWindow)
+        ClaudeExecutionSelection(model: model, effort: effort ?? "default", contextWindow: contextWindow,
+                                 resolvedModel: resolvedModel)
     }
     public var expectedResolvedModel: String { executionSelection.expectedResolvedModel }
     public var launchModel: String { executionSelection.launchModel }
@@ -638,6 +631,7 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
     public var executionRequest: ClaudeExecutionRequest {
         ClaudeExecutionRequest(sessionID: sessionID, selection: executionSelection, launchModel: launchModel)
     }
+
 
     /// Whether the CLI keeps this turn's session so a later turn can resume
     /// it. Off for a leg, a helper-only shape and every other command, which
@@ -657,7 +651,8 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
                 persistsSession: Bool = false, resumesSession: Bool = false,
                 grantsHiring: Bool = false, grantsWorkers: Bool = false,
                 readAccess: ClaudeTextReadAccess? = nil, grantsSelfSetup: Bool = false,
-                sessionHoldsPrivateRead: Bool = false) throws {
+                sessionHoldsPrivateRead: Bool = false,
+                modelCatalog: ClaudeModelCatalogSnapshot = ClaudeModelPolicy.current) throws {
         self.persistsSession = persistsSession || resumesSession
         // Not only a continued session: a correction and a handoff carry the
         // words of a reply that read something of the user's.
@@ -673,13 +668,13 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
         guard !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               systemPrompt.utf8.count <= Self.maximumSystemPromptBytes,
               !systemPrompt.utf8.contains(0) else { throw ClaudeTextOnlyRequestError.invalidSystemPrompt }
-        guard Self.isValidModelToken(model), Self.supportedModels.contains(model) else {
+        guard Self.isValidModelToken(model), let selectedModel = modelCatalog.model(model) else {
             throw ClaudeTextOnlyRequestError.invalidModel
         }
-        if let effort, !ClaudeEffortPolicy.supportedValues(for: model).contains(effort) {
+        if let effort, !selectedModel.efforts.contains(effort) {
             throw ClaudeTextOnlyRequestError.invalidEffort
         }
-        guard ClaudeContextWindowPolicy.supportedValues(for: model).contains(contextWindow) else {
+        guard selectedModel.contextWindows.contains(contextWindow) else {
             throw ClaudeTextOnlyRequestError.invalidContextWindow
         }
         // The closed enum is the real check: an unreviewed tool name cannot be
@@ -695,6 +690,7 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
         self.text = text
         self.systemPrompt = systemPrompt
         self.model = model
+        self.resolvedModel = selectedModel.id
         self.effort = effort
         self.contextWindow = contextWindow
         self.allowedTools = allowedTools
@@ -714,12 +710,10 @@ public struct ClaudeTextOnlyRequest: Equatable, Sendable {
         return bytes.allSatisfy { alphanumeric($0) || [45, 95, 46, 91, 93].contains($0) }
     }
 
-    /// Only the documented long-context suffix on these exact pinned models is
-    /// normalized. It establishes model identity, not accepted context capacity.
+    /// The exact reported [1m] suffix establishes identity only, never context
+    /// capability or permission to add that suffix to a launch argument.
     static func normalizedReportedModel(_ value: String) -> String? {
-        guard let normalized = ClaudeExecutionSelection.normalizedReportedModel(value),
-              supportedModels.contains(normalized) else { return nil }
-        return normalized
+        ClaudeExecutionSelection.normalizedReportedModel(value)
     }
 }
 
@@ -781,15 +775,15 @@ public enum ClaudeTextOnlyEvent: Equatable, Sendable {
     /// when there are words to send. A stranger's words can be in it: whoever keeps it
     /// makes it one quoted line, and it is never handed to a model.
     case toolFailureReason(toolUseID: String, reason: String)
-    /// The hire tool was called. The host answers through the
-    /// turn's control; the server's handshake is answered without an event.
+    /// The hire tool was called. The host answers through the turn's control; the server's
+    /// handshake is answered without an event.
     case hireRequested(ClaudeTextHireCall)
     /// The worker tool was called, answered the same way.
     case workerRequested(ClaudeTextWorkerCall)
     /// The setup tool was called, answered the same way.
     case selfSetupRequested(ClaudeTextSelfSetupCall)
-    /// What a Control this Mac call saw of the user's screen, handed up for the
-    /// watch pane's preview before the call's `toolFinished`. Held in memory
+    /// What a Control this Mac call saw of the user's screen, handed up for the watch
+    /// pane's preview before the call's `toolFinished`. Held in memory
     /// by whoever shows it; nothing here writes it anywhere.
     case screenPicture(ClaudeTextScreenPicture)
     /// The CLI ended a turn that renews by card at its round cap
@@ -834,6 +828,9 @@ public struct ClaudeTextOnlyReply: Equatable, Sendable {
 public enum ClaudeTextOnlyFailure: String, Equatable, Sendable {
     case launchRejected, launchFailed, unsafeInitialization, invalidStream
     case inputRejected, timedOut, outputLimitExceeded, providerFailed, processFailed
+    /// The CLI explicitly refused this turn's authentication. In memory only;
+    /// its durable diagnostic remains the existing providerFailure code.
+    case authenticationRequired
     /// The CLI ended a granted run at its turn cap before the model answered.
     /// The connection and the provider were fine; the model needed one more
     /// round of tool calls than the command allowed.
@@ -885,13 +882,15 @@ public enum ClaudeTextOnlyCommandBuilder {
     /// (`ClaudeTextOnlyStream.maximumGrantedToolUses`) is deliberately larger.
     /// An ungranted turn keeps its single turn.
     public static let maximumGrantedTurns = 16
-    /// A turn with Control this Mac: a look, a click and a keystroke each
-    /// take a round, so sixteen ended a real task in the middle. Sixty-four,
-    /// renewable by the user's card.
+    /// Long file and shell tasks need room to inspect, change and verify their
+    /// work before answering. This remains bounded by the stream's sixty-four
+    /// distinct calls and does not change helpers, approvals or renewal.
+    public static let maximumWorkTurns = 64
+    /// A Control this Mac turn consumes separate rounds for looks, clicks and keystrokes. It
+    /// has sixty-four rounds, renewable through an approval card.
     public static let maximumMacControlTurns = 64
-    /// The file tools a protected root is fenced from by rule, beside the
-    /// sandbox's own read and write fence for Bash. A root that is a file is
-    /// covered by its `/**` rule too (probed on 2.1.263).
+    /// The file tools a protected root is fenced from by rule, beside the sandbox's own read
+    /// and write fence for Bash. A root that is a file is covered by its `/**` rule too.
     static let protectedPathRuleTools = ["Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep"]
     /// Every other tool family this build of the CLI can expose, taken from the
     /// installed binary's own built-in tool-name list and its tool-ordering
@@ -942,9 +941,7 @@ public enum ClaudeTextOnlyCommandBuilder {
         // servers outright, so neither a Work turn nor a connector turn can keep
         // it. The restricted settings sources, exact tools, hooks-off settings,
         // strict selected-only MCP and background fences remain independently
-        // enforced on those paths. Probed on 2.1.267, with plugins and skills
-        // installed on disk: dropping it changed nothing else — all three
-        // shapes announced no plugin, no skill and no slash command.
+        // enforced on those paths.
         if !request.requiresPermissionControl { arguments.append("--safe-mode") }
         // A turn that keeps its session for a later --resume is the
         // one shape that persists; every other command stays byte for byte
@@ -957,8 +954,7 @@ public enum ClaudeTextOnlyCommandBuilder {
          "--settings", settingsJSON(for: request),
          "--setting-sources", "", "--permission-mode", request.expectedPermissionMode]
         arguments += toolArguments
-        // On --resume the CLI ignores --system-prompt-file (probed on 2.1.272,
-        // over 39 sessions): the model keeps the first turn's
+        // On --resume Claude Code 2.1.272 ignores --system-prompt-file: the model keeps the first turn's
         // prompt for the whole session, and --append-system-prompt is ignored
         // the same way. The file is still passed: it is harmless, and a future
         // CLI may honour it. The app's answer lives elsewhere: the first
@@ -973,24 +969,39 @@ public enum ClaudeTextOnlyCommandBuilder {
         return arguments
     }
 
-    /// Hooks, connectors, artifacts, skill sync and model switching stay off on
-    /// both paths. Only the permissions block differs: `dontAsk` denies anything
-    /// not pre-approved, so an ungranted turn keeps its blanket deny while a
-    /// granted turn pre-approves exactly its own tools and denies the rest by
-    /// name. A blanket deny cannot be kept alongside a grant: the CLI matches a
-    /// deny rule's `*` as a wildcard over every tool name and consults deny
-    /// before allow, so `deny:["*"]` would silently shadow the grant.
-    /// Claude Code 2.1.281 ships a built-in plugin that
-    /// loads AGENTS.md files where CLAUDE.md would and hooks tool calls. It is
-    /// announced even under --safe-mode with no setting sources; this setting
-    /// is the one thing that leaves it out, and the init check still admits no
-    /// plugin at all. Every settings shape carries it, fallbacks included.
-    static let disabledBuiltInPlugins: [String: Bool] = ["agents-md@builtin": false]
+    /// Hooks, connectors, artifacts, skill sync and model switching stay off on both paths.
+    /// Only permissions differ: `dontAsk` denies anything not pre-approved, while a granted
+    /// turn pre-approves exactly its tools and denies the rest by name. A blanket `deny:["*"]`
+    /// would shadow grants because deny rules take precedence.
+    /// CLI 2.1.281 ships a built-in plugin that loads AGENTS.md files and hooks tool calls,
+    /// even with --safe-mode and no setting sources. CLI 2.1.287 also announces a
+    /// plugin-authoring skill. Every settings shape, including fallbacks, disables both;
+    /// initialization still admits no plugin.
+    static let disabledBuiltInPlugins: [String: Bool] = [
+        "agents-md@builtin": false,
+        "cc-plugin-plugin-authoring@builtin": false,
+        "telemetry@builtin": false,
+    ]
+
+    /// The same switches for the settings written by hand, keys in the order
+    /// the serializer's sorted keys give the other shapes.
+    static let disabledBuiltInPluginsJSON = "{"
+        + disabledBuiltInPlugins.keys.sorted().map { "\"\($0)\":false" }.joined(separator: ",") + "}"
+
+    /// What every hand-written settings shape opens with, up to its permission lists.
+    private static let dontAskSettingsPrefix =
+        "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,"
+        + "\"enabledPlugins\":\(disabledBuiltInPluginsJSON),"
+        + "\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\","
+
+    /// The shipped deny-everything block: the ungranted turn's settings, and
+    /// what a serializer failure falls back to on every other shape.
+    static let denyEverythingSettingsJSON = dontAskSettingsPrefix + "\"deny\":[\"*\"]}}"
 
     static func settingsJSON(for request: ClaudeTextOnlyRequest) -> String {
         if let work = request.workAccess { return workSettingsJSON(for: request, work: work) }
-        // A hire-only turn takes the connector turn's shape with no connector
-        // (probed): the blanket deny below would shadow the hire tool.
+        // A hire-only turn takes the connector turn's shape with no connector:
+        // the blanket deny below would shadow the hire tool.
         // So does a turn whose web must ask: the read-only and browsing shapes
         // below pre-allow the web in `dontAsk`, where nothing can ask.
         if request.grantsConnectors || request.grantsHiring || request.grantsWorkers || request.grantsSelfSetup
@@ -998,13 +1009,10 @@ public enum ClaudeTextOnlyCommandBuilder {
             return connectorSettingsJSON(for: request)
         }
         if let read = request.readAccess { return readSettingsJSON(for: request, read: read) }
-        let prefix = "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,"
-            + "\"enabledPlugins\":{\"agents-md@builtin\":false},"
-            + "\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\","
         let granted = request.allowedToolNames
-        guard !granted.isEmpty else { return prefix + "\"deny\":[\"*\"]}}" }
+        guard !granted.isEmpty else { return denyEverythingSettingsJSON }
         let denied = deniableToolNames.filter { !granted.contains($0) }
-        return prefix + "\"allow\":[\(jsonNames(granted))],\"deny\":[\(jsonNames(denied))]}}"
+        return dontAskSettingsPrefix + "\"allow\":[\(jsonNames(granted))],\"deny\":[\(jsonNames(denied))]}}"
     }
 
     /// A connector turn without Work: Claude Code's own default mode, the
@@ -1029,10 +1037,7 @@ public enum ClaudeTextOnlyCommandBuilder {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]),
               let text = String(data: data, encoding: .utf8) else {
-            return "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,"
-            + "\"enabledPlugins\":{\"agents-md@builtin\":false},"
-                + "\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\","
-                + "\"deny\":[\"*\"]}}"
+            return denyEverythingSettingsJSON
         }
         return text
     }
@@ -1052,10 +1057,7 @@ public enum ClaudeTextOnlyCommandBuilder {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]),
               let text = String(data: data, encoding: .utf8) else {
-            return "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,"
-            + "\"enabledPlugins\":{\"agents-md@builtin\":false},"
-                + "\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\","
-                + "\"deny\":[\"*\"]}}"
+            return denyEverythingSettingsJSON
         }
         return text
     }
@@ -1078,9 +1080,8 @@ public enum ClaudeTextOnlyCommandBuilder {
     static func workSettingsJSON(for request: ClaudeTextOnlyRequest, work: ClaudeTextWorkAccess) -> String {
         var deny = deniedToolNames(for: request)
         for path in work.protectedPaths {
-            // The CLI's rule grammar: `//` spells a filesystem-absolute path; a
-            // single leading `/` is relative to the project root and would never
-            // match (probed on 2.1.263). `path` is absolute, so
+            // The CLI's rule grammar: `//` spells a filesystem-absolute path; a single leading
+            // `/` is relative to the project root and would never match. `path` is absolute, so
             // one slash in front of it gives the `//` form.
             for tool in Self.protectedPathRuleTools { deny.append("\(tool)(/\(path)/**)") }
         }
@@ -1105,19 +1106,16 @@ public enum ClaudeTextOnlyCommandBuilder {
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes]),
               let text = String(data: data, encoding: .utf8) else {
-            return "{\"disableAllHooks\":true,\"disableClaudeAiConnectors\":true,\"enableArtifact\":false,"
-            + "\"enabledPlugins\":{\"agents-md@builtin\":false},"
-                + "\"syncClaudeAiSkills\":false,\"switchModelsOnFlag\":false,\"permissions\":{\"defaultMode\":\"dontAsk\","
-                + "\"deny\":[\"*\"]}}"
+            return denyEverythingSettingsJSON
         }
         return text
     }
 
     static let readOnlyPathRuleTools = ["Edit", "Write", "MultiEdit", "NotebookEdit"]
 
-    /// The settings allow list: the granted web tools, and the hire and worker
-    /// tools by their exact names when their grants are on. The switches are the
-    /// user's authorization, so such a call reaches the app without a card.
+    /// The settings allow list: the granted web tools, and the hire and worker tools by their
+    /// exact names when their grants are on. The switches are the user's authorization, so such a call
+    /// reaches the app without a card.
     static func preApprovedNames(for request: ClaudeTextOnlyRequest) -> [String] {
         request.preApprovedToolNames + (request.grantsHiring ? [ClaudeTextHirePolicy.qualifiedToolName] : [])
             + (request.grantsWorkers ? [ClaudeTextWorkerPolicy.qualifiedToolName] : [])
@@ -1248,10 +1246,8 @@ public enum ClaudeTextOnlyCommandBuilder {
 
     public static func environment(for request: ClaudeTextOnlyRequest) -> [String: String] {
         var environment = environment(for: request.target)
-        // Probed on 2.1.272: with this set the CLI writes
-        // no session transcript at all, so nothing could ever be resumed. A
-        // turn that keeps its session drops it; the profile it writes into is
-        // the app's own, never the user's.
+        // CLI 2.1.272 writes no session transcript with this setting enabled. Resumable turns
+        // omit it and write only into the app-owned profile.
         if request.persistsSession { environment["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] = nil }
         if request.requiresPermissionControl {
             environment["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"

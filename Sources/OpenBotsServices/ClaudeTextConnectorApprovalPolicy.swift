@@ -2,21 +2,11 @@ import Foundation
 import OpenBotsDomain
 import OpenBotsRuntime
 
-/// What the approval card says when a bot wants to use one of its connectors.
-///
-/// One convention to keep, set by the work policy and learned the hard way: a
-/// card's `activity` line is written the moment the card goes up, before
-/// the user has answered, so it says what the bot **asked** to do. The verdict line
-/// that follows — "Approved: …" or "Denied: …" — is what says whether it
-/// happened. A card that wrote the deed instead put "Sent mail from iCloud" in
-/// the record of a send the user had just refused. Only a quiet decision may phrase
-/// the deed, because a quiet decision is the deed.
-///
-/// The router is here rather than in the caller because the tool name alone
-/// cannot answer it: a server's name is a hash of its identity, so
-/// `mcp__openbots_9f3a2b…__get_messages` reads the same whether it came from
-/// the browser or from Apple Mail. The turn's own selection knows, and says so
-/// with its role.
+/// Describe connector actions on approval cards. Record `activity` before the user answers,
+/// describing what was requested. The Approved or Denied line records the verdict. Only quiet
+/// decisions may describe the deed as performed.
+/// Route by the turn's selected role, not tool name alone. Server names hash identity, so
+/// identical tool suffixes can belong to different roles.
 public enum ClaudeTextConnectorApprovalPolicy {
     /// True for a tool name in a connector's namespace, whatever the server.
     public static func isConnectorTool(_ name: String) -> Bool { name.hasPrefix("mcp__") }
@@ -197,11 +187,11 @@ public enum ClaudeTextGoogleDriveApprovalPolicy {
 
 /// What the card says when a bot wants to send mail as the user.
 ///
-/// Nothing here is ever quiet. A send leaves the Mac as the user, from an account
-/// that is one of the user's several identities, so the card names the account, the
-/// recipient and the subject — the three things the user needs to refuse it — then
+/// Nothing here is ever quiet. A send leaves the Mac as them, from an account
+/// that is one of their several identities, so the card names the account, the
+/// recipient and the subject — the three things they need to refuse it — then
 /// the mail's own words whole (`words`), and a draft says plainly that
-/// nothing is sent. The old app's rule stands:
+/// nothing is sent. As in the old app:
 /// there is no default account, and a send that does not name one is refused
 /// before it reaches Mail.
 public enum ClaudeTextAppleMailSendApprovalPolicy {
@@ -237,22 +227,11 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
                 kind: .send, activity: "Asked to send mail from \(named)",
                 words: Self.envelope(input) + "\n\n" + Self.words(input, replying: false)))
         case "reply_mail", "draft_reply":
-            // A reply answers from the
-            // account the original was addressed to, because that is what Mail
-            // itself does and what the user would do by hand. What the user needs on the
-            // card is which message is being answered and how far the answer
-            // goes, and the server refuses the whole thing if the subject on
-            // the card and the subject on the message do not match exactly.
-            //
-            // The account belongs on this card too, though the card once said
-            // it did not. Since `account` became required
-            // it is the field that picks WHICH copy of a Message-ID is
-            // answered — and the copy the user received and the copy in Sent carry
-            // the same subject, so `expect_subject` cannot tell them apart.
-            // The account therefore decides which side of the conversation the
-            // reply goes out from, which is exactly the wrong-side defect that
-            // rule was written to close. A field that decides the outcome is a
-            // field the user has to be able to read.
+            // A reply uses the account that received the original. Show account, target message
+            // and recipient scope on the card; the server also requires an exact subject match.
+            // The account selects the Message-ID copy. Inbox and Sent copies can share both id
+            // and subject, so `expect_subject` alone cannot prevent replying from the wrong
+            // side.
             let about = Self.fragment((input["expect_subject"] as? String) ?? "", 140)
             let sending = tool == "reply_mail"
             let named = Self.namedAccount(account)
@@ -313,8 +292,8 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
     static let secretActivity = "Blocked a mail that carried a secret you gave"
 
     /// Whether a mail would carry a secret the user gave this turn, in any value it
-    /// holds, by the rule a text in Messages follows (otherwise the card
-    /// blanks it, and Mail would send the real value). An input that
+    /// holds, by the rule a text in Messages follows. Redacting the approval
+    /// card alone would still let Mail send the real value. An input that
     /// cannot be read counts too.
     static func carriesASecret(tool: String, _ inputJSON: Data, secrets: [String]) -> Bool {
         guard writingTools.contains(tool) else { return false }
@@ -333,20 +312,10 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
         }
     }
 
-    /// Everyone a send would reach, in the order the user reads them, and never a
-    /// recipient left off the card: a bcc the user cannot see is a bcc the user cannot
-    /// refuse.
-    ///
-    /// The card's own text is clamped, so this string has to be bounded here
-    /// rather than there — whatever runs past the clamp is silence, and silence
-    /// about a blind copy is the one thing this sentence exists to prevent. The
-    /// first attempt bounded the *count* of addresses, which does not bound
-    /// their length: five ordinary company addresses in `to` and five in `cc`
-    /// overrun the clamp on their own, as running the card shows. So the rule is by characters, and it has
-    /// two forms. While every address fits, the user reads every address. When they
-    /// do not, each field says how many people it reaches and names the first —
-    /// and the blind copies are named in full for as long as they fit, because
-    /// that is the field the user most needs to see.
+    /// Describe every recipient field without hiding blind copies. Bound by length, not address
+    /// count: a few long addresses can exceed the card's clamp. Show all addresses while they
+    /// fit; otherwise show each field's count and first address. Keep blind-copy addresses in
+    /// full as long as they fit.
     static func recipients(_ input: [String: Any], budget: Int = 224) -> String {
         // Three fields, three separators of ", " between them.
         let perField = max(18, (budget - 4) / 3)
@@ -358,9 +327,8 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
             // is named as what it is rather than quietly left off the card.
             guard let text = value as? String else {
                 full.append(label + "an address list it sent in a form this card cannot show")
-                // Short enough for a field's share of the target line, which is
-                // tighter than the detail's: the long phrase rendered three
-                // times overran it.
+                // Short enough for a field's share of the target line, which is tighter than
+                // the detail's: the long phrase rendered three times overran it.
                 short.append(fragment(label + "a list this card cannot show", perField))
                 continue
             }
@@ -395,29 +363,25 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
     /// line: a subject carrying blank lines could otherwise lay out paragraphs
     /// of its own inside the card.
     static func oneLine(_ value: String) -> String {
-        // Split over scalars, not characters. Splitting over characters split
-        // over grapheme clusters, so a combining mark whose base is a space
-        // was eaten here and kept in the mail — a character in the mail and
-        // not on the card, which is the whole thing this rule exists to
-        // prevent.
+        // Split over scalars, not characters. Splitting over characters split over grapheme
+        // clusters, so a combining mark whose base is a space was eaten here and kept in the
+        // mail — a character in the mail and not on the card, which is the whole thing this
+        // rule exists to prevent.
         let visible = value.unicodeScalars.filter { !Self.isHidden($0) }
         return visible.split(whereSeparator: { $0.properties.isWhitespace })
             .map { String(String.UnicodeScalarView($0)) }
             .joined(separator: " ")
     }
 
-    /// Characters that can reorder or hide what the user reads, and are never part of
-    /// the words themselves.
-    ///
-    /// Two of the zero-width characters are NOT in here, and the distinction
-    /// matters: U+200C and U+200D are content. The joiner is what makes
-    /// 👩‍💻 one emoji rather than two and 👨‍👩‍👧 one family rather than three, and
-    /// the non-joiner is orthographically required in Persian and Urdu, where
-    /// dropping it from می‌روم spells a different word. Stripping them scrambled
-    /// real subjects, and because the card and the mail were scrambled the same
-    /// way the user had no way to notice. The script's own
-    /// set is the same list, so the card and the mail still read alike.
-    /// Addresses are a separate rule: they *refuse* every one of these,
+    /// Characters that can reorder or hide what the user reads, and are never part of the words
+    /// themselves.
+    /// Two of the zero-width characters are NOT in here, and the distinction matters: U+200C
+    /// and U+200D are content. The joiner is what makes 👩‍💻 one emoji rather than two and 👨‍👩‍👧
+    /// one family rather than three, and the non-joiner is orthographically required in Persian
+    /// and Urdu, where dropping it from می‌روم spells a different word. Stripping them
+    /// scrambled real subjects, and because the card and the mail were scrambled the same way
+    /// they had no way to notice. The script's own set is the same list, so the card and the mail
+    /// still read alike. Addresses are a separate rule: they *refuse* every one of these,
     /// joiners included, because no address needs one.
     static func isHidden(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
@@ -433,12 +397,13 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
     /// model is given its own room first, and the sentence fits by
     /// construction. The ellipsis is there so a cut reads as a cut.
     ///
-    /// The limit counts Unicode scalars, not characters. A character is a grapheme
-    /// cluster and has no length limit: one base letter can carry any number of
-    /// combining marks, and a 600-character card carried 47,850 scalars, measured. The
-    /// cut keeps whole characters while they fit, so a letter never reaches the card
-    /// without its accent; only a single character too long for the whole budget is cut
-    /// between its scalars, and never inside one.
+    /// The limit counts Unicode scalars, not characters. A character is a
+    /// grapheme cluster and has no length
+    /// limit: one base letter can carry any number of combining marks, and a
+    /// character limit alone cannot bound a card's storage. The cut keeps
+    /// whole characters while they fit, so a letter never reaches the card
+    /// without its accent; only a single character too long for the whole
+    /// budget is cut between its scalars, and never inside one.
     static func fragment(_ value: String, _ limit: Int) -> String {
         let line = oneLine(value)
         guard line.unicodeScalars.count > limit else { return line }
@@ -475,17 +440,18 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
     static let noWords = "This mail has no words in it."
 
     /// A new mail's labelled lines, at the top of its block and shown whole.
-    /// The sentence above is bounded, so past its budget it counts recipients and names
-    /// only the first of each field; a second blind copy was a number there, and the
-    /// subject was cut at 120 of the script's 400. Here every address, the whole
-    /// subject and the signature are written out. Nothing new is refused: the last
-    /// refusal rule added to this path broke ordinary sends, so the card shows more.
+    /// The sentence above is bounded, so past its
+    /// budget it counts recipients and names only the first of each field; a
+    /// second blind copy was a number there, and the subject was cut at 120 of
+    /// the script's 400. Here every address, the whole subject and the
+    /// signature are written out. Nothing new is refused: the last refusal
+    /// rule added to this path broke ordinary sends, so the card shows more.
     ///
     /// The addresses are split as `recipients` splits them and the subject is
     /// flattened as the script's `oneLineSubject` flattens it, so these lines
     /// read what Mail is handed. The signature line says what the script's
     /// COMPOSE does: a named one is used, and with none named the user's only
-    /// signature is added, or none when the user has several.
+    /// signature is added, or none when they have several.
     static func envelope(_ input: [String: Any]) -> String {
         var lines: [String] = []
         for (label, key) in [("To", "to"), ("Cc", "cc"), ("Bcc", "bcc")] {
@@ -521,17 +487,14 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
         return lines.joined(separator: "\n")
     }
 
-    /// The words of the mail, as the card shows them after its sentence. A user
-    /// could approve a reply that carried no words at all and have no way to
-    /// see it, so the whole body is shown, in
-    /// the card's scrolled box, as the browser's card shows what it hands a
-    /// site — and an empty one is said in words rather than left as a gap.
-    ///
-    /// The body keeps its line breaks, which is why it does not go through
-    /// `oneLine`, and it loses exactly the characters every other field
-    /// loses (`isHidden`), because those can reorder or hide what the user reads.
-    /// The script strips the same set before the body reaches Mail, so the
-    /// words on the card are the words sent (`AppleMailBodyReadsAlikeTests`).
+    /// The words of the mail, as the card shows them after its sentence. The user approved two
+    /// replies that carried no words at all and had no way to see it, so the whole body is
+    /// shown, in the card's scrolled box, as the browser's card shows what it hands a site —
+    /// and an empty one is said in words rather than left as a gap.
+    /// The body keeps its line breaks, which is why it does not go through `oneLine`, and it
+    /// loses exactly the characters every other field loses (`isHidden`), because those can
+    /// reorder or hide what they read. The script strips the same set before the body reaches
+    /// Mail, so the words on the card are the words sent (`AppleMailBodyReadsAlikeTests`).
     static func words(_ input: [String: Any], replying: Bool) -> String {
         guard let value = input["body"], !(value is NSNull) else { return noWords }
         // Only a string is a shape the server will send, so anything else is
@@ -552,7 +515,7 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
     }
 
     /// `ask` is the word the script tells a bot to use when it means "the user has
-    /// not chosen yet", so it is never one of the user's accounts and the card must
+    /// not chosen yet", so it is never one of their accounts and the card must
     /// not present it as one.
     static func namedAccount(_ account: String) -> String {
         let trimmed = account.trimmingCharacters(in: .whitespaces)
@@ -566,18 +529,19 @@ public enum ClaudeTextAppleMailSendApprovalPolicy {
 /// What the record says when a bot looks someone up in the user's Contacts.
 ///
 /// Every tool this server has is a read, and the row's own switch is the
-/// boundary: granting Contacts to a bot IS the decision that it may read the user's
-/// address book, so a card per lookup would be a card the user answers the same way
-/// every time. Harmless reads may be allowed per session, and that is why the row exists at all — a bot that has to interrupt
-/// the user for permission to find an address the user has saved is no better than a bot
-/// that asks the user for the address.
+/// boundary: granting Contacts to a bot IS the decision that it may read their
+/// address book, so a card per lookup would be a card they answer the same way
+/// every time. That is the security rule "harmless reads may be allowed per
+/// session", and it is why the row exists at all — a bot that has to interrupt
+/// them for permission to find an address they have saved is no better than a bot
+/// that asks them for the address.
 ///
 /// The server is the app's own, so its tool list is a fact of this build rather
 /// than a package's changing surface. Anything not on that list still asks,
 /// which is what a future write verb would hit.
 ///
 /// A quiet decision *is* the deed, so these lines are written in the past
-/// tense — unlike a card's activity line, which is written before the user answers
+/// tense — unlike a card's activity line, which is written before they answer
 /// and therefore says what was asked.
 public enum ClaudeTextAppleContactsApprovalPolicy {
     /// The two the app ships, taken from `apple-contacts.js`'s own `TOOLS`.
@@ -590,7 +554,7 @@ public enum ClaudeTextAppleContactsApprovalPolicy {
             // A search says what was searched for: those words are the user's own
             // address book's, and the record sheet is more use naming them
             // than saying "a lookup". Bounded where they enter the sentence,
-            // like every other value that reaches the user from a model. Reading one
+            // like every other value that reaches them from a model. Reading one
             // card by its id says nothing of the sort — an id is not a name,
             // and printing it would fill the sheet with something unreadable.
             let query = ClaudeTextAppleMailSendApprovalPolicy.fragment(
@@ -611,23 +575,12 @@ public enum ClaudeTextAppleContactsApprovalPolicy {
     }
 }
 
-/// The one shape a text may take on its way onto a card and out of the user's phone
-/// number.
-///
-/// The card is drawn here, in Swift, and the text is sent by
-/// `Resources/apple-messages.js`, from the same tool input. Where two languages
-/// read one input, they have drifted: the mail card and the mail sender parted
-/// over how each normalised a subject.
-/// So nothing is normalised on either side. Every field is a string or the
-/// send is refused; the recipient is never trimmed and must be plain ASCII in
-/// one of two shapes; the text is shown and sent exactly as given, or refused
-/// whole — a character is never stripped, because a text with a character
-/// taken out is not the text the user approved. Every literal below is mirrored in
-/// the script's `sendRefusal`, and `AppleMessagesScriptTests` sweeps the
-/// characters Unicode itself calls separating, controlling, formatting,
-/// combining or default-ignorable through both, asserting for each that both
-/// refuse or that the text osascript receives, the input and the card's text
-/// are one sequence of scalars.
+/// Keep the Swift card and `Resources/apple-messages.js` sender in agreement. Refuse non-string
+/// fields, malformed or non-ASCII recipients, and unsupported text characters. Never normalize
+/// or strip text that the user approved.
+/// Mirror literals in `sendRefusal`. `AppleMessagesScriptTests` sweeps Unicode separators,
+/// controls, format characters, combining marks and default-ignorables through both. Inputs
+/// must be refused by both or reach osascript as exactly the approved scalar sequence.
 public struct AppleMessagesSendProposal: Equatable, Sendable {
     /// Messages.sdef's whole `service type` enumeration, spelled as it spells
     /// them. There is no "auto": the card has to name the service.
@@ -697,9 +650,8 @@ public struct AppleMessagesSendProposal: Equatable, Sendable {
             throw Refusal.refusedCharacter(refused.value)
         }
         if let shape = Self.lineShapeRefusal(Array(scalars)) { throw shape }
-        // A space at the very end is one the user cannot see on the card, and the
-        // approvals record, which trims both ends of a detail, would keep the
-        // text without it.
+        // A space at the very end is one the user cannot see on the card, and the approvals record,
+        // which trims both ends of a detail, would keep the text without it.
         if let last = scalars.last, Self.isWhitespace(last.value) { throw Refusal.endsWithWhitespace }
         self.recipient = recipient
         self.service = named
@@ -742,35 +694,17 @@ public struct AppleMessagesSendProposal: Equatable, Sendable {
         }
     }
 
-    /// The first character a text may not carry where it stands, or nil.
-    ///
-    /// Refused anywhere: controls other than tab and newline (carriage return
-    /// included), DEL and the C1 controls (next line included), the line and
-    /// paragraph separators, the interlinear annotation marks, and every
-    /// character Unicode calls default-ignorable — the ones a renderer draws
-    /// as nothing. Borrowing the mail card's hidden set, twenty characters,
-    /// would let 4,154 default-ignorable ones pass both sides: tag characters after
-    /// "OK" could spell a code the card draws as "OK". Messages keeps its own list
-    /// rather than widening the mail card's, because that list is for STRIPPING a
-    /// subject, where taking out a presentation selector or a joiner would change every
-    /// emoji in it, and because the exceptions below depend on neighbours, which a test
-    /// of one character at a time cannot see.
-    ///
-    /// Four are content, and only in their place:
-    /// U+200C between letters of the scripts that spell words with it; U+200D
-    /// between two emoji, looking past one presentation selector and one skin
-    /// tone so ❤️‍🔥, 🏳️‍🌈 and 🧑🏽‍🤝‍🧑🏻 pass, or after a virama; U+FE0F only where it
-    /// turns a text-drawn character into its emoji (❤️, 🏳️, and a keycap's digit,
-    /// # or *), U+FE0E only where it turns an emoji into its text drawing. Beside
-    /// anything else they draw nothing and can carry a code. Tag characters are
-    /// content only inside the three flags Unicode spells with them: England,
-    /// Scotland and Wales.
-    ///
-    /// Every literal is mirrored in `firstRefusedIndex` in apple-messages.js. The
-    /// wire sweep holds the two sides together over the format characters and the
-    /// default-ignorables; what a selector or a joiner may lean on is each side's
-    /// own Unicode tables, checked against each other by
-    /// `theTwoSidesReadTheSameEmoji`.
+    /// Return the first disallowed character or nil. Refuse controls except tab/newline, DEL,
+    /// C1 controls, line/paragraph separators, interlinear annotation marks and
+    /// default-ignorables. Messages needs a context-sensitive rule; the mail subject's
+    /// stripping set cannot protect exact text sends while preserving emoji.
+    /// Allow U+200C between letters of scripts using it; U+200D between emoji past one selector
+    /// and skin tone or after a virama; U+FE0F where it selects emoji presentation including
+    /// keycaps; U+FE0E where it selects text presentation. Elsewhere these characters can carry
+    /// invisible content. Tags are allowed only in Unicode's England, Scotland and Wales flag
+    /// sequences.
+    /// Mirror literals in `firstRefusedIndex` in apple-messages.js. The wire sweep compares
+    /// both sides, and `theTwoSidesReadTheSameEmoji` checks their Unicode-table decisions.
     static func firstRefused(in scalars: [Unicode.Scalar]) -> Unicode.Scalar? {
         let values = scalars.map(\.value)
         var flagTags = Set<Int>()
@@ -783,10 +717,8 @@ public struct AppleMessagesSendProposal: Equatable, Sendable {
         for (index, value) in values.enumerated() where isRefusedAlone(value) {
             switch value {
             case 0x200C:
-                // Persian, Urdu, Syriac, Mongolian and the Brahmic scripts spell
-                // words with it. Between Latin letters it draws nothing, and a
-                // six-digit code can hide in "See you at 8" that way, in a card
-                // whose pixels are the plain sentence's.
+                // Persian, Urdu, Syriac, Mongolian and Brahmic scripts use this within words.
+                // Between Latin letters it is invisible and can carry hidden content.
                 if index > 0, index + 1 < values.count,
                    joinsWords(values[index - 1]), joinsWords(values[index + 1]) { continue }
             case 0x200D:
@@ -798,10 +730,9 @@ public struct AppleMessagesSendProposal: Equatable, Sendable {
                 if before >= 0, index + 1 < values.count,
                    takesSelector(values[before]), takesSelector(values[index + 1]) { continue }
             case 0xFE0F:
-                // Only where it changes the drawing: on a character Unicode draws
-                // as text unless asked (❤️, 🏳️), or on a keycap's digit, # or *.
-                // After a character already drawn as emoji it draws nothing, and
-                // ten of those can carry a code.
+                // Allow only where presentation changes: text-default characters such as ❤️ or
+                // 🏳️, or a keycap digit, # or *. After an emoji-default character it is
+                // invisible and can carry hidden content.
                 if index > 0, takesSelector(values[index - 1]), !drawnAsEmoji(values[index - 1]) { continue }
                 if index > 0, isKeycapBase(values[index - 1]),
                    index + 1 < values.count, values[index + 1] == 0x20E3 { continue }
@@ -841,8 +772,8 @@ public struct AppleMessagesSendProposal: Equatable, Sendable {
     static func isRefusedAlone(_ value: UInt32) -> Bool {
         switch value {
         case 0x09, 0x0A: return false
-        // U+FFFC stands in for an attachment and U+2800 is an empty braille cell:
-        // both take up space and draw nothing.
+        // U+FFFC stands in for an attachment and U+2800 is an empty braille cell: both take up
+        // space and draw nothing.
         case 0x00..<0x20, 0x7F...0x9F, 0x2028, 0x2029, 0x2800, 0xFFF9...0xFFFB, 0xFFFC: return true
         default: return defaultIgnorableRanges.contains { $0.contains(value) }
         }
@@ -904,12 +835,12 @@ public struct AppleMessagesSendProposal: Equatable, Sendable {
 
     static func isVirama(_ value: UInt32) -> Bool { viramas.contains(value) }
 
-    /// The text's lines as the card lays them out. The first and the last must
-    /// hold something other than whitespace, and no two blank lines may follow
-    /// each other: the card's box shows about six lines before it scrolls and
-    /// a trackpad hides the scroller, so "Sure, see you then", forty line
-    /// breaks and a second paragraph read as the first line alone. One blank line
-    /// between paragraphs passes. Mirrored in `lineShapeRefusal` in apple-messages.js.
+    /// The text's lines as the card lays them out. The first and the last must hold something
+    /// other than whitespace, and no two blank lines may follow each other: the card's box
+    /// shows about six lines before it scrolls and a trackpad hides the scroller, so "Sure, see
+    /// you then", forty line breaks and a second paragraph read as the first line alone. One
+    /// blank line between paragraphs passes. Mirrored in `lineShapeRefusal` in
+    /// apple-messages.js.
     static func lineShapeRefusal(_ scalars: [Unicode.Scalar]) -> Refusal? {
         var blankLines: [Bool] = []
         var blank = true
@@ -988,9 +919,9 @@ extension AppleMessagesSendProposal.Refusal {
 }
 
 /// What the card says when a bot wants to text someone as the user, and what the
-/// record says when it reads the user's conversations.
+/// record says when it reads their conversations.
 ///
-/// The two reads are quiet: the row's own switch is the boundary, reading the user's
+/// The two reads are quiet: the row's own switch is the boundary, reading their
 /// own messages is what the row is for, and checking which service reaches a
 /// person sends nothing and is what every send needs first. The send is never
 /// quiet. Its card names the recipient and the service and shows the exact
@@ -999,13 +930,11 @@ extension AppleMessagesSendProposal.Refusal {
 /// proposal the card could not show exactly is refused by rule, with a
 /// "Blocked" line on the record, and never becomes a card at all.
 public enum ClaudeTextAppleMessagesApprovalPolicy {
-    /// The record's line for each read, with the person it names and without.
-    /// The reads are exactly its keys, and `decide` finds a read here and
-    /// nowhere else, so the set a test holds to the server's list is the set
-    /// that decides (`decide` once switched on literals of its own).
+    /// The record's line for each read, with the person it names and without. The reads are
+    /// exactly its keys, and `decide` finds a read here and nowhere else, so the set a test
+    /// holds to the server's list is the set that decides.
     static let quietReadActivities: [String: (named: String, unnamed: String)] = [
-        // A read covers only the chats the user chose for the bot, and the line
-        // says so.
+        // A read covers only the chats chosen for the bot, and the line says so.
         "read_messages": (named: "Read your messages with ", unnamed: "Read your latest messages in the chats you chose"),
         "check_message_service": (named: "Checked which service reaches ",
                                   unnamed: "Checked which service reaches someone"),
@@ -1132,18 +1061,18 @@ public enum ClaudeTextAppleMessagesApprovalPolicy {
 
 /// What the card says when a bot wants to read the user's calendar.
 ///
-/// Reading the user's own calendar is what the row is FOR, and the row's own switch is
-/// the boundary, so the three reads are harmless reads, allowed per session.
-/// A card per lookup would be a card the user answers the same
-/// way every time — and a bot that has to interrupt the user for permission to see
-/// whether the user is free is no better than one that asks whether they are free.
+/// Reading their own calendar is what the row is FOR, and the row's own switch is
+/// the boundary, so the three reads fall under "harmless reads may be
+/// allowed per session". A card per lookup would be a card they answer the same
+/// way every time — and a bot that has to interrupt them for permission to see
+/// whether they are free is no better than one that asks them whether they are free.
 ///
 /// The server is the app's own, so its tool list is a fact of this build rather
 /// than a package's changing surface. Anything not on that list still asks,
 /// which is what a future write verb would hit.
 ///
 /// A quiet decision *is* the deed, so these lines are written in the past
-/// tense — unlike a card's activity line, which is written before the user answers
+/// tense — unlike a card's activity line, which is written before they answer
 /// and therefore says what was asked.
 public enum ClaudeTextAppleCalendarApprovalPolicy {
     /// The three the app ships, taken from `apple-calendar.js`'s own `TOOLS`.
@@ -1155,7 +1084,7 @@ public enum ClaudeTextAppleCalendarApprovalPolicy {
         if quietReads.contains(tool) {
             // The record sheet says WHICH days were read, because "read your
             // calendar" is the one thing every one of these lines would say and
-            // a sheet of identical lines tells the user nothing. The dates are the user's
+            // a sheet of identical lines tells the user nothing. The dates are their
             // own calendar's, but they arrive here from a model, so they are
             // bounded where they enter the sentence like every other such value.
             let line: String
@@ -1190,19 +1119,10 @@ public enum ClaudeTextAppleCalendarApprovalPolicy {
     }
 }
 
-/// What the card says when a bot with Apple Mail wants to do something.
-///
-/// The reader is launched with `--read-only`, so the fourteen mutating tools do
-/// not exist to be called. Reading the user's own mailbox is what the row is *for* and
-/// the row's own switch is the boundary, so those reads are harmless reads,
-/// allowed per session. Anything else on that namespace
-/// asks, including whatever a later version of the package adds.
-///
-/// Driven against the installed pieces, the server
-/// registers **ten** tools under `--read-only`, not the nine its own log line
-/// claims: the tenth is `render_template`, which substitutes into a template
-/// rather than reading the mailbox. It is deliberately not quiet — it is not a
-/// read of the user's mail, so it asks like anything else.
+/// Apple Mail's --read-only mode omits mutating tools. Mailbox reads are covered by the
+/// connector grant; other tools require approval, including future additions.
+/// The read-only server registers ten tools despite logging nine. The tenth, `render_template`,
+/// substitutes into a template rather than reading mail, so it requires approval.
 public enum ClaudeTextAppleMailApprovalPolicy {
     /// The nine that read the user's mailbox, taken from version 0.10.2's own source
     /// and confirmed against the installed server's `tools/list`.
@@ -1240,16 +1160,16 @@ public enum ClaudeTextAppleMailApprovalPolicy {
 /// tools; it cannot add a quiet one.
 public enum ClaudeTextBrowserApprovalPolicy {
     /// Reading what is already on the screen. These reach nothing new — no
-    /// network, no page change, no file — so they are harmless reads, allowed
-    /// per session. Everything that opens a
+    /// network, no page change, no file — so they may be allowed per session.
+    /// Everything that opens a
     /// page, changes one, or touches the Mac asks every time.
     static let quietReads: Set<String> = [
         "take_snapshot", "take_screenshot", "list_pages", "select_page", "get_tab_id",
         "list_network_requests", "get_network_request", "get_console_message", "wait_for",
     ]
 
-    /// `afterPrivateRead`: the bot read something private of the user's earlier
-    /// in this reply. Then whatever a call hands the site (an address, typed words, a
+    /// `afterPrivateRead`: the bot read something private of the user's earlier in this
+    /// reply. Then whatever a call hands the site (an address, typed words, a
     /// key, a pop-up's answer, a file's path) is shown whole on the card, or
     /// the call is refused; code run in the page and tools this version does
     /// not know are refused.

@@ -24,6 +24,7 @@ final class TeamRosterAvatarTests: XCTestCase {
         XCTAssertTrue(TeamRosterAvatarPolicy.accessibilityLabel(for: team).contains("Members: Same name, Same name"))
     }
 
+
     /// A hidden bot keeps its seat and shows in its teams. Its live row feeds the team
     /// surfaces and never the list, and Unhide never draws it twice.
     func testAHiddenMemberHasATeamRowAndNoListRow() {
@@ -75,6 +76,7 @@ final class TeamRosterAvatarTests: XCTestCase {
             streamState: .failed("Interrupted before content"), timestamp: message.timestamp)
         XCTAssertFalse(NormalBusyFeedbackPolicy.hidesPlaceholder(message), "A failure cannot disappear merely because it has no body")
     }
+
 
     /// Every sent message once carried
     /// "Saved on this Mac · Claude delivery not verified", the fallback for a
@@ -150,6 +152,7 @@ final class TeamRosterAvatarTests: XCTestCase {
         for _ in 0..<6 { view.layoutSubtreeIfNeeded(); try await Task.sleep(for: .milliseconds(10)) }
     }
 
+
     /// A member working in its own chat once
     /// showed a working badge beside its name in the team header, because the
     /// header's member buttons read the bot's own row. Inside a team, a member
@@ -162,6 +165,7 @@ final class TeamRosterAvatarTests: XCTestCase {
         XCTAssertEqual(TeamRosterAvatarPolicy.activity(of: ada, in: adaHere), .waitingForUser)
         XCTAssertEqual(TeamRosterAvatarPolicy.activity(of: mira, in: adaHere), .idle)
     }
+
 
     /// The team header's names: a member busy
     /// in its own chat reads Idle there; the team's own turn reads through, for
@@ -183,6 +187,7 @@ final class TeamRosterAvatarTests: XCTestCase {
         XCTAssertEqual(miraHere.activity(of: mira.id), .speaking, "A member whose row has not loaded still shows the team's turn")
         XCTAssertEqual(miraHere.activity(of: ada.id), .idle)
     }
+
 
     /// The roster face of a member whose row has not loaded yet follows this
     /// team's turn too: it used to stay idle.
@@ -206,6 +211,7 @@ final class TeamRosterAvatarTests: XCTestCase {
         let here = try await workingFaces(.init(teammateID: mira.id, activity: .thinkingOrWorking))
         XCTAssertEqual(here, ["working-avatar-\(mira.id.uuidString)-in-\(team.conversationID.uuidString)"])
     }
+
 
     /// A loaded member busy in its own chat stays still on the team's face; the
     /// team's own turn moves it.

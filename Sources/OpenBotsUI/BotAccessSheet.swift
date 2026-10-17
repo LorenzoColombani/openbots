@@ -4,6 +4,7 @@ import OpenBotsDomain
 import OpenBotsServices
 import SwiftUI
 
+
 /// One Access sheet per bot, instead of four switches across two windows to
 /// let one bot read Gmail. Everything this bot may do, one row each with its own switch:
 /// Work on this Mac, web search, web fetch, hiring, and every connector the
@@ -65,6 +66,7 @@ public final class BotAccessModel: ObservableObject, Identifiable {
         await connectors?.load()
         await loadMessagesChats()
     }
+
 
     // MARK: The chats this bot may read in Messages
 
@@ -236,17 +238,10 @@ public final class BotAccessModel: ObservableObject, Identifiable {
 
     public func row(_ id: String) -> BotAccessRow? { rows.first { $0.id == id } }
 
-    /// A connector that no part of this build can launch — one Claude Code
-    /// configured that this app has no way to run — is left off a bot's sheet
-    /// unless this bot has it on. Off, its switch could only ever read as
-    /// something switched off: Claude Code's own "imessage — unavailable" row
-    /// read as iMessage not being enabled, beside the app's own Messages row,
-    /// which is the one that sends and reads. On, it is listed so it can be
-    /// switched off: otherwise a bot could keep such a grant that no surface
-    /// could reach. Settings → Connectors & Skills lists it always, because the
-    /// app-wide switch is the user's. An app-owned row that cannot run
-    /// today keeps its place and its reason ("Messages is not installed on this
-    /// Mac"): that is something to act on.
+    /// Hide unsupported connectors from a bot's sheet unless that bot still has a grant, in
+    /// which case keep the row so the grant can be disabled. Settings always lists these
+    /// connectors for app-wide control. Keep app-owned connectors with temporary availability
+    /// problems visible with an actionable reason, such as Messages not being installed.
     static func listsOnBotSheet(_ definition: ConnectorDefinition, isOn: Bool) -> Bool {
         // The kind of answer, never its words: a row a preparation owns keeps
         // its place even when its reason reads like the unowned sentence.
@@ -340,6 +335,7 @@ public struct BotAccessRow: Identifiable, Equatable, Sendable {
     /// listed only while it is on: its switch moves, and only to off.
     public let isFrozen: Bool
 
+
     /// The Settings pane the master sentence names, for the Open Settings
     /// button beside it. Nil exactly when there is no sentence.
     public var masterPane: BotAccessMasterPane? {
@@ -385,7 +381,7 @@ public enum BotAccessMasterPane: Equatable, Sendable {
     var settingsName: String { settingsSection.rawValue }
 
     /// The pane Open Settings selects. It only opens the pane: turning a
-    /// master on stays the user's own press in Settings, app-wide and per bot.
+    /// master on stays the user's own press in Settings.
     public var settingsSection: WorkspaceSettingsSection {
         switch self {
         case .permissions: .permissions
@@ -393,6 +389,7 @@ public enum BotAccessMasterPane: Equatable, Sendable {
         }
     }
 }
+
 
 /// Whether a throwaway worker can run in this build. The two worker switches
 /// arrived with the foundation before the host channel, the worker's blank run
@@ -403,9 +400,8 @@ public enum AgenticWorkerAvailability {
     public static let runsInThisBuild = true
 }
 
-/// The sentences the sheet and the Details summary say, named so a test can
-/// read them (a string inside a view body is the one thing nothing in this
-/// repo can assert on).
+/// Named copy shared by the Access sheet and Details summary, exposed so tests can assert the
+/// exact wording.
 public enum BotAccessCopy {
     /// Under a row whose app-wide master is off. Names what did not happen and
     /// where the master lives; the bot's own choice is kept, as it is today.
@@ -456,24 +452,21 @@ public enum BotAccessCopy {
         + "Contacts. Each chat is listed by its number or address."
     public static let sheetCaption = "Each switch here is this bot's own. The app-wide switches stay in Settings, "
         + "and the bot can use something only when both are on."
-    /// Under a connector nothing in this build can run, listed only while this
-    /// bot has it on.
+    /// Under a connector nothing in this build can run, listed only while this bot has it on.
     public static let unownedConnectorOn = "Nothing in this version of OpenBots Next can run this connector, "
         + "so this switch does nothing. You can switch it off, and then the row leaves this sheet. "
         + "It cannot be switched back on."
     /// The sheet's empty line when the catalog lists nothing at all.
     public static let noConnectors = "No connectors are set up on this Mac yet."
-    /// The sheet's empty line when every connector listed is one nothing in
-    /// this build can run and this bot has none of them on ("no connectors are
-    /// set up" would be false then, and Settings lists exactly those rows).
+    /// The sheet's empty line when every connector listed is one nothing in this build can run
+    /// and this bot has none of them on.
     public static let noRunnableConnectors = "None of the connectors on this Mac can be run by this version of "
         + "OpenBots Next, so this bot has none to switch on. Settings → Connectors & Skills lists them, each with the reason."
     public static let connectorsUnreadable = "Connector settings could not be read. "
         + "Reload the list under Settings → Connectors & Skills."
-    /// Under the Access button in Details. It names what the sheet holds and
-    /// promises no more: the sheet leaves out a connector nothing in this build
-    /// can run unless the bot has it on, and it shows a sentence, not a switch,
-    /// where a master is off.
+    /// Under the Access button in Details. It names what the sheet holds and promises no more:
+    /// the sheet leaves out a connector nothing in this build can run unless the bot has it on,
+    /// and it shows a sentence, not a switch, where a master is off.
     public static let detailsCaption = "This bot's own switches for Work on this Mac, web search, web fetch, "
         + (AgenticWorkerAvailability.runsInThisBuild ? "hiring, workers" : "hiring")
         + " and connectors, in one place. The app-wide switches stay in Settings."

@@ -38,9 +38,7 @@ private func sameScalars(_ a: String, _ b: String) -> Bool {
 
 /// A fake Messages.app and a history file, so every badge is decided by the
 /// fixture — never by this Mac's own Messages, and never by whether the process
-/// running the suite happens to hold Full Disk Access (a developer's shell
-/// can often read the real chat.db, and a test leaning on that would pass
-/// here and fail everywhere else).
+/// running the suite happens to hold Full Disk Access.
 private struct MessagesFixture {
     enum History { case readable, unreadable, missing }
 
@@ -194,8 +192,8 @@ struct AppleMessagesPreparationTests {
     }
 
     /// Full Disk Access never raises a prompt. A row that read "ready" without
-    /// it would switch on and then fail every read, with nothing on the user's
-    /// screen saying where to go — so the badge opens the file itself.
+    /// it would switch on and then fail every read, with nothing on the user's screen
+    /// saying where to go — so the badge opens the file itself.
     @Test("A history this app cannot open reads needs setup and names the pane to open")
     func anUnreadableHistoryNamesFullDiskAccess() throws {
         let fixture = try MessagesFixture(history: .unreadable); defer { fixture.remove() }
@@ -336,8 +334,8 @@ struct AppleMessagesCardTests {
         #expect(!line.contains("\n") && !line.contains("\u{200B}") && line.count <= 200)
     }
 
-    /// Why a call failed follows as one quoted line the user can read: a
-    /// stranger's words in it
+    /// Why a call failed follows as one quoted line the user can read:
+    /// a stranger's words in it
     /// can close neither the quote nor the line, and the record's 512 bytes
     /// always hold the part that says what failed.
     @Test("A failed call's reason is kept as one short quoted line, and the line always fits the record")
@@ -363,8 +361,7 @@ struct AppleMessagesCardTests {
         #expect(wideReason.utf8.count <= 500 && wideQuote.hasSuffix("…\""))
         #expect(wideQuote.dropFirst().dropLast(2).allSatisfy { $0 == "👩‍💻" })
         // A connector's refusal comes back inside the untrusted-material fence:
-        // the line quotes the refusal, not the fence's own words (seen live:
-        // "[UNTRUSTED MATERIAL — tool result from apple-messages] Everything…").
+        // the line quotes the refusal, not the fence's own words.
         let fenced = [UntrustedMaterial.header(label: "apple-messages"), UntrustedMaterial.instruction, "",
                       "No chat you chose is with Tim.", UntrustedMaterial.closeMarker].joined(separator: "\n")
         #expect(OfficialClaudeTextReplyService.failureLine(bash, quiet: nil, access: nil, reason: fenced)
@@ -397,8 +394,7 @@ struct AppleMessagesCardTests {
                 == "Failed to check which service reaches +3361")
         // With no quiet line of its own, or one whose verb cannot be turned,
         // the call reads as it always did; and a built-in tool keeps its line.
-        // ("Listed …" was once such a verb; every quiet line's verb is now
-        // turned, ConnectorFailureLineTests.)
+        // ConnectorFailureLineTests covers the verb conversion for quiet lines.
         let before = "Failed to " + OfficialClaudeTextReplyService.attemptLine(use, access: nil)
         #expect(OfficialClaudeTextReplyService.failureLine(use, quiet: nil, access: nil) == before)
         #expect(OfficialClaudeTextReplyService.failureLine(use, quiet: "Pondered the OpenBots Google calendars",
@@ -442,7 +438,7 @@ struct AppleMessagesCardTests {
 
     @Test("A long text is on the card whole, never cut at the mail card's six hundred characters")
     func aLongTextIsNotCut() throws {
-        let text = (1...25).map { "Line \($0) of a long text that they have to be able to read in full." }
+        let text = (1...25).map { "Line \($0) of a long text that he has to be able to read in full." }
             .joined(separator: "\n")
         #expect(text.unicodeScalars.count <= AppleMessagesSendProposal.maximumTextScalars)
         let card = try sendCard(["recipient": "+33612345678", "service": "SMS", "text": text])
@@ -610,7 +606,7 @@ struct AppleMessagesCardTests {
             text("byte order mark", "a\u{FEFF}b"), text("Arabic letter mark", "a\u{061C}b"),
             text("one past the limit", String(repeating: "x", count: AppleMessagesSendProposal.maximumTextScalars + 1)),
             // Joiners and selectors where they draw nothing: a code hidden in a
-            // sentence the card draws pixel for pixel like the plain one
+            // sentence the card draws pixel for pixel like the plain one,
             // and a secret a joiner breaks up.
             text("joiner between Latin letters", "See you at 8".replacingOccurrences(of: "e", with: "e\u{200D}")),
             text("non-joiner between Latin letters", "See you at 8".replacingOccurrences(of: "o", with: "o\u{200C}")),
@@ -680,7 +676,7 @@ struct AppleMessagesCardTests {
         }
         #expect(values.count >= 4_177)
         // Between two Latin letters all four of these are refused now, so none is
-        // exempt from that place any more.
+        // exempt from that place.
         let contextual: Set<UInt32> = []
         var passed: [String] = []
         for value in values.sorted() {
@@ -728,7 +724,7 @@ struct AppleMessagesCardTests {
                     Comment(rawValue: text.debugDescription))
         }
         // Both shapes of recipient, at the edges of what they allow.
-        for recipient in ["123", "+123456789012345", "a@b.example", "first.last+tag%x-y@sub-domain.department.example"] {
+        for recipient in ["123", "+123456789012345", "a@b.test", "first.last+tag%x-y@sub-domain.example.co.uk"] {
             _ = try sendCard(["recipient": recipient, "service": "iMessage", "text": "hi"])
         }
     }
@@ -736,7 +732,7 @@ struct AppleMessagesCardTests {
     /// The wire sweep in `AppleMessagesScriptTests` once could not carry these
     /// three: a raw U+2028 or U+2029 split the server's line-framed protocol,
     /// and a NUL the rule let through would fail at the spawn looking like a
-    /// refusal. It carries all three now, and holds a
+    /// refusal. It carries all three and holds a
     /// refusal to the server's own words; the card's half stays pinned here.
     @Test("The characters the wire sweep once could not carry are refused by the card's rule")
     func theUnsweepableCharactersAreRefused() throws {

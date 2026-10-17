@@ -97,6 +97,7 @@ struct DurableTeammateChatTeamTests {
         #expect(page.messages.map(\.sequence) == [1, 2])
     }
 
+
     // The transcript pages the conversation and hides every `workAudit` row
     // (briefs and reports live on the record). A page is a page of
     // what the transcript shows: a long run of hidden rows must never read as

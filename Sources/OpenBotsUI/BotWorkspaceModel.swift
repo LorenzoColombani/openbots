@@ -28,15 +28,13 @@ public final class BotWorkspaceModel: ObservableObject {
 
     public init(service: BotWorkspaceService) {
         self.service = service
-        // A skill added or fixed in Finder shows the next time the user comes
-        // back to the app, not only after they pick another bot.
+        // A skill added or fixed in Finder shows the next time the user comes back
+        // to the app, not only after they pick another bot.
         activation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in Task { @MainActor in self?.refreshSkillLibrary() } }
     }
 
-    /// The line the Add Skill menu shows in place of skills, or nil while it
-    /// lists some (it must not say "No skills" before the folder is read, or
-    /// when the folder holds skills it cannot offer).
+    /// The line the Add Skill menu shows in place of skills, or nil while it lists some.
     var skillMenuNote: String? {
         guard skillLibraryIsLoaded else { return BotSkillsCopy.readingSkills }
         guard availableSkills.isEmpty else { return nil }
@@ -89,6 +87,7 @@ public final class BotWorkspaceModel: ObservableObject {
     }
 
     private func changeSkills(_ change: @escaping @Sendable (BotWorkspaceService, TeammateID) async throws -> [BotSkill]) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard let id = teammateID, !isBusy else { return }
         let expected = generation
         isBusy = true
@@ -131,6 +130,7 @@ public final class BotWorkspaceModel: ObservableObject {
     /// rename in Finder does not lose it.
     public func addFolder() {
         guard let id = teammateID, !isBusy else { return }
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -143,6 +143,7 @@ public final class BotWorkspaceModel: ObservableObject {
         isBusy = true
         Task { [weak self] in
             guard let self else { return }
+            defer { withExtendedLifetime(updateOperation) {} }
             defer { self.isBusy = false }
             do {
                 let updated = try await self.service.addFolder(url, teammateID: id)
@@ -156,6 +157,7 @@ public final class BotWorkspaceModel: ObservableObject {
     }
 
     public func removeFolder(id folderID: UUID) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard let id = teammateID, !isBusy else { return }
         let expected = generation
         isBusy = true

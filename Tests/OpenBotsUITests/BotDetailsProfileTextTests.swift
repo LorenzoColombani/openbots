@@ -2,15 +2,16 @@ import OpenBotsDomain
 import XCTest
 @testable import OpenBotsUI
 
+
 /// Details once said "No description yet" about a
 /// bot whose "What this bot does" had just been typed in the New Bot sheet, because
 /// it read only the instructions. Details now says what the settings say, under the
 /// same two names.
 final class BotDetailsProfileTextTests: XCTestCase {
     func testWhatTheBotDoesIsItsRole() throws {
-        let profile = try TeammateProfile(displayName: "Polish One", role: "Practice bot for testing.")
+        let profile = try TeammateProfile(displayName: "Polish One", role: "Practice bot for integration tests.")
         let sections = BotDetailsProfileText.sections(for: profile)
-        XCTAssertEqual(sections, [.init(label: "What this bot does", text: "Practice bot for testing.")])
+        XCTAssertEqual(sections, [.init(label: "What this bot does", text: "Practice bot for integration tests.")])
     }
 
     func testInstructionsFollowUnderTheirOwnName() throws {

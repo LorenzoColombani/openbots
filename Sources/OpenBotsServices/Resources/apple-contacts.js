@@ -1,40 +1,15 @@
 #!/usr/bin/env node
 "use strict";
 /*
- * OpenBots apple-contacts — read-only lookups in the user's own Contacts.app.
- *
- * WHY THIS ROW EXISTS: without Contacts, the Messages and Mail connectors are
- * crippled. Messages needs a number or an address and must
- * never be handed a person's name; mail has the same hole. A bot told "write to
- * Charles" either asks the user for an address their Mac already holds, or guesses.
- * This server closes that, and does nothing else: search people, read one card.
- *
- * READ-ONLY BY CONSTRUCTION, not by a flag. There is no create, edit, delete or
- * save verb anywhere in this file, so there is no tool for one to be called
- * through. Contacts' own scripting dictionary has `add`, `remove` and `save`;
- * none of them is reachable from here.
- *
- * WHY JavaScript for Automation rather than AppleScript, which the mail sender
- * uses. Contacts hands back lists whose entries are `missing value` — a person
- * with no organisation, a card with no phone — and AppleScript cannot coerce
- * such a list to text without erroring, so an AppleScript version of this file
- * would be a page of text-item-delimiter bookkeeping around every field. JXA
- * returns `null` for the same value and `JSON.stringify` for the whole answer,
- * so the shape that reaches node is checked by a parser instead of by eye. The
- * safety property the mail sender was written for is kept exactly: values
- * travel as `argv` into `run(argv)` and are never interpolated into the script
- * source, so nothing a bot types can break out of a string.
- *
- * ONE NORMALISER. The card in the app and the sender's own script drifted twice
- * over how they folded a subject, so matching
- * here happens in ONE place: `normalise` in this file, in node. The scripts
- * that talk to Contacts return raw values and decide nothing. Nothing in the
- * JXA source below compares, folds or filters anything.
- *
- * CONTACTS IS LAUNCHED HIDDEN. An Apple event to an app that is not running
- * launches it, and a quiet lookup that throws a window onto the user's screen
- * mid-turn is a defect the suite cannot see. So it is started with
- * `open -g -j` — background, hidden — and only when it is not already running.
+ * OpenBots apple-contacts provides read-only lookup in Contacts.app: search people and read a
+ * card. Mail and Messages can then use saved addresses rather than guessing. No create, edit,
+ * delete or save verb is exposed.
+ * JavaScript for Automation returns missing entries as null and serializes JSON, avoiding
+ * AppleScript's failure to coerce missing-value lists to text. Values travel as argv to
+ * run(argv), never interpolated into script source.
+ * Normalize and match only in this node module. JXA returns raw values without comparing,
+ * folding or filtering them, keeping one interpretation of every record.
+ * Launch Contacts only if needed, with `open -g -j` to keep it hidden and in the background.
  */
 
 const { execFile } = require("child_process");
@@ -48,8 +23,8 @@ const PGREP = process.env.OPENBOTS_PGREP || "/usr/bin/pgrep";
 // copies — the failure that comes of looking the same thing up twice.
 const CONTACTS_APP = process.env.OPENBOTS_CONTACTS_APP || "/System/Applications/Contacts.app";
 // The app name comes in from the Swift side (AppleContactsConnectorPreparation
-// passes OPENBOTS_APP_NAME) so the permission hint names the app the user
-// will actually find in System Settings.
+// passes OPENBOTS_APP_NAME) so the permission hint names the app the user will
+// actually find in System Settings.
 const APP_NAME = process.env.OPENBOTS_APP_NAME || "OpenBots Next";
 
 /// How long to wait for a hidden Contacts to come up. Deliberately generous:
@@ -86,8 +61,8 @@ async function isContactsRunning() {
     // Scoped to this user, and that is not a detail. A bare `pgrep -x` matches
     // every account's processes, so under fast user switching another user's
     // Contacts would answer "already running", the hidden launch would be
-    // skipped, and the Apple event would then start Contacts for THIS user with
-    // no -g and no -j — a window on their screen, which is the one thing this
+    // skipped, and the Apple event would then start Contacts for THIS user with no
+    // -g and no -j — a window on the user's screen, which is the one thing this
     // function exists to prevent.
     try { await run(PGREP, ["-U", String(process.getuid()), "-x", "Contacts"]); return true; }
     catch (_) { return false; }        // pgrep exits non-zero when nothing matches
@@ -238,8 +213,8 @@ function run(argv) {
 
 /// The one place a name is folded for comparison, and the reason there is only
 /// one: two of them drift, and the drift is invisible until it answers with the
-/// wrong person. Accents come off both sides — many names carry accents, and
-/// "Duran" must find "Duràn" — case is folded, and the ordinary
+/// wrong person. Accents come off both sides — "Moreau" must find "Moreàu" —
+/// case is folded, and the ordinary
 /// punctuation of a name is treated as a space, so "O'Brien", "O Brien" and
 /// "OBrien" are one query.
 function normalise(value) {
@@ -276,7 +251,7 @@ function haystackOf(roster, index) {
 /// Everything a card carries is rendered into a line-per-fact answer, so a
 /// field holding a line break could write a line of its own — a second
 /// "Email (work):" under a real person, or a fake "id:" the bot would then
-/// pass to read_contact. An address book is mostly its owner's own typing, but a
+/// pass to read_contact. The user's own address book is mostly their own typing, but a
 /// vCard arrives from whoever sent it. So every value is folded to one line
 /// before it becomes part of a line. The postal address is the single
 /// exception, and it is handled where it is rendered: its lines are real, and
@@ -288,16 +263,9 @@ function oneLine(value) {
         .trim();
 }
 
-/// AddressBook stores Apple's own labels as `_$!<Work>!$_`, not as "work".
-/// In a real address book most numbers carry `_$!<Mobile>!$_`, and
-/// `_$!<Work>!$_`, `_$!<Home>!$_`, `_$!<Other>!$_`, `_$!<Main>!$_` and
-/// `_$!<WorkFAX>!$_` are common too — most labels wear the wrapper. Printed raw, the one thing a bot needs the label for
-/// — is this the work address or the home one — is buried in punctuation.
-/// A label the user typed ("Personal", "Sam Gmail") arrives as the words they
-/// typed and must be left exactly as it is, so only a whole string wearing the
-/// wrapper is unwrapped. Nothing here translates: `_$!<WorkFAX>!$_` becomes
-/// `WorkFAX`, because inventing prettier words is how two renderings of the
-/// same label start to disagree.
+/// AddressBook wraps built-in labels as `_$!<Work>!$_`. Unwrap only a whole matching string so
+/// the label remains readable; user-entered labels stay verbatim. Do not translate labels:
+/// `_$!<WorkFAX>!$_` becomes `WorkFAX`.
 const APPLE_LABEL = /^_\$!<(.*)>!\$_$/;
 /// Every opening and closing bracket Unicode knows — ( [ { and their
 /// full-width, small, superscript and ornate look-alikes — by general category,
@@ -332,7 +300,7 @@ function displayName(card) {
 /// One line per address or number. `multiline` is passed only by the postal
 /// addresses, whose line breaks are real: Contacts' own dictionary says the
 /// street is carriage-return separated, and running them together turns
-/// "1 rue de l'Exemple / Paris" into one unreadable string. Those lines are indented
+/// "42 Example Street / Example City" into one unreadable string. Those lines are indented
 /// under their own heading, so they read as part of the address rather than as
 /// facts of their own.
 function renderPairs(label, list, multiline = false) {
@@ -364,7 +332,7 @@ function renderCard(card) {
     return lines.join("\n");
 }
 
-/// What a refusal from macOS looks like, said once and in plain words. Automation
+/// What a refusal from macOS looks like, said once and in the user's words. Automation
 /// is asked for per target app, so a Mac that already lets this app drive Mail
 /// still has to be asked about Contacts, and the first lookup is when macOS
 /// asks.
@@ -400,8 +368,8 @@ async function searchContacts(args) {
     if (!roster || !Array.isArray(roster.id)) {
         return { isError: true, text: "Contacts answered in a shape this server does not understand." };
     }
-    // An address book with nothing in it is not "that person isn't in your
-    // contacts" — that answer would send the bot off to ask the user for an address on the
+    // An address book with nothing in it is not "they aren't in your contacts" —
+    // that answer would send the bot off to ask the user for an address on the
     // strength of a read that never worked. Almost always this is Contacts
     // still loading its accounts, or a book that genuinely holds nobody.
     if (roster.id.length === 0) {
@@ -507,12 +475,10 @@ const HANDLERS = {
 
 function write(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
 
-/// One request per 0x0A, split on that byte and nowhere else: the fence proxy's
-/// own framing. `readline` also ends a line at U+000D, U+2028 and U+2029, and
-/// JSON.stringify leaves the last two raw inside a string, so a call carrying
-/// one arrived as halves that were each a parse error, and the call itself was
-/// never answered (Node v26.8.2). Split as bytes, a
-/// character cut across two reads is whole again before it is decoded.
+/// Use one request per 0x0A byte, matching fence-proxy framing. `readline` also splits at
+/// U+000D, U+2028 and U+2029, while JSON.stringify can leave the last two inside strings. Byte
+/// framing prevents valid calls from splitting into parse errors and rejoins split UTF-8
+/// characters before decoding.
 function onRequestLine(input, handle) {
     let pending = Buffer.alloc(0);
     input.on("data", (chunk) => {

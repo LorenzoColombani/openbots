@@ -7,9 +7,9 @@ import Foundation
 /// two are installed differently and one rule cannot fit both. Homebrew
 /// installs `node` as a symlink into the Cellar, so refusing a symlink refuses
 /// node itself; Chrome in `/Applications` is group-writable by `admin` on an
-/// ordinary Mac, so refusing a group-writable executable refuses Chrome.
-/// Between them, those two refusals would make the browser unusable on an
-/// ordinary Mac.
+/// ordinary Mac, so refusing a group-writable executable refuses Chrome. Both
+/// of those refusals happened, and between them they made the browser unusable
+/// on the machine it was built for.
 ///
 /// What is still required: the resolved path is a regular file, executable,
 /// owned by this user or by root, and **not writable by everyone**. The

@@ -3,11 +3,8 @@ import OpenBotsServices
 import OpenBotsDomain
 import SwiftUI
 
-/// What Details says about the bot's profile, under the names its settings use:
-/// "What this bot does" is the role, the one paragraph the New Bot sheet asks for,
-/// and the instructions follow under their own name when there are any. Reading
-/// only the instructions would tell a bot made a minute earlier that it had
-/// "No description yet".
+/// Use the settings' profile labels: What this bot does is the role entered in New Bot,
+/// followed by any instructions under their own name.
 struct BotDetailsProfileText {
     struct Section: Equatable {
         let label: String
@@ -63,12 +60,12 @@ struct BotDetailsView: View {
                 Text("Details").font(.headline)
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
-                Button(action: onEdit) { Image(systemName: "gearshape") }
+                Button(action: onEdit) { Image(systemName: "gearshape").frame(width: 28, height: 28) }
                     .disabled(!canEdit)
                     .accessibilityLabel("Bot settings")
                     .help("Bot settings")
                     .focused($settingsIsFocused)
-                Button(action: onClose) { Image(systemName: "xmark") }
+                Button(action: onClose) { Image(systemName: "xmark").frame(width: 28, height: 28) }
                     .accessibilityLabel("Close details")
                     .help("Close details")
                     .accessibilityIdentifier("details.close")
@@ -116,8 +113,10 @@ struct BotDetailsView: View {
                     // the user opens it, so Details does not open on model settings.
                     BotModelDetailsView(teammate: teammate, status: modelStatus)
                     ForEach(BotDetailsProfileText.sections(for: teammate.profile), id: \.label) { section in
-                        Text(section.label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                        Text(section.text).font(.callout).textSelection(.enabled)
+                        VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing4) {
+                            Text(section.label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                            Text(section.text).font(.callout).textSelection(.enabled)
+                        }
                     }
                     BotSeatDetailsView(seat: teammate.profile.seat)
                     if let author = BotSeatCopy.authorLine(for: teammate) {
@@ -126,17 +125,21 @@ struct BotDetailsView: View {
                     }
                     Divider()
                     if let onExport {
-                        Button(action: onExport) { Label("Export Conversations…", systemImage: "square.and.arrow.up") }
-                            .accessibilityIdentifier("export-conversations")
-                            .help("Write this bot's conversations as Markdown and JSON into a folder you choose")
-                        Text("Transcripts and metadata only; attachments, secrets and memory documents stay on this Mac.")
+                        VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing8) {
+                            Button(action: onExport) { Label("Export Conversations…", systemImage: "square.and.arrow.up") }
+                                .accessibilityIdentifier("export-conversations")
+                                .help("Write this bot's conversations as Markdown and JSON into a folder you choose")
+                            Text("Transcripts and metadata only; attachments, secrets and memory documents stay on this Mac.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing8) {
+                        Button(action: onArchive) { Label("Archive Bot", systemImage: "archivebox") }
+                            .disabled(!canArchive)
+                            .accessibilityIdentifier("archive-bot")
+                        Text("Remove this bot from the active list. Messages, drafts, files and settings stay saved. Restore it from Archived.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Button(action: onArchive) { Label("Archive Bot", systemImage: "archivebox") }
-                        .disabled(!canArchive)
-                        .accessibilityIdentifier("archive-bot")
-                    Text("Remove this bot from the active list. Messages, drafts, files and settings stay saved. Restore it from Archived.")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -173,9 +176,9 @@ private struct BotModelDetailsView: View {
     }
 }
 
-/// A bot's seat in Details: the four fields a hirer wrote, each on
-/// its own labelled line, in the order the old app's seat file kept them. A
-/// field the seat does not have is not drawn; a bot without a seat shows none.
+/// A bot's seat in Details: the four fields a hirer wrote, each on its own labelled line, in
+/// the order the old app's seat file kept them. A field the seat does not have is not drawn; a
+/// bot without a seat shows none.
 enum BotSeatCopy {
     static let heading = "Seat"
 
@@ -186,15 +189,14 @@ enum BotSeatCopy {
         return fields.compactMap { label, text in text.map { (label, $0) } }
     }
 
-    /// Who wrote a hired bot's role, instructions and seat, until the person
-    /// saves the profile: the same fact its own prompt carries.
+    /// Who wrote a hired bot's role, instructions and seat, until the person saves the profile:
+    /// the same fact its own prompt carries.
     static func authorLine(for teammate: Teammate) -> String? {
         teammate.profileWrittenByHirer.map { "Written by @\($0) when hiring; you have not reviewed it yet." }
     }
 }
 
-/// Openable, not a wall of fields: the heading shows, the lines
-/// show when the user opens it.
+/// Openable, not a wall of fields: the heading shows, the lines show when the user opens it.
 private struct BotSeatDetailsView: View {
     let seat: TeammateSeat?
     @State private var isExpanded = false
@@ -323,6 +325,7 @@ private struct BotScreenPreview: View {
     }
 }
 
+
 /// This chat's background workers: seen here while they
 /// run and until their bot answers, never as a seat of their own.
 private struct BotBackgroundWorkerLines: View {
@@ -402,6 +405,7 @@ enum BotWatchPanePresentation {
             return "Nothing running on this Mac right now."
         }
     }
+
 
     /// In a team chat any member may have taken the picture, and nothing says
     /// which, so the words never name the bot whose pane this is.
@@ -492,6 +496,7 @@ struct BotWorkspaceFoldersView: View {
     }
 }
 
+
 /// Interpreters resolved on this Mac for Work on this Mac's run-code.
 /// Discovery only — never installs.
 struct BotInterpretersView: View {
@@ -544,8 +549,8 @@ enum BotSkillsCopy {
         + "with a SKILL.md inside, named with letters, digits, dots, hyphens or underscores."
 }
 
-/// The bot's skills: copies of the user's own Claude skills that it reads before
-/// a task they fit and can never change (the old app's way).
+/// The bot's skills are read-only copies of the user's Claude skills, consulted before
+/// applicable tasks.
 struct BotSkillsView: View {
     @ObservedObject var model: BotWorkspaceModel
     let teammateID: TeammateID
@@ -613,8 +618,9 @@ struct ClaudeModelStatusView: View {
             Text("Supported saved preferences apply to the next reply. Effective intensity and context capacity are not verified.")
             if let confirmed = status?.confirmedModel {
                 Text("Last saved result reported: \(ClaudeModelCatalog.label(for: confirmed))")
-                if let requested = status?.confirmedRequest, requested != confirmed {
-                    Text("That turn requested: \(ClaudeModelCatalog.label(for: requested))")
+                if let expected = status?.confirmedRequest,
+                   !ClaudeModelCatalog.matches(requested: expected, observed: confirmed) {
+                    Text("Expected when that turn started: \(ClaudeModelCatalog.label(for: expected))")
                 }
                 if let effort = status?.confirmedEffort, let window = status?.confirmedContextWindow,
                    let request = status?.confirmedRequest {

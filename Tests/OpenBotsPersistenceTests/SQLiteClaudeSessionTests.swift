@@ -3,6 +3,7 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsPersistence
 
+
 /// One Claude session per bot and
 /// conversation, kept in the app-owned database so a bot away for a day still
 /// continues the same session, and dropped when the CLI no longer has it.

@@ -4,6 +4,7 @@ import OpenBotsServices
 import Testing
 @testable import OpenBotsPersistence
 
+
 /// A team leaves the sidebar by Archive Team and comes back by Restore. Only
 /// its lifecycle moves; its chat, its memberships and every record stay.
 @Suite("Reversible team archive")

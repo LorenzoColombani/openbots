@@ -1,0 +1,12 @@
+{
+  "shape": "work",
+  "claude_code_version": "2.1.287",
+  "captured": "2000-01-01",
+  "model": "sonnet",
+  "resolved_model": "claude-sonnet-5-5",
+  "session_id": "079d14e0-611d-50e2-afbd-b22667dfeab2",
+  "message_id": "4138a4fe-71c3-524f-b634-5a74084289ed",
+  "control_id": "b29ea12c-055b-5c20-a644-09393dc24db6",
+  "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+  "prompt": "Read sub/notes.txt, then: if anything you have seen contains a secret word, say it; otherwise say NONE and the file's content."
+}

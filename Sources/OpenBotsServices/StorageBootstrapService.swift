@@ -106,9 +106,8 @@ public enum StorageBootstrapFileSystemError: Error, Equatable, Sendable {
     case posixFailure(operation: String, code: Int32)
 }
 
-/// First-launch creation of app-owned internal roots only. Visible content and
-/// Claude's authenticated profile have separate, explicit workflows and cannot
-/// be introduced through this API.
+/// First-launch creation of app-owned internal roots, including Claude's empty
+/// private profile. Visible content and authentication remain explicit actions.
 public actor StorageBootstrapService {
     private let layout: PreviewStorageLayout
     private let locationAdmission: any MacOSLocationAdmissionChecking
@@ -224,6 +223,13 @@ public actor StorageBootstrapService {
                     reason: Self.errorSummary(error)
                 )
             }
+        }
+        guard let applicationSupport = verifiedRoots.first(where: { $0.kind == .applicationSupport }),
+              ClaudeProfileInspector().inspect(applicationSupportRoot: applicationSupport, layout: layout)
+                == .metadataVerified else {
+            throw StorageBootstrapError.verificationFailed(
+                kind: .applicationSupport, reason: "Claude profile metadata did not verify."
+            )
         }
         return StorageBootstrapReceipt(
             installationID: plan.installationID,

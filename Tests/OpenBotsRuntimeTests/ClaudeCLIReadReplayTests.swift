@@ -3,13 +3,14 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsRuntime
 
+
 // A bot without Work reads the shared folder and its skills.
 // Its turn keeps the tool-free turn's own flags (--safe-mode, --restricted, dontAsk, no permission
-// channel), so every refusal is the CLI's own. The real wire of that shape, replayed through the
-// parser (Fixtures/claude-cli-2.1.272/read-probe, captured with the Shared and Skills folders as
+// channel), so every refusal is the CLI's own. Synthetic protocol fixtures replay through the
+// parser (Fixtures/claude-cli-2.1.272/read-probe), with the Shared and Skills folders as
 // read folders, a protected folder and an `appsupport` folder as protected roots, no allow rule as
 // the app writes none, and a run folder inside `appsupport` as the working folder, as the app's run
-// folder sits inside its own Application Support root; local paths scrubbed):
+// folder sits inside its own Application Support root:
 //   r2-read-refusals  a read inside the shared folder; a Read outside the folders (a
 //                     `permission_denied` frame, --restricted); a Read under a protected root (no
 //                     frame, only a failed result); a Glob and a Grep with no path, which search
@@ -108,14 +109,14 @@ func cli2_1_272ReadingTurnWithRefusalsReplays() throws {
     let refused = replay.events.compactMap { event -> String? in
         if case .toolRefused(let id, let name) = event { return "\(name) \(id)" }; return nil
     }
-    #expect(refused == ["Read toolu_01Qc6QBeuYaHrQdjGdtiPaSo", "Glob toolu_01G1kkLG5HjHFujet1Q8PcnY", "Grep toolu_01TrmCmMGAmBALfsR4K3HjAS"])
+    #expect(refused == ["Read toolu_6ee1b37bf0495cf39134b748", "Glob toolu_f751de896be459b69a2fccd4", "Grep toolu_b62d9d1aaaad5fd1bfdb0608"])
     // Every call's result: the read inside ran; the four refused calls, the protected Read among them, failed.
     let finished = replay.events.compactMap { event -> String? in
         if case .toolFinished(let id, let failed) = event { return "\(id) \(failed ? "failed" : "ran")" }; return nil
     }
-    #expect(finished == ["toolu_01BGnnZjUFxRb9U2e5ptatYb ran", "toolu_01Qc6QBeuYaHrQdjGdtiPaSo failed",
-                         "toolu_014RTZ8FgXWMChXokbNxE4Qe failed", "toolu_01G1kkLG5HjHFujet1Q8PcnY failed",
-                         "toolu_01TrmCmMGAmBALfsR4K3HjAS failed"])
+    #expect(finished == ["toolu_c451eefc34f05690940b45ed ran", "toolu_6ee1b37bf0495cf39134b748 failed",
+                         "toolu_43b350c8c5ea524e8e2eef30 failed", "toolu_f751de896be459b69a2fccd4 failed",
+                         "toolu_b62d9d1aaaad5fd1bfdb0608 failed"])
 }
 
 @Test("A reading turn without a card admits the CLI's refusals of its three read tools only: a refused web call, or a result denying one, still ends the turn")
@@ -163,6 +164,7 @@ func readingTurnAdmitsOnlyReadRefusals() throws {
         #expect(!ended.hasCompleted)
     }
 }
+
 
 // A member's leg that only reads and browses, if launched with the web
 // pre-allowed in its settings and no channel to ask, would keep the fence its

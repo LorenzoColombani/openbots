@@ -8,8 +8,7 @@ private let googleCatalogConnectionID = UUID(uuidString: "7300ad79-0b68-4fd8-b16
 /// A real home directory with a real console script in it, laid out the way a
 /// tool install actually writes one: the program under
 /// `.local/share/uv/tools/<package>/bin/<package>`, and a symlink to it in
-/// `.local/bin`. Tests built to a shape no Mac produces have let defects
-/// through before, so nothing here is faked.
+/// `.local/bin`. A disposable directory preserves that layout for the tests.
 private struct MailFixture {
     let root: URL
     let home: URL
@@ -96,9 +95,9 @@ struct AppOwnedConnectorCatalogTests {
     func appleMailIsARow() async throws {
         let fixture = try MailFixture(); defer { fixture.remove() }
         let snapshot = try await fixture.catalog().loadConnectorCatalog()
-        // Ten rows now: reading the user's mailbox and sending as them are
-        // different powers with different grants, as they were in the old app;
-        // the address book is a third, the calendar a fourth, Messages — one row,
+        // Ten rows now: reading the user's mailbox and sending as them are different
+        // powers with different grants, as they were in the old app; the user's
+        // address book is a third, their calendar a fourth, Messages — one row,
         // as the old app had it — the fifth, and Control this Mac the sixth;
         // then the OpenBots Google account's Gmail, Gmail send (its own grant,
         // for the same reason as Mail's), Calendar and Drive.
@@ -147,8 +146,8 @@ struct AppOwnedConnectorCatalogTests {
         // row says so, because "what is on Thursday" quietly missing every
         // weekly meeting is the failure the user would never see.
         #expect(connector.definition.summary.contains("Repeating events"))
-        // The user is sent to the RIGHT pane. Naming Automation here once sent
-        // them looking where they were told, to find nothing.
+        // The user is sent to the RIGHT pane. Naming Automation here is how the
+        // browser step was born: they looked where they were told and found nothing.
         #expect(connector.definition.summary.contains("Calendars pane in Privacy & Security"))
         #expect(connector.definition.summary.contains("not the Automation one"))
         #expect(connector.definition.availability == .ready)
@@ -190,7 +189,7 @@ struct AppOwnedConnectorCatalogTests {
 
     /// The same words sit under the row in Settings, where the account section
     /// is above the rows, and on a bot's Access sheet, where there is none: "the
-    /// Google account connected below" was false in both. A
+    /// Google account connected below" is false in both. A
     /// row's words are not part of its identity, so changing them switches no
     /// grant off (`googleIdentityBindsTheConnection`, the digest test).
     @Test("Each Google row says where its account is connected, true wherever the row is shown")
@@ -400,7 +399,7 @@ struct AppOwnedConnectorCatalogTests {
             .first { $0.definition.identity.id == "openbots:apple-messages:apple-messages" })
         #expect(connector.definition.identity.source == .appOwned)
         #expect(connector.definition.identity.isValid)
-        // The row's own name.
+        // The row names all supported message transports.
         #expect(connector.definition.title == "Messages (iMessage, RCS, SMS)")
         // What it is for: the right service, so an Android phone receives it.
         #expect(connector.definition.summary.contains("Android"))

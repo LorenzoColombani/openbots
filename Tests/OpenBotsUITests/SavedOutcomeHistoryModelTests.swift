@@ -342,7 +342,7 @@ private actor SavedHistoryGate {
 
 private struct SavedHistoryTestTimeout: Error {}
 private struct SavedHistoryPrivateFailure: LocalizedError {
-    var errorDescription: String? { "PRIVATE-SENTINEL /Users/private/control.sqlite SELECT secret" }
+    var errorDescription: String? { "PRIVATE-SENTINEL /Users/fixture/control.sqlite SELECT secret" }
 }
 private func savedHistoryRequest(_ value: Int, limit: Int = 20) throws -> ConversationOutcomeHistoryRequest {
     let conversation = UUID(uuidString: String(format: "BC000000-0000-0000-0000-%012d", value))!

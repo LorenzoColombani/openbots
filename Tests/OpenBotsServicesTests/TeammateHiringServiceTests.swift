@@ -172,6 +172,7 @@ struct TeammateHiringServiceTests {
         #expect(try await store.listTeammates(includingArchived: true).count == 2, "nothing created")
     }
 
+
     /// The hire stands when the join fails. The lead must then
     /// hear that the newcomer is not on the team, or it briefs a bot no
     /// handoff in this conversation can reach.
@@ -206,6 +207,7 @@ struct TeammateHiringServiceTests {
             == .refused(.notTheBot))
         #expect(try await store.listTeammates(includingArchived: true).count == 2)
     }
+
 
     /// Two calls for one name at once make one bot. The
     /// provisioning is held open, so the second call arrives while the first

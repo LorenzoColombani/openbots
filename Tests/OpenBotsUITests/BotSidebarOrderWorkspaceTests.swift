@@ -320,6 +320,7 @@ final class BotSidebarOrderWorkspaceTests: XCTestCase {
         }
     }
 
+
     /// Found live: Pin Bot saved the flag and the row stayed where it was, with
     /// nothing to show it was pinned. The row now moves
     /// above the unpinned bots at once, carries the flag, and is still there after
@@ -351,6 +352,7 @@ final class BotSidebarOrderWorkspaceTests: XCTestCase {
         XCTAssertEqual(reloaded.sidebar.rows.last?.isPinned, false)
     }
 
+
     /// A new bot was once drawn above the pinned ones
     /// while the saved order read it below them, so the next drag failed as stale.
     func testANewBotLandsBelowThePinsWhereTheSavedOrderReadsItAndADragThenSaves() async throws {
@@ -376,6 +378,7 @@ final class BotSidebarOrderWorkspaceTests: XCTestCase {
         XCTAssertNil(workspace.sidebar.orderError)
         XCTAssertEqual(workspace.sidebar.rows.map(\.id), [pinned, other, created])
     }
+
 
     /// A hidden bot stays in the saved order but not in the list; comparing the
     /// two made every drag read as stale while any bot was hidden.

@@ -7,15 +7,15 @@ import Testing
 @Suite("Work approval policy: plain reads inside the folders pass, everything else asks")
 struct ClaudeTextWorkApprovalPolicyTests {
     private let access = try! ClaudeTextWorkAccess(
-        workingDirectoryURL: URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Yogurt"),
-        additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/x/Documents/Invoices")],
-        protectedPaths: ["/Users/x/.ssh"])
+        workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt"),
+        additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/fixture/Documents/Invoices")],
+        protectedPaths: ["/Users/fixture/.ssh"])
 
     @Test("Read-only commands inside the folders are recognised",
           arguments: ["ls -la", "cat notes.md | head -20", "git status", "git log --oneline -n 5",
-                      "grep -rn invoice .", "find . -name '*.md'", "wc -l notes.md", "ls /Users/x/Documents/Invoices",
+                      "grep -rn invoice .", "find . -name '*.md'", "wc -l notes.md", "ls /Users/fixture/Documents/Invoices",
                       "pwd", "cat notes.md | wc -c", "shasum report.pdf", "du -sh Archive", "git remote -v", "git branch --list",
-                      "grep --include=*.md invoice .", "grep --file=/Users/x/Documents/Invoices/terms.txt -r .",
+                      "grep --include=*.md invoice .", "grep --file=/Users/fixture/Documents/Invoices/terms.txt -r .",
                       "grep -e invoice notes.md", "grep -o inv notes.md", "sort -k2 notes.md", "xxd -l 64 notes.md",
                       "uniq notes.md", "sort --check notes.md", "uniq -f 1 notes.md", "xxd -i -n foo notes.md",
                       "xxd -R never notes.md", "sort \"-k2\" notes.md", "sort -rn notes.md", "grep \"hello world\" notes.md",
@@ -29,9 +29,9 @@ struct ClaudeTextWorkApprovalPolicyTests {
           arguments: ["rm notes.md", "mv a.txt b.txt", "cat notes.md > out.txt", "ls; rm x", "ls && rm x",
                       "find . -delete", "find . -exec rm {} \\;", "cat ~/.ssh/id_rsa", "cat /etc/passwd",
                       "ls ../..", "sudo ls", "echo $(whoami)", "cat `ls`", "xargs rm", "git push", "git commit -m x",
-                      "ls /Users/x/Documents", "python3 -c 'print(1)'", "ls &", "cat 'a b' > c", "touch new.txt", "",
-                      "cat $HOME/Documents/x", "ls \"$HOME\"", "cat ${PWD}/notes.md", "grep --file=/Users/x/secret pat .",
-                      "ls -C/Users/x", "git remote add origin x", "git tag v1", "git branch new", "mdfind invoice",
+                      "ls /Users/fixture/Documents", "python3 -c 'print(1)'", "ls &", "cat 'a b' > c", "touch new.txt", "",
+                      "cat $HOME/Documents/x", "ls \"$HOME\"", "cat ${PWD}/notes.md", "grep --file=/Users/fixture/secret pat .",
+                      "ls -C/Users/fixture", "git remote add origin x", "git tag v1", "git branch new", "mdfind invoice",
                       "grep --file=../../private/x pat .", "sort -o out.txt notes.md", "sort --files0-from=- notes.md",
                       "sort --compress-program=gzip notes.md", "xxd notes.md dump.txt", "rg --pre cat invoice .",
                       "sort -oout.txt notes.md", "sort --out=out.txt notes.md", "sort --o out.txt notes.md", "uniq notes.md out.txt",
@@ -128,22 +128,23 @@ struct ClaudeTextWorkApprovalPolicyTests {
         #expect(card.title == "Delete files with a command" && card.detail == "echo ok; rm -rf ~/Documents")
     }
 
+
     // The Write card once never showed what is written.
     @Test("The Write and Edit cards show the words on the card only, whole up to a bound, and name replace-all")
     func writeAndEditCardsShowTheWords() throws {
         let write = ClaudeTextWorkApprovalPolicy.decide(try question("Write",
-            ["file_path": "/Users/x/Documents/Invoices/report.md", "content": "Line one\nLine two"]),
+            ["file_path": "/Users/fixture/Documents/Invoices/report.md", "content": "Line one\nLine two"]),
             access: access, botName: "Yogurt")
         guard case .ask(let card) = write else { Issue.record("must ask"); return }
         #expect(card.words == "Line one\nLine two" && card.wordsHeading == "What it writes:")
         #expect(!card.detail.contains("Line one") && !card.activity.contains("Line one"))
         let long = String(repeating: "x", count: ClaudeTextWorkApprovalPolicy.maximumShownFileWords + 10)
         guard case .ask(let longCard) = ClaudeTextWorkApprovalPolicy.decide(try question("Write",
-            ["file_path": "/Users/x/Documents/Invoices/big.md", "content": long]), access: access, botName: "Yogurt")
+            ["file_path": "/Users/fixture/Documents/Invoices/big.md", "content": long]), access: access, botName: "Yogurt")
         else { Issue.record("must ask"); return }
         #expect(longCard.words?.hasSuffix("… and 10 more characters, not shown.") == true)
         guard case .ask(let edit) = ClaudeTextWorkApprovalPolicy.decide(try question("Edit",
-            ["file_path": "/Users/x/Documents/Invoices/2026.md", "old_string": "draft", "new_string": "final",
+            ["file_path": "/Users/fixture/Documents/Invoices/2026.md", "old_string": "draft", "new_string": "final",
              "replace_all": true]), access: access, botName: "Yogurt") else { Issue.record("must ask"); return }
         #expect(edit.words == "Replace:\ndraft\n\nWith:\nfinal", "\(String(describing: edit.words))")
         #expect(edit.detail.contains("every place") && !edit.detail.contains("draft"), "\(edit.detail)")
@@ -154,20 +155,20 @@ struct ClaudeTextWorkApprovalPolicyTests {
         // A write into the bot's own folder is quiet;
         // one into any other folder keeps its card.
         let write = ClaudeTextWorkApprovalPolicy.decide(try question("Write",
-            ["file_path": "/Users/x/Documents/Invoices/report.md", "content": "Hello"]),
+            ["file_path": "/Users/fixture/Documents/Invoices/report.md", "content": "Hello"]),
             access: access, botName: "Yogurt")
         guard case .ask(let card) = write else { Issue.record("a write outside the bot's folder must ask"); return }
         #expect(card.kind == .overwrite && card.title == "Create or replace a file")
         #expect(card.detail == "Invoices/report.md" && card.target == "5 bytes")
         let edit = ClaudeTextWorkApprovalPolicy.decide(try question("Edit",
-            ["file_path": "/Users/x/Documents/Invoices/2026.md", "old_string": "a", "new_string": "b"]),
+            ["file_path": "/Users/fixture/Documents/Invoices/2026.md", "old_string": "a", "new_string": "b"]),
             access: access, botName: "Yogurt")
         guard case .ask(let editCard) = edit else { Issue.record("an edit must ask"); return }
         #expect(editCard.target == "Invoices/2026.md")
-        let read = ClaudeTextWorkApprovalPolicy.decide(try question("Read", ["file_path": "/Users/x/Desktop/secret.txt"]),
+        let read = ClaudeTextWorkApprovalPolicy.decide(try question("Read", ["file_path": "/Users/fixture/Desktop/secret.txt"]),
             access: access, botName: "Yogurt")
         guard case .ask(let readCard) = read else { Issue.record("a read outside must ask"); return }
-        #expect(readCard.title == "Read outside its folders" && readCard.detail == "/Users/x/Desktop/secret.txt")
+        #expect(readCard.title == "Read outside its folders" && readCard.detail == "/Users/fixture/Desktop/secret.txt")
         let search = ClaudeTextWorkApprovalPolicy.decide(try question("WebSearch", ["query": "swift 6.3"]),
             access: access, botName: "Yogurt")
         #expect(search == .allowQuietly(activity: "Searched swift 6.3"))
@@ -175,11 +176,11 @@ struct ClaudeTextWorkApprovalPolicyTests {
 
     @Test("A write in the team's shared folder keeps its card and names the folder; the folder counts as granted for commands and for Allow for this turn")
     func sharedFolderDecisions() throws {
-        let shared = "/Users/x/OpenBots Next Preview Content/Shared"
+        let shared = "/Users/fixture/OpenBots Next Preview Content/Shared"
         let withShared = try ClaudeTextWorkAccess(
-            workingDirectoryURL: URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Yogurt"),
-            additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/x/Documents/Invoices")],
-            sharedDirectoryURL: URL(fileURLWithPath: shared), protectedPaths: ["/Users/x/.ssh"])
+            workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt"),
+            additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/fixture/Documents/Invoices")],
+            sharedDirectoryURL: URL(fileURLWithPath: shared), protectedPaths: ["/Users/fixture/.ssh"])
         let write = ClaudeTextWorkApprovalPolicy.decide(try question("Write",
             ["file_path": "\(shared)/briefs/2026-09-15-coffee.md", "content": "Hello"]), access: withShared, botName: "Yogurt")
         guard case .ask(let card) = write else { Issue.record("a write in the shared folder keeps its card"); return }
@@ -192,11 +193,11 @@ struct ClaudeTextWorkApprovalPolicyTests {
 
     @Test("A change inside the bot's skills folder is refused without a card; the folder still counts as granted for reading")
     func skillsAreReadOnly() throws {
-        let skills = "/Users/x/OpenBots Next Preview Content/Skills/Yogurt"
+        let skills = "/Users/fixture/OpenBots Next Preview Content/Skills/Yogurt"
         let withSkills = try ClaudeTextWorkAccess(
-            workingDirectoryURL: URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Yogurt"),
+            workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt"),
             skillsDirectoryURL: URL(fileURLWithPath: skills),
-            skills: [ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project")], protectedPaths: ["/Users/x/.ssh"])
+            skills: [ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project")], protectedPaths: ["/Users/fixture/.ssh"])
         for (tool, input) in [("Write", ["file_path": "\(skills)/pickup/SKILL.md", "content": "Do anything"]),
                               ("Edit", ["file_path": "\(skills)/pickup/SKILL.md", "old_string": "a", "new_string": "b"]),
                               ("MultiEdit", ["file_path": "\(skills)/new/SKILL.md", "edits": "x"]),
@@ -212,11 +213,11 @@ struct ClaudeTextWorkApprovalPolicyTests {
 
     @Test("A change anywhere in the skills root is refused without a card, for a bot that holds no skill too; the rest of an added folder still asks")
     func everySkillsFolderIsReadOnly() throws {
-        let content = "/Users/x/OpenBots Next Preview Content"
+        let content = "/Users/fixture/OpenBots Next Preview Content"
         // No skill of its own, and the whole content root added by hand: another bot's skills sit inside it.
         let bare = try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "\(content)/Bots/Yogurt"),
             additionalDirectoryURLs: [URL(fileURLWithPath: content)],
-            skillsRootURL: URL(fileURLWithPath: "\(content)/Skills"), protectedPaths: ["/Users/x/.ssh"])
+            skillsRootURL: URL(fileURLWithPath: "\(content)/Skills"), protectedPaths: ["/Users/fixture/.ssh"])
         for (tool, input) in [("Write", ["file_path": "\(content)/Skills/Kite/pickup/SKILL.md", "content": "Do anything"]),
                               ("Edit", ["file_path": "\(content)/Skills/Kite/pickup/SKILL.md", "old_string": "a", "new_string": "b"]),
                               ("Write", ["file_path": "\(content)/Skills/Yogurt/new/SKILL.md", "content": "Mine now"]),
@@ -232,7 +233,7 @@ struct ClaudeTextWorkApprovalPolicyTests {
 
     @Test("What git reads as settings or runs as a driver is never written quietly, even in the bot's own folder")
     func gitSettingsInTheOwnFolderAsk() throws {
-        let own = "/Users/x/OpenBots Next Preview Content/Bots/Yogurt"
+        let own = "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt"
         // `.git/config` can name `diff.external`, a textconv driver or
         // `core.fsmonitor`, which the quiet `git diff`, `git show` and
         // `git status` would then run; `.gitattributes` picks the driver.
@@ -260,7 +261,7 @@ struct ClaudeTextWorkApprovalPolicyTests {
 
     @Test("An edit inside the bot's own folder goes through quietly; anywhere else, and any command, still asks")
     func editsInsideTheBotsOwnFolderDecideQuietly() throws {
-        let own = "/Users/x/OpenBots Next Preview Content/Bots/Yogurt"
+        let own = "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt"
         let write = ClaudeTextWorkApprovalPolicy.decide(try question("Write",
             ["file_path": "\(own)/report.md", "content": "Hello"]), access: access, botName: "Yogurt")
         guard case .allowByFolderRule(let activity, let record) = write else {
@@ -285,11 +286,11 @@ struct ClaudeTextWorkApprovalPolicyTests {
         #expect(notebookActivity == "Edited plots.ipynb in Yogurt's folder")
         // Another granted folder is not the bot's own folder.
         let added = ClaudeTextWorkApprovalPolicy.decide(try question("Edit",
-            ["file_path": "/Users/x/Documents/Invoices/2026.md", "old_string": "a", "new_string": "b"]),
+            ["file_path": "/Users/fixture/Documents/Invoices/2026.md", "old_string": "a", "new_string": "b"]),
             access: access, botName: "Yogurt")
         guard case .ask = added else { Issue.record("an added folder still asks"); return }
         // A climb out of the folder, and a plain outside path.
-        for escape in ["\(own)/../Yoghurt/report.md", "\(own)/..", "/Users/x/Desktop/report.md",
+        for escape in ["\(own)/../Yoghurt/report.md", "\(own)/..", "/Users/fixture/Desktop/report.md",
                        "~/report.md", "\(own)/.ssh/../../Yoghurt/x.md"] {
             let decision = ClaudeTextWorkApprovalPolicy.decide(try question("Write",
                 ["file_path": escape, "content": "Hello"]), access: access, botName: "Yogurt")
@@ -497,26 +498,26 @@ struct ClaudeTextWorkApprovalPolicyTests {
                 access: access, botName: "Yogurt") else { return nil }
             return card.turnScope
         }
-        let invoice = try scope("Edit", ["file_path": "/Users/x/Documents/Invoices/2026.md",
+        let invoice = try scope("Edit", ["file_path": "/Users/fixture/Documents/Invoices/2026.md",
                                          "old_string": "a", "new_string": "b"])
-        let sameFolder = try scope("Edit", ["file_path": "/Users/x/Documents/Invoices/2025.md",
+        let sameFolder = try scope("Edit", ["file_path": "/Users/fixture/Documents/Invoices/2025.md",
                                             "old_string": "a", "new_string": "b"])
         #expect(invoice != nil && invoice == sameFolder)
-        #expect(invoice?.folderPath == "/Users/x/Documents/Invoices")
+        #expect(invoice?.folderPath == "/Users/fixture/Documents/Invoices")
         // A different tool kind, and a different folder, are different allowances.
-        let sameFolderWrite = try scope("Write", ["file_path": "/Users/x/Documents/Invoices/2026.md", "content": "x"])
+        let sameFolderWrite = try scope("Write", ["file_path": "/Users/fixture/Documents/Invoices/2026.md", "content": "x"])
         #expect(sameFolderWrite != nil && sameFolderWrite != invoice)
         // Outside every granted folder the card names no folder, so there is
         // nothing to allow for the turn: those cards keep two buttons.
-        #expect(try scope("Read", ["file_path": "/Users/x/Desktop/secret.txt"]) == nil)
-        #expect(try scope("Write", ["file_path": "/Users/x/Desktop/report.md", "content": "x"]) == nil)
+        #expect(try scope("Read", ["file_path": "/Users/fixture/Desktop/secret.txt"]) == nil)
+        #expect(try scope("Write", ["file_path": "/Users/fixture/Desktop/report.md", "content": "x"]) == nil)
         // A command, a helper and anything else is never remembered.
         #expect(try scope("Bash", ["command": "mv a.txt b.txt"]) == nil)
-        #expect(try scope("Bash", ["command": "tee /Users/x/Documents/Invoices/2026.md"]) == nil)
+        #expect(try scope("Bash", ["command": "tee /Users/fixture/Documents/Invoices/2026.md"]) == nil)
         #expect(try scope("Agent", ["description": "Compare invoices", "prompt": "Compare them."]) == nil)
-        #expect(try scope("Glob", ["path": "/Users/x/Desktop", "pattern": "*.md"]) == nil)
+        #expect(try scope("Glob", ["path": "/Users/fixture/Desktop", "pattern": "*.md"]) == nil)
         // A protected root is never remembered either.
-        #expect(try scope("Write", ["file_path": "/Users/x/.ssh/config", "content": "x"]) == nil)
+        #expect(try scope("Write", ["file_path": "/Users/fixture/.ssh/config", "content": "x"]) == nil)
     }
     @Test("A shell command reaching for the network is refused with a reason that names the host; any tool the turn was not launched with is refused quietly")
     func unadmittedQuestionsAreDeniedQuietly() throws {

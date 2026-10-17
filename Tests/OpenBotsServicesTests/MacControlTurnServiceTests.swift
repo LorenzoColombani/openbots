@@ -80,8 +80,8 @@ struct MacControlTurnServiceTests {
         #expect(await zed.value.outcome == .completed)
     }
 
-    // A card that says "wait 1 second" must not be where the user gives the bot
-    // their screen and keyboard for the rest of the reply.
+    // A card that says "wait 1 second" must not be where the user gives the bot their
+    // screen and keyboard for the rest of the reply.
     @Test("Allow for this turn is offered only on a card that sees or changes the user's Mac, and then covers the rest")
     func theTurnIsAllowedOnlyFromARealControlCall() async throws {
         let f = try MacControlTurnFixture(); defer { f.remove() }
@@ -105,6 +105,7 @@ struct MacControlTurnServiceTests {
         #expect(await zed.value.outcome == .completed)
         #expect(await progress.approvals.count == 2)
     }
+
 
     // A look keeps its Allow for
     // this turn, and no bot acts inside OpenBots; an element of a look at the
@@ -131,6 +132,7 @@ struct MacControlTurnServiceTests {
         #expect(await zed.value.outcome == .completed)
         #expect(await progress.approvals.count == 1)
     }
+
 
     // Results can come back in a batch after the next call
     // is asked about, so a whole-screen look counts from the moment it is let
@@ -176,6 +178,7 @@ struct MacControlTurnServiceTests {
         #expect(!lines.contains { $0.hasPrefix("Used type") }, "\(lines)")
         #expect(await progress.approvals.count == 1)
     }
+
 
     // MARK: Typing is checked, or the reply says it was not
 
@@ -307,6 +310,7 @@ struct MacControlTurnServiceTests {
                 "\(lines.suffix(3))")
     }
 
+
     // The calls a turn keeps for its lines are capped,
     // and a look past the cap was never counted, so a click on an element of
     // a named look was refused as if no look had been taken.
@@ -327,8 +331,6 @@ struct MacControlTurnServiceTests {
         #expect(clicked.contains("\"behavior\":\"allow\""), "\(clicked)")
         #expect(await zed.value.outcome == .completed)
     }
-
-    // MARK: Renewing the rounds
 
     @Test("When a Control this Mac reply runs out of rounds a card asks the user; Approve gives sixty-four more and the reply finishes")
     func approvingTheRenewalCardGivesMoreRounds() async throws {
@@ -444,9 +446,7 @@ struct MacControlTurnServiceTests {
         #expect(await zed.value.outcome == .failed(.macControlRoundsUsedUp))
     }
 
-    // MARK: The login handoff
-
-    @Test("While a bot has handed the user the screen every Control this Mac call of every bot is refused, looks included, and after the user hands back the next action asks again")
+    @Test("While a bot has handed the user the screen every Control this Mac call of every bot is refused, looks included, and after they hand back the next action asks again")
     func theHandoffHoldsTheScreenAndTakesTheAllowance() async throws {
         let f = try MacControlTurnFixture(); defer { f.remove() }
         let store = try f.open()
@@ -470,7 +470,7 @@ struct MacControlTurnServiceTests {
         #expect(handoff.turnScopeFolder == nil, "a handoff is never answered for the rest of the turn")
         #expect(!(await service.allowApprovalForTurn(id: handoff.id)))
         #expect(await zedProgress.activities.contains("Handed you the screen: \(reason)"))
-        // Another bot on the user's Mac, while the user has the screen: every call refused, a look too.
+        // Another bot on the user's Mac, while they have the screen: every call refused, a look too.
         let kiteProgress = MacControlProgressLog()
         let kite = Task { await service.sendText(f.submission(for: f.kite)) { await kiteProgress.append($0) } }
         #expect(await kite.value.outcome == .completed)
@@ -480,7 +480,7 @@ struct MacControlTurnServiceTests {
         }
         #expect(await kiteProgress.approvals.isEmpty, "no card goes up in front of the user's screen")
         #expect(await kiteProgress.activities.filter { $0 == "Blocked Control this Mac while he had the screen" }.count == 3)
-        // The user hands back: the call runs, and the allowance given before is gone.
+        // The user hands back: the call runs, and the allowance they gave before is gone.
         #expect(await service.decideApproval(id: handoff.id, allow: true))
         let handedBack = try await runner.waitForAnswer(to: "req-Zed-2")
         #expect(handedBack.contains("\"behavior\":\"allow\""), "\(handedBack)")
@@ -576,6 +576,7 @@ struct MacControlTurnServiceTests {
         #expect(await zedProgress.approvals.isEmpty)
     }
 }
+
 
 /// One Control this Mac call the child makes: a Peekaboo tool and its input.
 /// The cards here press Return in Mail rather than click by query: a click on

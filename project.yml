@@ -88,6 +88,7 @@ targets:
     sources:
       - path: Sources/OpenBotsAgenticRuntime
     dependencies:
+      - target: OpenBotsDomain
       - target: OpenBotsExecutionRules
       - target: OpenBotsContent
       - target: OpenBotsSecurity
@@ -128,12 +129,11 @@ targets:
         SKIP_INSTALL: YES
   # The app's own calendar reader. A binary rather than a bundled script
   # because EventKit is not reachable from node, and Apple Events cannot expand
-  # a recurring series, so it misses most of a year of a busy calendar.
+  # a recurring series correctly.
   #
   # It ships INSIDE the app bundle and is signed with it, so macOS attributes
-  # its calendar access to the app. A helper signed on its own would be asked
-  # about separately, which on the user's screen looks exactly like a prompt
-  # they never answered.
+  # its calendar access to the app. A helper signed on its own would require
+  # separate permission.
   openbots-calendar-read:
     type: tool
     platform: macOS
@@ -174,12 +174,20 @@ targets:
     type: application
     platform: macOS
     deploymentTarget: "14.0"
+    configFiles:
+      Debug: Config/ReleaseBuild.xcconfig
+      Release: Config/ReleaseBuild.xcconfig
     info:
       path: Apps/OpenBotsPreviewApp/Info.plist
       properties:
         CFBundleIconFile: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        OpenBotsSourceUpdateEnabled: true
+        OpenBotsSourceUpdateFeedURL: https://raw.githubusercontent.com/LorenzoColombani/openbots/main/docs/updates/source-update.json
+        OpenBotsSourceUpdatePublicKey: yyXOfMuNWEbKofmxdwyo0IJ52QHolLxGT9rXnbDziTU=
+        OpenBotsSourceUpdateRepository: LorenzoColombani/openbots
+        OpenBotsGoogleConfigurationVersion: 1
         # Required before this bundle may send an Apple Event at all. The mail
         # reader talks to Mail.app through AppleScript, and macOS attributes
         # that event to the responsible app — this one — so without the string
@@ -203,24 +211,23 @@ targets:
           saved, and nothing in Contacts can be changed; and Messages, to send a
           text from your own number, each one on a card you approve.
         # Asked only when the user presses Show Names from Contacts in a bot's
-        # chat picker: the app itself reads names to label the user's Messages
-        # conversations, which is the Contacts pane, not the
+        # chat picker: the app itself reads names to
+        # label their Messages conversations, which is the Contacts pane, not the
         # Apple Events one the Contacts connector's reader goes through.
         NSContactsUsageDescription: >-
           OpenBots Next shows the names from your Contacts beside your Messages conversations when you choose which chats a bot may read. Names are only shown to you; nothing in Contacts can be changed.
         OpenBotsGoogleOAuthClientID: $(OPENBOTS_GOOGLE_OAUTH_CLIENT_ID)
-        # Stamped by Scripts/build-preview.sh; Settings -> Diagnostics shows it.
+        # Stamped by Scripts/build-source-update.sh; Settings -> Diagnostics shows it.
         OpenBotsSourceCommit: $(OPENBOTS_SOURCE_COMMIT)
     # Under the hardened runtime macOS will not even ask about Contacts without
     # this key: tccd logged "kTCCServiceAddressBook requires entitlement
-    # com.apple.security.personal-information.addressbook but it is missing",
-    # so Show Names from Contacts raised no prompt on a Mac that had not decided
-    # yet. The app only; the embedded helpers never read Contacts.
+    # com.apple.security.personal-information.addressbook but it is missing"
+    # without it, so Show Names from Contacts could not request access.
+    # The app only; the embedded helpers never read Contacts.
     # The same holds for Calendars: tccd logged "kTCCServiceCalendar requires
     # entitlement com.apple.security.personal-information.calendars but it is
     # missing" for the app, the responsible process of the embedded
-    # openbots-calendar-read, so the Apple Calendar connector could never ask
-    # without it.
+    # openbots-calendar-read, so the Apple Calendar connector could never ask.
     # xcodegen writes the file from these properties.
     entitlements:
       path: Apps/OpenBotsPreviewApp/OpenBotsPreviewApp.entitlements
@@ -266,8 +273,7 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         INFOPLIST_KEY_NSHumanReadableCopyright: Copyright © 2026 Lorenzo Colombani
         CODE_SIGN_STYLE: Automatic
-        CURRENT_PROJECT_VERSION: 3
-        MARKETING_VERSION: 1.0.2
+        MARKETING_VERSION: 1.1.0
         OPENBOTS_GOOGLE_OAUTH_CLIENT_ID: ""
         OPENBOTS_SOURCE_COMMIT: ""
 schemes:

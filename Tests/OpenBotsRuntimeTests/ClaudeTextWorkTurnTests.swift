@@ -4,6 +4,7 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsRuntime
 
+
 // A bot working on the Mac: the command it is launched with, the
 // questions the CLI asks over the control channel, and the transport that
 // carries the answers back on the child's stdin.
@@ -25,7 +26,7 @@ func workAccessShape() throws {
         try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/private/tmp/a/../b"), protectedPaths: [])
     }
     #expect(throws: ClaudeTextWorkAccessError.self) {
-        try workAccessFixture(extra: ["/Users/x/Documents", "/Users/x/Documents"])
+        try workAccessFixture(extra: ["/Users/fixture/Documents", "/Users/fixture/Documents"])
     }
     #expect(throws: ClaudeTextWorkAccessError.self) { try workAccessFixture(protected: ["relative/path"]) }
     #expect(throws: ClaudeTextWorkAccessError.self) { try workAccessFixture(protected: ["/private/tmp/bot-desk.noindex"]) }
@@ -34,8 +35,8 @@ func workAccessShape() throws {
 
 @Test("The team's shared folder rides a work turn as its own --add-dir after the user's folders, never counted against them")
 func sharedFolderRidesTheWorkTurn() throws {
-    let sixteen = (1...16).map { "/Users/x/Documents/Folder \($0)" }
-    let shared = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Shared")
+    let sixteen = (1...16).map { "/Users/fixture/Documents/Folder \($0)" }
+    let shared = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Shared")
     let desk = URL(fileURLWithPath: "/private/tmp/bot-desk.noindex/Yogurt")
     let access = try ClaudeTextWorkAccess(workingDirectoryURL: desk,
         additionalDirectoryURLs: sixteen.map { URL(fileURLWithPath: $0) }, sharedDirectoryURL: shared,
@@ -53,29 +54,29 @@ func sharedFolderRidesTheWorkTurn() throws {
         try ClaudeTextWorkAccess(workingDirectoryURL: desk, additionalDirectoryURLs: [shared], sharedDirectoryURL: shared, protectedPaths: [])
     }
     #expect(throws: ClaudeTextWorkAccessError.self) {
-        try ClaudeTextWorkAccess(workingDirectoryURL: desk, sharedDirectoryURL: URL(fileURLWithPath: "/Users/x/.ssh/shared"),
-                                 protectedPaths: ["/Users/x/.ssh"])
+        try ClaudeTextWorkAccess(workingDirectoryURL: desk, sharedDirectoryURL: URL(fileURLWithPath: "/Users/fixture/.ssh/shared"),
+                                 protectedPaths: ["/Users/fixture/.ssh"])
     }
     #expect(throws: ClaudeTextWorkAccessError.self) {
-        try ClaudeTextWorkAccess(workingDirectoryURL: desk, sharedDirectoryURL: URL(fileURLWithPath: "/Users/x/a/../Shared"), protectedPaths: [])
+        try ClaudeTextWorkAccess(workingDirectoryURL: desk, sharedDirectoryURL: URL(fileURLWithPath: "/Users/fixture/a/../Shared"), protectedPaths: [])
     }
     // A work turn without one launches exactly as before.
-    let plain = try workAccessFixture(extra: ["/Users/x/Documents/Invoices 2026"])
-    #expect(plain.sharedDirectoryURL == nil && plain.grantedDirectoryURLs.map(\.path) == ["/Users/x/Documents/Invoices 2026"])
+    let plain = try workAccessFixture(extra: ["/Users/fixture/Documents/Invoices 2026"])
+    #expect(plain.sharedDirectoryURL == nil && plain.grantedDirectoryURLs.map(\.path) == ["/Users/fixture/Documents/Invoices 2026"])
 }
 
 @Test("A bot's skills folder rides a work turn read-only: its own --add-dir last, every write tool denied there by rule, the shell by the sandbox")
 func skillsFolderIsReadOnly() throws {
     let desk = URL(fileURLWithPath: "/private/tmp/bot-desk.noindex/Yogurt")
-    let skills = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Skills/Yogurt")
-    let shared = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Shared")
+    let skills = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Skills/Yogurt")
+    let shared = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Shared")
     let pickup = ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project")
-    let access = try ClaudeTextWorkAccess(workingDirectoryURL: desk, additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/x/Documents")],
+    let access = try ClaudeTextWorkAccess(workingDirectoryURL: desk, additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/fixture/Documents")],
         sharedDirectoryURL: shared, skillsDirectoryURL: skills, skills: [pickup], protectedPaths: ["/private/tmp/protected-root.noindex"])
-    #expect(access.grantedDirectoryURLs.map(\.path) == ["/Users/x/Documents", shared.path, skills.path])
+    #expect(access.grantedDirectoryURLs.map(\.path) == ["/Users/fixture/Documents", shared.path, skills.path])
     let arguments = ClaudeTextOnlyCommandBuilder.arguments(for: try textOnlyTestRequest(workAccess: access))
     #expect(arguments.indices.filter { arguments[$0] == "--add-dir" }.map { arguments[$0 + 1] }
-            == ["/Users/x/Documents", shared.path, skills.path])
+            == ["/Users/fixture/Documents", shared.path, skills.path])
     let settings = try #require(arguments.firstIndex(of: "--settings").map { arguments[$0 + 1] })
     let object = try #require(try JSONSerialization.jsonObject(with: Data(settings.utf8)) as? [String: Any])
     let deny = try #require((object["permissions"] as? [String: Any])?["deny"] as? [String])
@@ -101,8 +102,8 @@ func skillsFolderIsReadOnly() throws {
 
 @Test("Every bot's skills stay read-only on a work turn: the whole skills root is denied to the writing tools by rule and to the shell by the sandbox, for a bot that holds no skill too")
 func skillsRootIsReadOnly() throws {
-    let desk = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Yogurt")
-    let root = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Skills")
+    let desk = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt")
+    let root = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Skills")
     func fence(_ access: ClaudeTextWorkAccess) throws -> (deny: [String], denyWrite: [String], denyRead: [String]) {
         let arguments = ClaudeTextOnlyCommandBuilder.arguments(for: try textOnlyTestRequest(workAccess: access))
         let settings = try #require(arguments.firstIndex(of: "--settings").map { arguments[$0 + 1] })
@@ -113,23 +114,23 @@ func skillsRootIsReadOnly() throws {
     }
     // No skill of its own, and the whole content root added by hand: every other bot's skills sit inside it.
     let bare = try ClaudeTextWorkAccess(workingDirectoryURL: desk,
-        additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content")],
+        additionalDirectoryURLs: [URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content")],
         skillsRootURL: root, protectedPaths: [])
-    let expectedRules = ["Edit(//Users/x/OpenBots Next Preview Content/Skills/**)", "Write(//Users/x/OpenBots Next Preview Content/Skills/**)",
-                         "MultiEdit(//Users/x/OpenBots Next Preview Content/Skills/**)", "NotebookEdit(//Users/x/OpenBots Next Preview Content/Skills/**)"]
+    let expectedRules = ["Edit(//Users/fixture/OpenBots Next Preview Content/Skills/**)", "Write(//Users/fixture/OpenBots Next Preview Content/Skills/**)",
+                         "MultiEdit(//Users/fixture/OpenBots Next Preview Content/Skills/**)", "NotebookEdit(//Users/fixture/OpenBots Next Preview Content/Skills/**)"]
     let bareFence = try fence(bare)
     #expect(bareFence.deny.filter { $0.contains("/Skills") }.sorted() == expectedRules.sorted())
-    #expect(bareFence.denyWrite == ["/Users/x/OpenBots Next Preview Content/Skills"] && bareFence.denyRead.isEmpty)
+    #expect(bareFence.denyWrite == ["/Users/fixture/OpenBots Next Preview Content/Skills"] && bareFence.denyRead.isEmpty)
     // With skills of its own the root still is the fence, the bot's own folder inside it.
     let pickup = ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project")
     let holding = try ClaudeTextWorkAccess(workingDirectoryURL: desk, skillsDirectoryURL: root.appending(path: "Yogurt"),
         skills: [pickup], skillsRootURL: root, protectedPaths: [])
     let holdingFence = try fence(holding)
     #expect(holdingFence.deny.filter { $0.contains("/Skills") }.sorted() == expectedRules.sorted())
-    #expect(holdingFence.denyWrite == ["/Users/x/OpenBots Next Preview Content/Skills"])
+    #expect(holdingFence.denyWrite == ["/Users/fixture/OpenBots Next Preview Content/Skills"])
     // A skills folder outside the root, or a desk inside it, is not a work turn's shape.
     #expect(throws: ClaudeTextWorkAccessError.self) {
-        try ClaudeTextWorkAccess(workingDirectoryURL: desk, skillsDirectoryURL: URL(fileURLWithPath: "/Users/x/Elsewhere/Yogurt"),
+        try ClaudeTextWorkAccess(workingDirectoryURL: desk, skillsDirectoryURL: URL(fileURLWithPath: "/Users/fixture/Elsewhere/Yogurt"),
                                  skills: [pickup], skillsRootURL: root, protectedPaths: [])
     }
     #expect(throws: ClaudeTextWorkAccessError.self) {
@@ -139,13 +140,13 @@ func skillsRootIsReadOnly() throws {
 
 @Test("No path the rules or the sandbox would read as a pattern fences a work turn: a skills root, or a skills folder standing in for one, carrying ( ) [ ] { } * or ? is refused; inside a plain root a bot's odd folder name is no rule at all")
 func readOnlyPathsAreRuleSafe() throws {
-    let desk = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Bots/Bot [EU] (draft)")
-    let root = URL(fileURLWithPath: "/Users/x/OpenBots Next Preview Content/Skills")
+    let desk = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Bots/Bot [EU] (draft)")
+    let root = URL(fileURLWithPath: "/Users/fixture/OpenBots Next Preview Content/Skills")
     let odd = root.appending(path: "Bot [EU] (draft)")
     let pickup = ClaudeTextWorkSkill(name: "pickup", summary: "Resume a paused project")
     // Inside a plain root the odd name only rides as --add-dir: every rule and sandbox path names plain folders.
     let access = try ClaudeTextWorkAccess(workingDirectoryURL: desk, skillsDirectoryURL: odd, skills: [pickup],
-                                          skillsRootURL: root, protectedPaths: ["/Users/x/.ssh"])
+                                          skillsRootURL: root, protectedPaths: ["/Users/fixture/.ssh"])
     let arguments = ClaudeTextOnlyCommandBuilder.arguments(for: try textOnlyTestRequest(workAccess: access))
     #expect(arguments.indices.filter { arguments[$0] == "--add-dir" }.map { arguments[$0 + 1] } == [odd.path])
     let settings = try #require(arguments.firstIndex(of: "--settings").map { arguments[$0 + 1] })
@@ -157,7 +158,7 @@ func readOnlyPathsAreRuleSafe() throws {
         guard let open = rule.firstIndex(of: "(") else { return nil }
         return String(rule[rule.index(after: open)..<rule.index(rule.endIndex, offsetBy: -4)])
     }
-    #expect(rulePaths.contains("//Users/x/OpenBots Next Preview Content/Skills") && rulePaths.contains("//Users/x/.ssh"))
+    #expect(rulePaths.contains("//Users/fixture/OpenBots Next Preview Content/Skills") && rulePaths.contains("//Users/fixture/.ssh"))
     let sandboxPaths = (filesystem["denyRead"] as? [String] ?? []) + (filesystem["denyWrite"] as? [String] ?? [])
     for path in rulePaths + sandboxPaths { #expect(!path.contains(where: patternCharacters.contains), "\(path)") }
     // Without a root the skills folder would be the rule and the sandbox path itself: refused.
@@ -167,13 +168,13 @@ func readOnlyPathsAreRuleSafe() throws {
         }
     }
     #expect(throws: ClaudeTextWorkAccessError.self) {
-        try ClaudeTextWorkAccess(workingDirectoryURL: desk, skillsRootURL: URL(fileURLWithPath: "/Users/x (old)/Content/Skills"), protectedPaths: [])
+        try ClaudeTextWorkAccess(workingDirectoryURL: desk, skillsRootURL: URL(fileURLWithPath: "/Users/fixture (old)/Content/Skills"), protectedPaths: [])
     }
 }
 
 @Test("A work turn is launched with Claude Code's file and shell tools, the host as its permission prompt, and the user's folders")
 func workCommandContract() throws {
-    let access = try workAccessFixture(extra: ["/Users/x/Documents/Invoices 2026"])
+    let access = try workAccessFixture(extra: ["/Users/fixture/Documents/Invoices 2026"])
     let request = try textOnlyTestRequest(allowedTools: [.webSearch], workAccess: access)
     #expect(request.grantsWork && request.grantsTools)
     #expect(request.grantedToolNames == ["Bash", "Edit", "Glob", "Grep", "NotebookEdit", "Read", "Write", "AskUserQuestion", "Agent", "WebSearch"])
@@ -186,7 +187,7 @@ func workCommandContract() throws {
     let prompt = try #require(arguments.firstIndex(of: "--permission-prompt-tool").map { arguments[$0 + 1] })
     #expect(prompt == "stdio")
     let addDir = try #require(arguments.firstIndex(of: "--add-dir").map { arguments[$0 + 1] })
-    #expect(addDir == "/Users/x/Documents/Invoices 2026")
+    #expect(addDir == "/Users/fixture/Documents/Invoices 2026")
     // Only the web grant is pre-approved; every file and shell use asks.
     let allowed = try #require(arguments.firstIndex(of: "--allowedTools").map { arguments[$0 + 1] })
     #expect(allowed == "WebSearch")
@@ -197,7 +198,7 @@ func workCommandContract() throws {
     }
     for name in request.grantedToolNames { #expect(!denied.contains(name)) }
     let cap = try #require(arguments.firstIndex(of: "--max-turns").map { arguments[$0 + 1] })
-    #expect(cap == "16")
+    #expect(cap == "64")
     // Work now grants the explicit custom helper, which safe mode suppresses.
     #expect(!arguments.contains("--safe-mode"))
     for kept in ["--restricted", "--strict-mcp-config", "--no-session-persistence"] {
@@ -210,7 +211,7 @@ func workCommandContract() throws {
 
 @Test("A work turn's settings deny the protected roots to every file tool and to the sandboxed shell, and never auto-allow a command")
 func workSettingsContract() throws {
-    let access = try workAccessFixture(protected: ["/Users/x/Library/Keychains", "/Users/x/.ssh"])
+    let access = try workAccessFixture(protected: ["/Users/fixture/Library/Keychains", "/Users/fixture/.ssh"])
     let request = try textOnlyTestRequest(allowedTools: [.webFetch], workAccess: access)
     let settings = try #require(JSONSerialization.jsonObject(
         with: Data(ClaudeTextOnlyCommandBuilder.settingsJSON(for: request).utf8)) as? [String: Any])
@@ -223,12 +224,12 @@ func workSettingsContract() throws {
     // The CLI's rule grammar: `//` is a filesystem-absolute path, a single `/`
     // is relative to the project root (probed on 2.1.263: only the `//` form
     // refuses "File is in a directory that is denied by your permission settings").
-    for rule in ["Read(//Users/x/Library/Keychains/**)", "Write(//Users/x/.ssh/**)", "Edit(//Users/x/.ssh/**)",
-                 "Grep(//Users/x/.ssh/**)", "Glob(//Users/x/.ssh/**)",
+    for rule in ["Read(//Users/fixture/Library/Keychains/**)", "Write(//Users/fixture/.ssh/**)", "Edit(//Users/fixture/.ssh/**)",
+                 "Grep(//Users/fixture/.ssh/**)", "Glob(//Users/fixture/.ssh/**)",
                  "mcp__*", "WebSearch"] {
         #expect(deny.contains(rule), "missing deny rule \(rule)")
     }
-    #expect(!deny.contains("Read(/Users/x/.ssh/**)"), "a single leading slash is project-relative and never matches")
+    #expect(!deny.contains("Read(/Users/fixture/.ssh/**)"), "a single leading slash is project-relative and never matches")
     for name in request.grantedToolNames { #expect(!deny.contains(name)) }
     let sandbox = try #require(settings["sandbox"] as? [String: Any])
     #expect(sandbox["enabled"] as? Bool == true)
@@ -236,13 +237,13 @@ func workSettingsContract() throws {
     #expect(sandbox["autoAllowBashIfSandboxed"] as? Bool == false)
     #expect(sandbox["allowUnsandboxedCommands"] as? Bool == false)
     let filesystem = try #require(sandbox["filesystem"] as? [String: Any])
-    #expect(filesystem["denyRead"] as? [String] == ["/Users/x/Library/Keychains", "/Users/x/.ssh"])
-    #expect(filesystem["denyWrite"] as? [String] == ["/Users/x/Library/Keychains", "/Users/x/.ssh"])
+    #expect(filesystem["denyRead"] as? [String] == ["/Users/fixture/Library/Keychains", "/Users/fixture/.ssh"])
+    #expect(filesystem["denyWrite"] as? [String] == ["/Users/fixture/Library/Keychains", "/Users/fixture/.ssh"])
 }
 
 @Test("A folder that holds a protected root is added whole, the root inside it denied by rule and by the sandbox")
 func folderHoldingAProtectedRootKeepsItFenced() throws {
-    let pictures = "/Users/x/Pictures", library = "/Users/x/Pictures/Photos Library.photoslibrary"
+    let pictures = "/Users/fixture/Pictures", library = "/Users/fixture/Pictures/Photos Library.photoslibrary"
     let access = try workAccessFixture(extra: [pictures], protected: [library])
     let request = try textOnlyTestRequest(workAccess: access)
     let arguments = ClaudeTextOnlyCommandBuilder.arguments(for: request)
@@ -259,13 +260,13 @@ func folderHoldingAProtectedRootKeepsItFenced() throws {
 
 @Test("A protected root that would break the rule grammar is refused at the access")
 func protectedRootsMustSpellARule() throws {
-    for bad in ["/Users/x/a(b)", "/Users/x/*", "/Users/x/why?", "/Users/x/[a]", "/Users/x/{a,b}"] {
+    for bad in ["/Users/fixture/a(b)", "/Users/fixture/*", "/Users/fixture/why?", "/Users/fixture/[a]", "/Users/fixture/{a,b}"] {
         #expect(throws: ClaudeTextWorkAccessError.self, "\(bad)") {
-            try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/x/Bots/Zed"), protectedPaths: [bad])
+            try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/Bots/Zed"), protectedPaths: [bad])
         }
     }
     #expect(throws: Never.self) {
-        try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/x/Bots/Zed"), protectedPaths: ["/Users/x/Library/Group Containers"])
+        try ClaudeTextWorkAccess(workingDirectoryURL: URL(fileURLWithPath: "/Users/fixture/Bots/Zed"), protectedPaths: ["/Users/fixture/Library/Group Containers"])
     }
 }
 
@@ -333,14 +334,14 @@ func workStreamAdmitsRuleRefusal() throws {
         try stream.consume(textOnlyTestReplay(request)) { _ in }
         try stream.consume(textOnlyTestLine(["type": "assistant", "session_id": request.sessionID.uuidString,
             "message": ["role": "assistant", "model": request.expectedResolvedModel,
-                        "content": [["type": "tool_use", "id": "toolu_1", "name": "Read", "input": ["file_path": "/Users/x/.ssh/config"]]]]])) { _ in }
+                        "content": [["type": "tool_use", "id": "toolu_1", "name": "Read", "input": ["file_path": "/Users/fixture/.ssh/config"]]]]])) { _ in }
         return (stream, request)
     }
-    // The shape 2.1.263 sent when a protected-root rule refused a Read.
+    // The shape CLI 2.1.263 sends when a protected-root rule refuses a Read.
     func refusal(_ request: ClaudeTextOnlyRequest) -> [String: Any] {
         ["type": "system", "subtype": "permission_denied", "session_id": request.sessionID.uuidString,
          "uuid": UUID().uuidString, "tool_name": "Read", "tool_use_id": "toolu_1",
-         "decision_reason": "Permission denied by rule Read(//Users/x/.ssh/**)", "decision_reason_type": "rules",
+         "decision_reason": "Permission denied by rule Read(//Users/fixture/.ssh/**)", "decision_reason_type": "rules",
          "message": String(repeating: "x", count: 173), "attempt": 1, "is_error": true]
     }
     var (stream, request) = try readyWorkStream()
@@ -565,10 +566,9 @@ private actor WorkProcessEvents {
 
 @Test("A question about a tool the turn was not launched with is handed to the host to deny, not the end of the turn")
 func unadmittedQuestionIsSurfacedForDenial() throws {
-    // Two team legs once died on exactly this frame:
-    // a sandboxed shell command tried to reach a host, and the CLI asked about
-    // the pseudo-tool it uses for that, which no turn ever grants. Captured on
-    // 2.1.272 with the app's own flags, values substituted.
+    // A sandboxed shell command that reaches a host can make CLI 2.1.272 ask
+    // about a network pseudo-tool no turn grants. The synthetic frame follows
+    // the protocol used with the app's flags.
     let request = try textOnlyTestRequest(allowedTools: [.webSearch, .webFetch], workAccess: workAccessFixture())
     var stream = ClaudeTextOnlyStream(request: request)
     stream.expectControlInitialization(requestID: "init-1")
@@ -578,22 +578,22 @@ func unadmittedQuestionIsSurfacedForDenial() throws {
         "response": ["subtype": "success", "request_id": "init-1", "response": [String: Any]()]]))
     try feed(textOnlyTestInit(request, override: ["tools": request.grantedToolNames, "permissionMode": "default"]))
     try feed(textOnlyTestReplay(request))
-    try feed(textOnlyTestLine(["type": "control_request", "request_id": "5ddcfc07-1eb3-4ff8-bb4d-1f39feaf3f55",
+    try feed(textOnlyTestLine(["type": "control_request", "request_id": "ae06bda5-618c-5fe9-9e63-f9c85cd4f3c8",
         "request": ["subtype": "can_use_tool", "tool_name": "SandboxNetworkAccess", "display_name": "SandboxNetworkAccess",
                     "description": "Allow network connection to school.example?", "input": ["host": "school.example"],
                     "permission_suggestions": [["type": "addRules", "behavior": "allow", "destination": "localSettings",
                                                 "rules": [["toolName": "WebFetch", "ruleContent": "domain:school.example"]]]],
-                    "tool_use_id": "70bc856b-0ec1-43ae-b2ff-070d690c9612"]]))
+                    "tool_use_id": "9877a1cd-c755-5c94-9f48-7e0bb8465a5c"]]))
     let question = try #require(events.last.flatMap { event -> ClaudeTextPermissionRequest? in
         if case .permissionRequested(let value) = event { return value }; return nil })
     #expect(question.toolName == "SandboxNetworkAccess" && !question.admitted)
-    #expect(question.requestID == "5ddcfc07-1eb3-4ff8-bb4d-1f39feaf3f55" && question.toolUseID == "70bc856b-0ec1-43ae-b2ff-070d690c9612")
+    #expect(question.requestID == "ae06bda5-618c-5fe9-9e63-f9c85cd4f3c8" && question.toolUseID == "9877a1cd-c755-5c94-9f48-7e0bb8465a5c")
     #expect(try JSONSerialization.jsonObject(with: question.inputJSON) as? [String: String] == ["host": "school.example"])
     // The turn goes on: the same id is still a replay, and text still lands.
     #expect(throws: ClaudeTextOnlyRejection.self) {
-        try feed(textOnlyTestLine(["type": "control_request", "request_id": "5ddcfc07-1eb3-4ff8-bb4d-1f39feaf3f55",
+        try feed(textOnlyTestLine(["type": "control_request", "request_id": "ae06bda5-618c-5fe9-9e63-f9c85cd4f3c8",
             "request": ["subtype": "can_use_tool", "tool_name": "SandboxNetworkAccess", "input": ["host": "school.example"],
-                        "tool_use_id": "70bc856b-0ec1-43ae-b2ff-070d690c9612"]]))
+                        "tool_use_id": "9877a1cd-c755-5c94-9f48-7e0bb8465a5c"]]))
     }
     try feed(textOnlyTestDelta(request, text: "Using the web tools instead."))
     #expect(events.last == .textSnapshot("Using the web tools instead."))
@@ -626,14 +626,15 @@ func unadmittedQuestionCanOnlyBeDenied() throws {
     #expect(response["behavior"] as? String == "deny" && response["message"] as? String == "The shell cannot reach the network.")
 }
 
-@Test("Every turn's settings switch off the built-in agents-md plugin")
+@Test("Every turn's settings switch off the built-in plugins Claude Code announces on its own")
 func everySettingsShapeDisablesAgentsMd() throws {
-    // Claude Code 2.1.281 ships a built-in plugin, agents-md, that loads a
-    // folder's agent instruction files where CLAUDE.md would load and
+    // Claude Code 2.1.281 ships a built-in plugin,
+    // agents-md, that loads AGENTS.md files where CLAUDE.md would load and
     // hooks tool calls; even with --safe-mode and no setting sources it is
-    // announced in the init frame, and every turn died there as
-    // initializationPluginsInvalid. Only this setting leaves it out; the init
-    // check still requires no plugin.
+    // announced in the init frame, triggering initializationPluginsInvalid.
+    // This setting leaves it out; the init check still requires no plugin.
+    // Claude Code 2.1.287 also announces its
+    // plugin-authoring plugin, cc-plugin-plugin-authoring.
     let shapes: [(String, ClaudeTextOnlyRequest)] = [
         ("text", try textOnlyTestRequest()),
         ("web", try textOnlyTestRequest(allowedTools: [.webSearch, .webFetch])),
@@ -646,6 +647,6 @@ func everySettingsShapeDisablesAgentsMd() throws {
         let data = try #require(ClaudeTextOnlyCommandBuilder.settingsJSON(for: request).data(using: .utf8))
         let settings = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
         let plugins = settings["enabledPlugins"] as? [String: Bool]
-        #expect(plugins == ["agents-md@builtin": false], "\(name)")
+        #expect(plugins == ["agents-md@builtin": false, "cc-plugin-plugin-authoring@builtin": false, "telemetry@builtin": false], "\(name)")
     }
 }

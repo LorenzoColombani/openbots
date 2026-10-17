@@ -36,8 +36,8 @@ extension SQLiteStore: TeamArchiveRepository {
                 // active one), so nothing is left running behind the archive.
                 // Action proposals live only in a bot's own chat (their context
                 // check asks for kind='direct'), so a team's chat has none. A
-                // handoff staged, accepted or working is live or waits for the
-                // user's Send; one needing recovery can wait forever, so it does not
+                // handoff staged, accepted or working is live or waits for the user's
+                // Send; one needing recovery can wait forever, so it does not
                 // keep the team from being archived.
                 let unresolved = try query(sql: """
                     SELECT 1 AS unresolved FROM work_runs

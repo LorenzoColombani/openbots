@@ -188,6 +188,7 @@ struct TeamTextReplyTests {
         #expect(try await store.page(conversationID: f.teamChat, request: PageRequest(limit: 5)).elements.isEmpty)
     }
 
+
     /// A hidden bot
     /// keeps its seat and shows in its teams, whether it is named or leads.
     @Test("A hidden member answers its @mention and a hidden lead answers unmentioned text", arguments: ["member", "lead"])

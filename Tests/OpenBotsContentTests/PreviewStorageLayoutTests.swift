@@ -52,7 +52,7 @@ final class PreviewStorageLayoutTests: XCTestCase {
         XCTAssertFalse(layout.contentRoot.url.path.contains("/OpenBots/"))
     }
 
-    func testRootCreationPlanIsSideEffectFreeAndDoesNotBootstrapClaudeProfile() throws {
+    func testRootCreationPlanIncludesEmptyClaudeStorageButIsSideEffectFree() throws {
         let fixture = try ContentTemporaryFixture()
         let installationID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let internalKinds: [OwnedRootKind] = [.applicationSupport, .caches, .temporary]
@@ -67,7 +67,7 @@ final class PreviewStorageLayoutTests: XCTestCase {
         )
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.layout.applicationSupportRoot.url.path))
-        XCTAssertFalse(plan.steps.contains(where: { $0.url == fixture.layout.claudeCLIProfileRoot }))
+        XCTAssertTrue(plan.steps.contains(where: { $0.url == fixture.layout.claudeCLIProfileRoot }))
         XCTAssertFalse(plan.steps.contains(where: { $0.url == fixture.layout.contentRoot.url }))
         XCTAssertFalse(plan.steps.contains(where: { $0.url == fixture.layout.visibleWorkingRoot }))
         XCTAssertTrue(plan.steps.contains(where: { $0.url == fixture.layout.highChurnRoot }))
@@ -79,6 +79,7 @@ final class PreviewStorageLayoutTests: XCTestCase {
         XCTAssertEqual(plan.rootIDs, ids)
 
         let markerSteps = plan.steps.filter {
+            guard $0.url.lastPathComponent == ".openbots-root.json" else { return false }
             if case .exclusiveOwnershipMarker = $0.kind { return true }
             return false
         }

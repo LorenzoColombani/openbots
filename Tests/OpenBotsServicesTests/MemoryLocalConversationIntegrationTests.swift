@@ -499,8 +499,7 @@ private struct LocalMemoryLocation: MacOSLocationAdmissionChecking {
     }
 }
 /// The installed app wraps the official reply service in the local-memory service;
-/// Details reads the last saved reply's model through that wrapper, so the
-/// wrapper must answer, not stay silent.
+/// Details must read the last saved reply's model through that wrapper.
 @Test("The local memory wrapper forwards the saved execution evidence lookup to its provider")
 func localMemoryWrapperForwardsSavedExecutionEvidence() async throws {
     let request = ClaudeExecutionRequest(sessionID: UUID(),
@@ -518,6 +517,7 @@ func localMemoryWrapperForwardsSavedExecutionEvidence() async throws {
     #expect(try await wrapper.latestExecutionEvidence(conversationID: conversation) == evidence)
     #expect(await fallback.asked == [conversation])
 }
+
 
 /// The protocol's defaults answer "unavailable" and "not saved", so
 /// a wrapper that forgot to pass a worker's wake or its quit line on would

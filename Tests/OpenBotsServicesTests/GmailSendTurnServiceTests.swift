@@ -5,12 +5,13 @@ import OpenBotsDomain
 @testable import OpenBotsServices
 import Testing
 
+
 /// Gmail send on the chat path: Approve writes the
 /// message's one-use approval before the allow goes out, and nothing else does.
 @Suite("Gmail send on the chat path: only Approve writes the approval the helper sends on")
 struct GmailSendTurnServiceTests {
     static var message: [String: Any] {
-        ["from": "openbots@example.com", "to": "alex@example.com",
+        ["from": "openbots@example.com", "to": "user@example.com",
          "subject": "Hello", "body": "The whole message."]
     }
 

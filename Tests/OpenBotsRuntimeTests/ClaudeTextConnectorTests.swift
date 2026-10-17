@@ -110,8 +110,8 @@ func connectorSettingsContract() throws {
     #expect(!deny.contains("mcp__*"))
     #expect(!deny.contains("*"))
     #expect(deny.contains("Bash") && deny.contains("WebFetch"))
-    // The granted namespace survives the settings encoder. A name filter that
-    // dropped digits would break it, since every server key is hex.
+    // The granted namespace must survive the settings encoder's name filter,
+    // including digits because every server key is hex.
     #expect(ClaudeTextOnlyCommandBuilder.isJSONSafeName("mcp__\(serverName)__navigate_page"))
 }
 
@@ -119,7 +119,7 @@ func connectorSettingsContract() throws {
 func connectorWithWorkKeepsBoth() throws {
     let work = try ClaudeTextWorkAccess(
         workingDirectoryURL: URL(fileURLWithPath: "/private/tmp/desk.noindex"),
-        protectedPaths: ["/Users/x/.ssh"])
+        protectedPaths: ["/Users/fixture/.ssh"])
     let request = try textOnlyTestRequest(allowedTools: [.webSearch], workAccess: work,
                                           connectorAccess: try connectorAccessFixture())
     let arguments = ClaudeTextOnlyCommandBuilder.arguments(for: request)
@@ -181,6 +181,7 @@ func configurationFileIsSelectedOnly() throws {
     #expect(try ClaudeTextConnectorConfigurationFile.configurationJSON(for: access) == json)
 }
 
+
 /// A work turn's CLI runs with TMPDIR in the
 /// shell's own folder, which the turn's commands can read. A connector server
 /// inherits the CLI's environment, and the Google server hands TMPDIR to its
@@ -190,7 +191,7 @@ func configurationFileIsSelectedOnly() throws {
 func connectorServersPinTheRunTemporaryFolder() throws {
     let mail = try ClaudeTextConnectorServer(
         name: "openbots_" + String(repeating: "1c4d5e6f", count: 8), role: .appleMailRead,
-        program: .installedTool(URL(fileURLWithPath: "/Users/somebody/.local/bin/apple-mail-fast-mcp")),
+        program: .installedTool(URL(fileURLWithPath: "/Users/fixture/.local/bin/apple-mail-fast-mcp")),
         options: [.readOnly], environment: [:])
     let access = try ClaudeTextConnectorAccess(servers: [mail])
     let run = URL(fileURLWithPath: "/private/tmp/run.noindex/Temp.noindex")
@@ -203,7 +204,7 @@ func connectorServersPinTheRunTemporaryFolder() throws {
     let own = "/private/tmp/own.noindex/tmp"
     let named = try ClaudeTextConnectorServer(
         name: "openbots_" + String(repeating: "2d5e6f70", count: 8), role: .appleMailRead,
-        program: .installedTool(URL(fileURLWithPath: "/Users/somebody/.local/bin/apple-mail-fast-mcp")),
+        program: .installedTool(URL(fileURLWithPath: "/Users/fixture/.local/bin/apple-mail-fast-mcp")),
         options: [.readOnly], environment: ["TMPDIR": own])
     let pinned = try ClaudeTextConnectorConfigurationFile.configurationJSON(
         for: try ClaudeTextConnectorAccess(servers: [named]), temporaryDirectory: run)
@@ -217,7 +218,7 @@ func macControlLaunchShape() throws {
     let program = ClaudeTextConnectorProgram.fenced(
         interpreterURL: URL(fileURLWithPath: "/opt/homebrew/bin/node"),
         proxyURL: URL(fileURLWithPath: "/Applications/OpenBots Next.app/Contents/Resources/fence-proxy.js"),
-        label: "mac-control", server: .installedTool(URL(fileURLWithPath: "/Users/x/.npm/_npx/abc/node_modules/@steipete/peekaboo/peekaboo")))
+        label: "mac-control", server: .installedTool(URL(fileURLWithPath: "/Users/fixture/.npm/_npx/abc/node_modules/@steipete/peekaboo/peekaboo")))
     // Nine keys: the home three, the four switches, the tool list and the
     // config folder with its migration off.
     let server = try ClaudeTextConnectorServer(name: "openbots_mac", role: .macControl, program: program,
@@ -227,7 +228,7 @@ func macControlLaunchShape() throws {
             "PEEKABOO_ALLOW_TOOLS": "see,click", "PEEKABOO_CONFIG_DIR": "/private/tmp/run/.peekaboo",
             "PEEKABOO_CONFIG_DISABLE_MIGRATION": "1"])
     #expect(server.arguments.suffix(2) == ["mcp", "serve"])
-    #expect(server.arguments.contains("/Users/x/.npm/_npx/abc/node_modules/@steipete/peekaboo/peekaboo"))
+    #expect(server.arguments.contains("/Users/fixture/.npm/_npx/abc/node_modules/@steipete/peekaboo/peekaboo"))
     #expect(server.program.isFenced)
     // Its other switches are not spellable: a bridge socket or a forced auto-connect cannot be passed.
     #expect(throws: ClaudeTextConnectorAccessError.self) {
@@ -260,6 +261,7 @@ func connectorServerSelectionBound() throws {
     let everyRoot = try #require(JSONSerialization.jsonObject(with: everyJSON) as? [String: Any])
     #expect((everyRoot["mcpServers"] as? [String: Any])?.count == fixtures.count)
     #expect(everyJSON.count <= ClaudeTextConnectorConfigurationFile.maximumBytes)
+
 
     // The thirteen launchable connectors announce 99 tools together (Messages
     // adds 3, Control this Mac the 20 PEEKABOO_ALLOW_TOOLS leaves on now that
@@ -519,9 +521,7 @@ func connectorOnlyTurnAnswersItsOwnCard() throws {
     try feed(try textOnlyTestLine(["type": "control_response",
         "response": ["subtype": "success", "request_id": "req-1", "response": ["behavior": "deny"]]]))
     // A question about a tool the turn was never granted is handed to the host
-    // marked unadmitted, so it can only be answered no; the turn goes on
-    // (ending the turn instead would kill a team leg on a sandbox network
-    // question).
+    // marked unadmitted, so it can only be answered no; the turn goes on.
     try feed(try textOnlyTestLine(["type": "control_request", "request_id": "req-2",
         "session_id": request.sessionID.uuidString,
         "request": ["subtype": "can_use_tool", "tool_name": "Bash", "tool_use_id": "toolu_2",
@@ -535,7 +535,7 @@ func connectorOnlyTurnAnswersItsOwnCard() throws {
 
 @Test("A server can also be a console script the tool installer wrote, run with no interpreter of ours")
 func theLaunchCanBeAnInstalledTool() throws {
-    let script = URL(fileURLWithPath: "/Users/somebody/.local/share/uv/tools/apple-mail-fast-mcp/bin/apple-mail-fast-mcp")
+    let script = URL(fileURLWithPath: "/Users/fixture/.local/share/uv/tools/apple-mail-fast-mcp/bin/apple-mail-fast-mcp")
     let server = try ClaudeTextConnectorServer(
         name: "openbots_" + String(repeating: "1c4d5e6f", count: 8), role: .appleMailRead,
         program: .installedTool(script), options: [.readOnly], environment: [:])
@@ -573,6 +573,7 @@ func connectorInitRefusesAFrameMissingTheQuestionTool() throws {
             "permissionMode": "default"]))
     }
 }
+
 
 /// A mail call the
 /// server never answers says so. Claude Code 2.1.282 waits 1e8 ms (27 hours) for

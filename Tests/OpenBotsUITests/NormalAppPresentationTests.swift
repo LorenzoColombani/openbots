@@ -159,8 +159,8 @@ final class NormalAppPresentationTests: XCTestCase {
             .appendingPathComponent("Sources/OpenBotsUI/OpenBotsRootView.swift")
         let rootSource = try String(contentsOf: rootSourceURL, encoding: .utf8)
         XCTAssertTrue(rootSource.contains(".accessibilityLabel(conversation.submissionActionTitle)"))
-        // UI automation finds Stop by this name (an offscreen render exposes no
-        // accessibility tree to search); a regression once took this control away.
+        // Accessibility finds Stop by this name (an offscreen render exposes no
+        // accessibility tree to search).
         XCTAssertTrue(rootSource.contains(".accessibilityIdentifier(\"reply.stop\")"))
         for scheme in [ColorScheme.light, .dark] {
             for width: CGFloat in [840, 1_080] {
@@ -258,7 +258,7 @@ final class NormalAppPresentationTests: XCTestCase {
         }
     }
 
-    func testClaudeSetupOffersOneExplicitClaudeCheckWithoutAutomaticAuthentication() async throws {
+    func testClaudeSetupOffersDirectSignInAndAnHonestUncheckedState() async throws {
         for (width, scheme) in [(CGFloat(460), ColorScheme.light), (CGFloat(620), ColorScheme.dark)] {
             let controller = NSHostingController(rootView: ClaudeSetupView()
                 .environment(\.colorScheme, scheme)
@@ -277,10 +277,10 @@ final class NormalAppPresentationTests: XCTestCase {
             )
             XCTAssertTrue(ocrContains(text, "Claude connection not checked"), "Missing honest setup state: \(text)")
             XCTAssertTrue(ocrContains(text, "Check Claude"), "Missing explicit connection check: \(text)")
-            XCTAssertTrue(ocrContains(text, "It does not sign you in or send saved messages"), "Local checks must remain distinct from authentication: \(text)")
+            XCTAssertTrue(ocrContains(text, "Sign in with Claude"), "Sign-in must be available before a manual check: \(text)")
+            XCTAssertTrue(ocrContains(text, "Your connection has not been checked yet"), "Unchecked must not claim signed out or authenticated: \(text)")
             XCTAssertTrue(ocrContains(text, "You can create and choose bots"), "Missing available local actions: \(text)")
             XCTAssertTrue(ocrContains(text, "not sent later by themselves"), "Local saves must not imply deferred sending: \(text)")
-            XCTAssertTrue(ocrContains(text, "Older sample messages and saved demo outcomes keep their original labels"))
             XCTAssertFalse(text.contains("Development review mode"))
             assertNoDevelopmentControls(in: controller.view, renderedText: text)
             let controls = descendants(controller.view).compactMap { $0 as? NSControl }
@@ -530,7 +530,7 @@ final class NormalAppPresentationTests: XCTestCase {
             NSRect(origin: .zero, size: host.bounds.size).fill()
         }
         // Over, not copy: `draw(in:)` alone copies, which replaced the background
-        // with the capture's own transparent pixels (seen in the macos-26 evidence).
+        // with the capture's own transparent pixels on macOS 26.
         bitmap.draw(in: NSRect(origin: .zero, size: host.bounds.size), from: .zero, operation: .sourceOver,
                     fraction: 1, respectFlipped: false, hints: nil)
         NSGraphicsContext.restoreGraphicsState()

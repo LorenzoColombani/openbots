@@ -28,17 +28,17 @@ struct MessagesChatDirectoryTests {
         #expect(alice.title == "Alice Martin" && alice.detail == "+33612345678")
         let stranger = MessagesChatChoice.make(conversation("any;-;+14155550100", "+14155550100"), names: names)
         #expect(stranger.title == "+14155550100" && stranger.detail == nil)
-        let sender = MessagesChatChoice.make(conversation("any;-;Carrier Info", "Carrier Info"), names: names)
-        #expect(sender.title == "Carrier Info" && sender.isChoosable)
+        let sender = MessagesChatChoice.make(conversation("any;-;Example Sender", "Example Sender"), names: names)
+        #expect(sender.title == "Example Sender" && sender.isChoosable)
     }
 
     @Test("A group reads as its name with its people beneath, or as its people, counting past three")
     func aGroupReadsByItsPeople() {
         let names = ["612345678": "Alice", "550100123": "Bob"]
         let members = ["+14155550100", "+33612345678", "+15550100123", "+4915550001234", "+447700900123"]
-        let named = MessagesChatChoice.make(conversation("any;+;chat1", "chat1", name: "Family", group: true,
+        let named = MessagesChatChoice.make(conversation("any;+;chat1", "chat1", name: "Example Group", group: true,
                                                          members: members), names: names)
-        #expect(named.title == "Family")
+        #expect(named.title == "Example Group")
         #expect(named.detail == "Group: +14155550100, Alice, Bob and 2 more")
         let unnamed = MessagesChatChoice.make(conversation("any;+;chat2", "chat2", group: true,
                                                            members: Array(members.prefix(2))), names: names)
@@ -53,8 +53,8 @@ struct MessagesChatDirectoryTests {
         #expect(MessagesChatChoice.contactKey("Alice@Example.COM") == "alice@example.com")
         #expect(MessagesChatChoice.contactKey("3600") == "3600")
         #expect(MessagesChatChoice.contactKey("12") == nil)
-        #expect(MessagesChatChoice.contactKey("Carrier Info") == nil)
-        #expect(MessagesChatChoice.contactKey("L'Atelier") == nil)
+        #expect(MessagesChatChoice.contactKey("Example Sender") == nil)
+        #expect(MessagesChatChoice.contactKey("D'Example") == nil)
     }
 
     @Test("A conversation whose id is too long to name is listed and cannot be chosen")

@@ -7,7 +7,7 @@ import XCTest
 
 /// Offscreen images of injected local readiness and handoff outcomes.
 /// No window, real inspector, provider operation or OCR is involved.
-/// The images need a person's look; passing layout checks is not visual acceptance.
+/// Main must inspect the PNGs; passing layout checks is not visual acceptance.
 @MainActor
 final class ClaudeSetupRenderTests: XCTestCase {
     func testPrimaryActionChecksExistingSubscriptionWithoutSignInOrAnExtraLocalStep() async throws {
@@ -18,7 +18,7 @@ final class ClaudeSetupRenderTests: XCTestCase {
         let model = ClaudeSetupModel(service: service)
         let view = ClaudeSetupView(model: model)
         XCTAssertEqual(view.checkButtonTitle, "Check Claude")
-        XCTAssertFalse(view.offersSignIn)
+        XCTAssertTrue(view.offersSignIn)
         let initialChecks = await service.subscriptionCalls
         XCTAssertEqual(initialChecks, 0, "Rendering the new entry point stays inert")
 
@@ -30,6 +30,7 @@ final class ClaudeSetupRenderTests: XCTestCase {
         XCTAssertEqual(model.state, .verified(evidence))
         XCTAssertEqual(view.checkButtonTitle, "Check again")
         XCTAssertFalse(view.offersSignIn)
+        XCTAssertFalse(ClaudeConnectionBanner(model: model, openSetup: {}).isVisible)
         view.signInWithClaude()
         let localCalls = await service.localCalls
         let statusCalls = await service.subscriptionCalls
@@ -41,7 +42,7 @@ final class ClaudeSetupRenderTests: XCTestCase {
                          filename: "claude-setup-connected-light-520.png")
     }
 
-    func testSignInActionIsOfferedOnlyAfterAnExplicitSignedOutResult() async throws {
+    func testSignInActionIsOfferedForReadyOrSignedOutResultsButNeverForProblemsOrHandoffs() async throws {
         let outcomes: [ClaudeSetupOutcome] = [
             .needsSignIn, .readyToConnect, .handedOffNeedsVerification,
             .problem(.connectionCheckInconclusive), .problem(.installationRejected)
@@ -52,14 +53,12 @@ final class ClaudeSetupRenderTests: XCTestCase {
             model.checkSubscription()
             await model.actionTask?.value
             let view = ClaudeSetupView(model: model)
-            XCTAssertEqual(view.offersSignIn, outcome == .needsSignIn)
+            let offersSignIn = outcome == .needsSignIn || outcome == .readyToConnect
+            XCTAssertEqual(view.offersSignIn, offersSignIn)
             XCTAssertEqual(view.checkButtonTitle, "Check Claude")
             let beforeSignIn = await service.signInCalls
             XCTAssertEqual(beforeSignIn, 0)
-            if outcome == .needsSignIn {
-                // macOS 27 delivers the rendered pane's onDisappear a beat after its host is
-                // released, and that cancels whatever is pending. Keep the signed-out pane
-                // alive while its button is pressed, as it is for a person.
+            if offersSignIn {
                 let signedOutPane = try await render(model: model, width: 460, scheme: .light,
                                                      filename: "claude-setup-signed-out-light-460.png")
                 view.signInWithClaude()
@@ -78,6 +77,53 @@ final class ClaudeSetupRenderTests: XCTestCase {
                 let handoffs = await service.signInCalls
                 XCTAssertEqual(handoffs, 0, "A stale or inappropriate view action cannot start sign-in")
             }
+        }
+    }
+
+    func testInitialSettingsAndBannerShareOneDirectSignInAction() async throws {
+        let service = ClaudeSetupHandoffRenderService()
+        let model = ClaudeSetupModel(service: service)
+        let settings = ClaudeSetupView(model: model)
+        let banner = ClaudeConnectionBanner(model: model, openSetup: {})
+        XCTAssertTrue(settings.offersSignIn)
+        XCTAssertTrue(banner.isVisible)
+        try await render(model: model, width: 720, scheme: .light,
+                         filename: "claude-connection-initial-light-720.png", banner: true)
+        let initialChecks = await service.subscriptionCalls
+        let initialSignIns = await service.signInCalls
+        XCTAssertEqual(initialChecks, 0)
+        XCTAssertEqual(initialSignIns, 0)
+
+        settings.signInWithClaude()
+        await model.actionTask?.value
+
+        XCTAssertEqual(model.state, .handedOffNeedsVerification)
+        XCTAssertFalse(settings.offersSignIn)
+        XCTAssertTrue(banner.isVisible)
+        let checks = await service.subscriptionCalls
+        let signIns = await service.signInCalls
+        XCTAssertEqual(checks, 0)
+        XCTAssertEqual(signIns, 1)
+    }
+
+    func testConnectionBannerRendersSignedOutHandoffAndUncertainStates() async throws {
+        let outcomes: [(String, ClaudeSetupOutcome)] = [
+            ("signed-out", .needsSignIn), ("terminal", .handedOffNeedsVerification),
+            ("uncertain", .problem(.connectionCheckInconclusive))
+        ]
+        for (name, outcome) in outcomes {
+            let service = ClaudeSetupHandoffRenderService(statusOutcome: outcome)
+            let model = ClaudeSetupModel(service: service)
+            model.checkSubscription()
+            await model.actionTask?.value
+            try await render(model: model, width: 720, scheme: .light,
+                             filename: "claude-connection-\(name)-light-720.png", banner: true)
+            try await render(model: model, width: 1080, scheme: .dark,
+                             filename: "claude-connection-\(name)-dark-1080.png", banner: true)
+            let checks = await service.subscriptionCalls
+            let signIns = await service.signInCalls
+            XCTAssertEqual(checks, 1)
+            XCTAssertEqual(signIns, 0)
         }
     }
 
@@ -143,12 +189,48 @@ final class ClaudeSetupRenderTests: XCTestCase {
         }
     }
 
+    /// A verified test sign-in hid the banner while
+    /// no version worked, and a Mac without Claude Code got no install route.
+    func testFirstInstallStepsAndMissingClaudeCodeRender() async throws {
+        let evidence = try XCTUnwrap(ClaudeVerifiedSubscription(
+            exitCode: 0, loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty",
+            subscriptionType: "max", checkedAt: Date(timeIntervalSince1970: 1_788_000_000)))
+        let testing = ClaudeSetupModel(service: ClaudeSetupHandoffRenderService(statusOutcome: .verified(evidence)))
+        testing.step = .testing(.init(stage: .running, version: "2.1.300"))
+        testing.checkSubscription()
+        await testing.actionTask?.value
+        XCTAssertTrue(ClaudeConnectionBanner(model: testing, openSetup: {}).isVisible)
+        XCTAssertFalse(testing.offersSignIn)
+        try await render(model: testing, width: 720, scheme: .light,
+                         filename: "claude-connection-testing-light-720.png", banner: true)
+        try await render(model: testing, width: 520, scheme: .dark, filename: "claude-setup-testing-dark-520.png")
+
+        let first = ClaudeSetupModel(service: ClaudeSetupHandoffRenderService())
+        first.step = .signInForTesting
+        try await render(model: first, width: 720, scheme: .light,
+                         filename: "claude-connection-step-one-light-720.png", banner: true)
+
+        let missing = ClaudeSetupModel(service: ClaudeSetupHandoffRenderService(statusOutcome: .problem(.installationMissing)))
+        missing.step = .signInForTesting
+        missing.checkSubscription()
+        await missing.actionTask?.value
+        let settings = ClaudeSetupView(model: missing)
+        XCTAssertTrue(settings.offersInstall)
+        try await render(model: missing, width: 520, scheme: .light, filename: "claude-setup-missing-light-520.png")
+    }
+
     @discardableResult
     private func render(
-        model: ClaudeSetupModel, width: CGFloat, scheme: ColorScheme, filename: String
+        model: ClaudeSetupModel, width: CGFloat, scheme: ColorScheme, filename: String, banner: Bool = false
     ) async throws -> NSViewController {
-        let height: CGFloat = 820
-        let controller = NSHostingController(rootView: ClaudeSetupView(model: model)
+        let height: CGFloat = banner ? 240 : 820
+        let content: AnyView
+        if banner {
+            content = AnyView(ClaudeConnectionBanner(model: model, openSetup: {}))
+        } else {
+            content = AnyView(ClaudeSetupView(model: model))
+        }
+        let controller = NSHostingController(rootView: content
             .environment(\.colorScheme, scheme)
             .environment(\.locale, Locale(identifier: "en_US_POSIX"))
             .environment(\.timeZone, TimeZone(secondsFromGMT: 0)!))

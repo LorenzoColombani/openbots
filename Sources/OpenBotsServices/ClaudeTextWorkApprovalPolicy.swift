@@ -78,6 +78,7 @@ public enum ClaudeTextWorkDecision: Equatable, Sendable {
     case denyQuietly(reason: String, activity: String)
 }
 
+
 /// The rule for the chat path: harmless read-only commands inside the
 /// bot's folders may be allowed for the session; a Write, Edit, MultiEdit or
 /// NotebookEdit inside the bot's own folder goes through without a card, unless its
@@ -161,9 +162,9 @@ public enum ClaudeTextWorkApprovalPolicy {
     }
     static let listingGitFlags: Set<String> = ["-v", "--list", "-a", "--all"]
 
-    /// The pseudo-tool the CLI asks about when a sandboxed shell command
-    /// reaches for a host (2.1.272). The web switches are the only door
-    /// out, so the answer is no, and the sentence points at that door.
+    /// The pseudo-tool the CLI asks about when a sandboxed shell command reaches for a host
+    /// (2.1.272). The web switches are the only door out, so the answer is no, and the sentence
+    /// points at that door.
     static let sandboxNetworkToolName = "SandboxNetworkAccess"
 
     public static func decide(_ request: ClaudeTextPermissionRequest, access: ClaudeTextWorkAccess,
@@ -296,6 +297,7 @@ public enum ClaudeTextWorkApprovalPolicy {
         return String(text.prefix(maximumShownFileWords))
             + "\n… and \(text.count - maximumShownFileWords) more characters, not shown."
     }
+
 
     /// Whether any scalar breaks a line. Swift folds "\r\n" into one Character,
     /// so `contains("\n")` is false for it while bash runs the second
@@ -433,6 +435,7 @@ public enum ClaudeTextWorkApprovalPolicy {
         return isDenied(target, access: access) ? nil : target
     }
 
+
     /// True when a file tool's target is inside the bot's own working folder
     /// (`ownFolderTarget`) and may go through without a card. A file the disk knows
     /// under a second name (a hard link) fails: the other name may be outside the
@@ -441,6 +444,7 @@ public enum ClaudeTextWorkApprovalPolicy {
         guard let target = ownFolderTarget(raw, access: access) else { return false }
         return !hasSecondName(target) && !isGitSetting(target, in: access)
     }
+
 
     /// True for what git reads as settings, drivers or hooks: anything under a
     /// `.git`, and a `.gitattributes` or `.gitmodules` file. Written quietly,
@@ -479,10 +483,11 @@ public enum ClaudeTextWorkApprovalPolicy {
         return (info.st_mode & S_IFMT) == S_IFREG && info.st_nlink > 1
     }
 
+
     /// The spellings one path goes by, for a fence compared by prefix: as
     /// written with `.` and `..` taken out, with every symlink
     /// followed, and each of those without the firmlinked data volume's prefix
-    /// (`/System/Volumes/Data/Users/x` is `/Users/x`, and `realpath` keeps
+    /// (`/System/Volumes/Data/Users/fixture` is `/Users/fixture`, and `realpath` keeps
     /// whichever it was given). Temporary paths need both sides: `/tmp` and
     /// `/var` are written one way and resolve to `/private/…`.
     static let dataVolume = "/System/Volumes/Data"
@@ -506,11 +511,12 @@ public enum ClaudeTextWorkApprovalPolicy {
         }
     }
 
+
     /// The deny list wins over every rule here, including a protected root that
     /// sits inside the bot's own folder.
     /// Compared by every spelling: `realpath` keeps the
     /// data volume's spelling of a path it is given, so a target written
-    /// `/System/Volumes/Data/Users/…` is still under a root written `/Users/…`.
+    /// `/System/Volumes/Data/Users/fixture` is still under a root written `/Users/fixture`.
     static func isDenied(_ resolved: String, access: ClaudeTextWorkAccess) -> Bool {
         isAtOrUnder(resolved, anyOf: access.protectedPaths)
     }
@@ -548,6 +554,7 @@ public enum ClaudeTextWorkApprovalPolicy {
               landed == named else { return nil }
         return ClaudeTextWorkTurnAllowance(toolName: toolName, folderPath: realPath(roots[landed].path))
     }
+
 
     /// True when one of the system folders, which lead a work turn's PATH and
     /// which no process of the user's can write, holds a program by this name. The

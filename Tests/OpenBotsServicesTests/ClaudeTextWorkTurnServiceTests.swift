@@ -49,6 +49,7 @@ struct ClaudeTextWorkTurnServiceTests {
         #expect(!request.systemPrompt.contains("No tools, file access"))
     }
 
+
     // A script the bot ran comes back to the user as a file.
     @Test("A script run on an approved card comes back on the reply as a chip, from the bot's folder root; a denied one does not",
           arguments: [true, false])
@@ -87,6 +88,7 @@ struct ClaudeTextWorkTurnServiceTests {
         #expect(names == (approve ? ["list_files_by_date.py"] : []), "\(reply.parts)")
     }
 
+
     // Contacts started hidden by a lookup must not be left running long after
     // the reply ends.
     @Test("Contacts a lookup started is asked to quit when the reply ends; one already open, or no lookup, is left alone",
@@ -106,6 +108,7 @@ struct ClaudeTextWorkTurnServiceTests {
         #expect(await service.sendText(f.submission()) { _ in }.outcome == .completed)
         #expect(apps.quitRequests == (quits ? ["com.apple.AddressBook"] : []), "\(apps.quitRequests)")
     }
+
 
     // A turn ending must not quit Contacts under another
     // bot's turn still using it, which then never quit it.
@@ -361,9 +364,6 @@ struct ClaudeTextWorkTurnServiceTests {
         #expect(!answer.contains("sk-live-4242") && answer.contains("OPENBOTS_SECRET_1"), "\(answer)")
     }
 
-    // The value stays in the
-    // app's memory for the turn; the model reads a name, and a command the user
-    // approves gets the value set in front of it, in the allow answer only.
     @Test("A secret the user types reaches the model only as a name; a command naming it asks every time, shows only the name, and runs with the value set in front")
     func aSecretReachesTheModelOnlyAsAName() async throws {
         let f = try WorkTurnFixture(); defer { f.remove() }
@@ -401,8 +401,6 @@ struct ClaudeTextWorkTurnServiceTests {
         #expect(!record.contains("it's-sk-4242") && !"\(rows)".contains("it's-sk-4242"))
     }
 
-    // Seen on 2.1.282: a command that
-    // prints the value puts it in the CLI's session file as the tool's result.
     @Test("A turn that ran a command with the user's secret keeps no session: the CLI's files go; a denied one keeps it",
           arguments: [true, false])
     func aTurnThatUsedASecretKeepsNoSession(_ approve: Bool) async throws {
@@ -497,9 +495,6 @@ struct ClaudeTextWorkTurnServiceTests {
         #expect(result.outcome == .completed, "\(result.outcome)")
     }
 
-    // Text saved before the
-    // secret was typed can hold it by chance; the reply must still only grow,
-    // at every step, however often the secret comes back.
     @Test("A secret already in text written before the user typed it leaves that text alone, blanks what follows, and every step grows")
     func aSecretInEarlierTextStillGrows() {
         typealias Service = OfficialClaudeTextReplyService
@@ -599,10 +594,10 @@ struct ClaudeTextWorkTurnServiceTests {
     }
 
     /// Every other card shows a secret the user gave as `•••` and still asks. A text
-    /// card cannot: it shows the exact words that leave the user's number, and a
+    /// card cannot: it shows the exact words that leave their number, and a
     /// card reading `•••` over a text carrying the secret itself is a card that
     /// describes a different text from the one sent.
-    @Test("A text carrying a secret the user gave on a card is refused rather than shown to the user blanked, and one without still asks")
+    @Test("A text carrying a secret the user gave on a card is refused rather than shown to them blanked, and one without still asks")
     func aTextCarryingASecretIsRefused() async throws {
         let f = try WorkTurnFixture(); defer { f.remove() }
         let store = try f.open()
@@ -649,9 +644,6 @@ struct ClaudeTextWorkTurnServiceTests {
         #expect(await cleanTurn.value.outcome == .completed)
     }
 
-    /// A note card shows the exact words written into the user's Notes, on the text
-    /// card's rule: a note carrying a secret the user gave is refused, and
-    /// a clean one is shown whole, never blanked.
     @Test("A note carrying a secret the user gave on a card is refused, and one without asks with its exact text")
     func aNoteCarryingASecretIsRefused() async throws {
         let f = try WorkTurnFixture(); defer { f.remove() }
@@ -809,7 +801,7 @@ struct ClaudeTextWorkTurnServiceTests {
         let store = try f.open()
         try await f.seed(store)
         let runner = WorkTurnRunner(question: try f.question(["command": "ls -la"]),
-            refusal: ("Read", try f.question(["file_path": "/Users/x/.ssh/config"])))
+            refusal: ("Read", try f.question(["file_path": "/Users/fixture/.ssh/config"])))
         let service = try f.service(store, runner: runner)
         let progress = WorkTurnProgressLog()
         let result = await service.sendText(f.submission()) { await progress.append($0) }
@@ -854,7 +846,7 @@ struct ClaudeTextWorkTurnServiceTests {
         let f = try WorkTurnFixture(); defer { f.remove() }
         let store = try f.open()
         try await f.seed(store)
-        let read = try f.question(["file_path": "/Users/x/OpenBots Next Preview Content/Bots/Yogurt/notes.md"])
+        let read = try f.question(["file_path": "/Users/fixture/OpenBots Next Preview Content/Bots/Yogurt/notes.md"])
         let runner = WorkTurnRunner(question: try f.question(["command": "ls -la"]),
             preamble: [.textSnapshot("Checking the folder."),
                        .toolUse(ClaudeTextToolUse(id: "toolu_a", toolName: "Read", inputJSON: read)),
@@ -889,8 +881,8 @@ struct ClaudeTextWorkTurnServiceTests {
 
     // Claude Code 2.1.282 requires two to four choices on every question the app's
     // CLI announces (the kind "text" schema is behind a flag it never gets), so a
-    // question asking for a secret always comes with filler choices; without
-    // this rule the card was a plain one and the typed token reached the model.
+    // question asking for a secret always comes with filler choices. Those
+    // choices must not make a secret question use an ordinary card.
     @Test("A question whose words ask for a secret is a secret card, choices or none; a number question never is")
     func secretCardKinds() throws {
         let f = try WorkTurnFixture(); defer { f.remove() }
@@ -903,6 +895,7 @@ struct ClaudeTextWorkTurnServiceTests {
         #expect(parsed.map(\.isSecret) == [true, false, true, false])
         #expect(parsed.map(\.kind) == ["text", "number", "", ""])
     }
+
 
     // With choices allowed on a secret
     // card, the words alone decide, so an ordinary question about tokens (the
@@ -923,7 +916,7 @@ struct ClaudeTextWorkTurnServiceTests {
         let f = try WorkTurnFixture(); defer { f.remove() }
         let store = try f.open()
         try await f.seed(store)
-        // The call the model made on Claude Code 2.1.282.
+        // The tool-call shape used by CLI 2.1.282.
         let asked: [String: Any] = ["question": "Please provide the secret token for this test (use \"Other\" to type it freely).",
             "header": "Token", "multiSelect": false,
             "options": [["label": "I'll type it via Other", "description": "Type the token in the Other field."],
@@ -1255,7 +1248,7 @@ private actor WorkTurnRunner: ClaudeTextOnlyRunning {
                     // A reply only grows (the CLI's snapshots extend each other), so
                     // the text after the answer streams on from what was already sent.
                     // Restarting it from its first letter made the reply shrink, and
-                    // under parallel test load a checkpoint landing there was
+                    // under a parallel test run's load a checkpoint landing there was
                     // refused and the turn stalled.
                     precondition(textAfterAnswer.hasPrefix(textSoFar))
                     for end in (textSoFar.count + 1)...textAfterAnswer.count {
@@ -1454,7 +1447,7 @@ private final class RemovedTranscripts: @unchecked Sendable {
     func append(_ id: UUID) { lock.withLock { _ids.append(id) } }
 }
 
-/// The running apps on the user's Mac, as far as a turn's cleanup asks about them.
+/// Synthetic running-app state queried by a turn's cleanup.
 private final class FakeHiddenApps: HiddenAppQuitting, @unchecked Sendable {
     private let lock = NSLock()
     private var running: Set<String>

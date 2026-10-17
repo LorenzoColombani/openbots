@@ -41,9 +41,23 @@ struct TeammateClaudeModelTests {
         #expect(!ClaudeEffortPolicy.supportedValues(for: "claude-opus-4-6").contains("xhigh"))
         #expect(ClaudeEffortPolicy.defaultValue(for: "claude-opus-4-7") == "xhigh")
         #expect(ClaudeEffortPolicy.defaultValue(for: "sonnet") == "high")
-        #expect(ClaudeEffortPolicy.supportedValues(for: "claude-fable-5").contains("xhigh"))
+        #expect(ClaudeEffortPolicy.supportedValues(for: "claude-fable-5").isEmpty)
         #expect(!ClaudeEffortPolicy.supportedValues(for: "claude-fable-5").contains("ultracode"))
         #expect(ClaudeEffortPolicy.supportedValues(for: "unknown").isEmpty)
+    }
+
+    @Test("Retired Fable 5 cannot launch but its historical execution evidence remains readable")
+    func retiredFableEvidenceRemainsReadable() throws {
+        #expect(ClaudeModelPolicy.current.model("claude-fable-5") == nil)
+        let selection = ClaudeExecutionSelection(model: "claude-fable-5", effort: "xhigh", contextWindow: "long")
+        let request = ClaudeExecutionRequest(sessionID: UUID(), selection: selection, launchModel: "claude-fable-5")
+        let evidence = ClaudeExecutionEvidence(request: request, initializedModel: "claude-fable-5",
+                                                resultModel: "claude-fable-5")
+        let restored = try JSONDecoder().decode(ClaudeExecutionEvidence.self, from: JSONEncoder().encode(evidence))
+        #expect(restored == evidence)
+        #expect(restored.modelStatus == .resultMatches)
+        #expect(restored.request.selection.effort == "xhigh")
+        #expect(restored.request.selection.contextWindow == "long")
     }
 
     @Test("Opus 5.5 and Fable 5.1 take all five efforts; Opus 5.5 defaults to medium")

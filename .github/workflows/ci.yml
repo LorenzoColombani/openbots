@@ -53,17 +53,28 @@ jobs:
         # and flakes under parallel load (slower CI hardware makes it worse).
         # Do not switch to parallel without first widening those bounds in source.
         run: Scripts/swiftpm-public.sh test --no-parallel --scratch-path .build.noindex/ci
-      - name: Keep rendered UI evidence (PNG) for inspection
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-evidence-${{ matrix.runner }}
-          path: .build.noindex/*evidence*/**/*.png
-          if-no-files-found: ignore
-          include-hidden-files: true   # .build.noindex is a dot-directory; v4 skips hidden paths by default
-          retention-days: 7
-      - name: Build the app (unsigned)
-        run: /bin/zsh Scripts/build-preview.sh
+      - name: Pure source-update and bootstrap fixtures
+        run: |
+          /bin/sh Scripts/test-install-sh.sh
+          /usr/bin/python3 -I -B -S -m unittest discover -s Tools/SourceUpdateTests -p 'test_*.py'
+      - name: Compile the app without signing (not an installable artifact)
+        run: |
+          mkdir -p .build.noindex/ci-native/home .build.noindex/ci-native/tmp
+          /usr/bin/env -i \
+            DEVELOPER_DIR="$(xcode-select -p)" \
+            HOME="$PWD/.build.noindex/ci-native/home" \
+            CFFIXED_USER_HOME="$PWD/.build.noindex/ci-native/home" \
+            TMPDIR="$PWD/.build.noindex/ci-native/tmp" \
+            PATH=/usr/bin:/bin:/usr/sbin:/sbin LANG=C LC_ALL=C \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 \
+            GIT_ASKPASS=/usr/bin/false SSH_ASKPASS=/usr/bin/false NETRC=/dev/null \
+            /usr/bin/xcodebuild -project OpenBotsNext.xcodeproj -scheme OpenBotsPreviewApp \
+            -configuration Release -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$PWD/.build.noindex/ci-native/DerivedData" \
+            -disableAutomaticPackageResolution -onlyUsePackageVersionsFromResolvedFile -skipPackageUpdates \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO ENABLE_DEBUG_DYLIB=NO \
+            build
 
 # Live-provider probes are never ordinary CI: no job here logs in, calls Claude,
 # or touches real user data. Anything live is opt-in, manual, and separately approved.
+

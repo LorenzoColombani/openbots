@@ -5,10 +5,6 @@ import OpenBotsDomain
 @testable import OpenBotsServices
 import Testing
 
-/// A new bot sets itself up on the chat path: the turn of
-/// a bot waiting for setup carries the tool in its direct chat, the switches it
-/// asks for go on one card (Deny runs the call with none), the setup lands, the
-/// reply is followed by one line, and the next turn carries the new switches.
 @Suite("A new bot sets itself up from the user's first answer")
 struct ClaudeTextSelfSetupTurnTests {
     private struct Turning {
@@ -76,11 +72,8 @@ struct ClaudeTextSelfSetupTurnTests {
 
     @Test("The first answer's context says nothing was left out: the bot's own question is not quoted, and not counted")
     func firstTurnContextIsWhole() async throws {
-        // Seen live: "tell me" in the user's answer matched the opening
-        // question in the older-message search; the question is never quoted
-        // (a bot line no message of the user's came before), and it was counted as
-        // left out, so the first reply said "Some earlier messages or saved
-        // memory were not included in this reply."
+        // A user's answer can match the opening question in older-message search.
+        // That unquoted bot opener must not count as omitted conversation context.
         let f = try HiringFixture(); defer { f.remove() }
         let t = try await newBot(f)
         let teammate = try #require(try await t.store.listTeammates(includingArchived: false).first { $0.id == t.bot })
@@ -100,8 +93,7 @@ struct ClaudeTextSelfSetupTurnTests {
 
     @Test("Deleting a bot still waiting for setup takes its waiting mark with it")
     func deleteTakesTheMark() async throws {
-        // Seen live: a bot whose first turn died was deleted and
-        // its bot_self_setup_v1 key stayed behind with no bot.
+        // Deleting a bot whose first turn failed must remove bot_self_setup_v1 too.
         let f = try HiringFixture(); defer { f.remove() }
         let t = try await newBot(f)
         #expect(try await t.store.pendingSelfSetupName(teammateID: t.bot) == "New Bot")
@@ -123,7 +115,7 @@ struct ClaudeTextSelfSetupTurnTests {
         #expect(!ClaudeTextOnlyCommandBuilder.preApprovedNames(for: granted).contains(ClaudeTextSelfSetupPolicy.qualifiedToolName),
                 "its permission question is the switch card")
         #expect(granted.systemPrompt.contains(OfficialClaudeTextReplyService.selfSetupSection))
-        // A Chrome job asked for Work without this (seen live).
+        // A Chrome job asked for Work without this.
         #expect(granted.systemPrompt.contains("Your apps and accounts are not switches here")
                 && granted.systemPrompt.contains("do not ask for work in its place"))
         #expect(granted.systemPrompt.contains("may use the set_up_self tool named below"))
@@ -210,7 +202,7 @@ struct ClaudeTextSelfSetupTurnTests {
     }
 }
 
-/// Plays the recorded shape (fixture `self-setup-probe/s2-competitor-prices`): the tool use, its
+/// Plays the probe's shape (fixture self-setup-probe s2): the tool use, its
 /// permission question, then the call with whatever the answer let through.
 private actor SetupTurnRunner: ClaudeTextOnlyRunning {
     struct Answer: Equatable { let text: String; let refused: Bool }

@@ -5,6 +5,7 @@ import OpenBotsRuntime
 @testable import OpenBotsServices
 import Testing
 
+
 /// Throwaway workers: the service that admits one
 /// call of the worker tool and runs the worker, over the real store and a
 /// runner that records what it was asked to launch.
@@ -126,6 +127,7 @@ struct TeammateWorkerServiceTests {
         #expect(try await result(.success(reply("   "))) == .failed("it returned nothing"))
     }
 
+
     // MARK: A switch turned off while a worker runs
 
     // Without this, a worker that started a second before the web switches
@@ -166,6 +168,7 @@ struct TeammateWorkerServiceTests {
         #expect(await running.value == expected)
         #expect(await runner.cancelled)
     }
+
 
     // A switch that went off just as the worker
     // finished still let its result through.

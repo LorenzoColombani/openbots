@@ -54,12 +54,13 @@ final class ClaudeModelDetailsRefreshTests: XCTestCase {
         XCTAssertEqual(model.selectedTeammate?.profile, selectedProfile)
 
         let beforeConfirmed = publications
-        await reply.emit(.modelConfirmed(requested: "sonnet", observed: "claude-opus-5"))
+        await reply.emit(.modelConfirmed(requested: "sonnet", observed: "claude-opus-5", claudeCodeVersion: "2.1.300"))
         XCTAssertGreaterThan(publications, beforeConfirmed,
                              "Saved result model metadata must independently invalidate the parent.")
         assertUnchangedParentState(model, selection: selection, conversationID: conversationID,
                                    rowIDs: rowIDs, draft: draft)
         XCTAssertEqual(model.selectedTeammate?.profile, selectedProfile)
+        XCTAssertEqual(model.modelStatus(for: conversationID)?.claudeCodeVersion, "2.1.300")
         let stillWaiting = await reply.isWaiting
         XCTAssertTrue(stillWaiting, "No completion event may mask the missing model-progress publication.")
 
@@ -93,7 +94,8 @@ extension ClaudeModelDetailsRefreshTests {
         let chat = try modelDetailsChat()
         let request = ClaudeExecutionRequest(sessionID: UUID(),
             selection: .init(model: "claude-opus-5", effort: "low", contextWindow: "standard"), launchModel: "claude-opus-5")
-        let evidence = ClaudeExecutionEvidence(request: request, initializedModel: "claude-opus-5", resultModel: "claude-opus-5")
+        let evidence = ClaudeExecutionEvidence(request: request, initializedModel: "claude-opus-5",
+                                               resultModel: "claude-opus-5", claudeCodeVersion: "2.1.296")
         let reply = ModelDetailsSavedRecordReplyService(evidence: evidence)
         let model = DurableWorkspaceModel(
             service: ModelDetailsChatService(chat: chat),
@@ -115,27 +117,100 @@ extension ClaudeModelDetailsRefreshTests {
         XCTAssertEqual(read.confirmedEffort, "low")
         XCTAssertEqual(read.confirmedContextWindow, "standard")
         XCTAssertEqual(read.observedAtStart, "claude-opus-5")
+        XCTAssertEqual(read.claudeCodeVersion, "2.1.296")
         XCTAssertTrue(read.isFromSavedRecord)
         let asked = await reply.conversationsAsked
         XCTAssertEqual(asked, [ConversationID(conversationID)])
     }
+
+    func testSuccessfulReplyReplacesSavedCLIRevisionWithItsOwn() async throws {
+        try await assertConfirmedVersionReplacesSavedVersion("2.1.300")
+    }
+
+    func testSuccessfulReplyWithoutCLIRevisionClearsSavedRevision() async throws {
+        try await assertConfirmedVersionReplacesSavedVersion(nil)
+    }
+
+    private func assertConfirmedVersionReplacesSavedVersion(_ version: String?) async throws {
+        let reply = ModelDetailsSavedRecordReplyService(evidence: modelDetailsSavedVersionEvidence())
+        let coordinator = ClaudeTextReplyCoordinator(service: reply, changed: {})
+        let submission = modelDetailsVersionSubmission(conversationID: UUID())
+        let conversationID = submission.conversationID.rawValue
+        await coordinator.loadSavedModelStatus(conversationID: conversationID)
+        XCTAssertEqual(coordinator.modelPresentation(for: conversationID)?.claudeCodeVersion, "2.1.296")
+        XCTAssertTrue(coordinator.reserve(conversationID: conversationID, messageID: submission.userMessageID.rawValue))
+        _ = await coordinator.send(submission) { _ in }
+
+        // A new startup observation cannot relabel the previous saved success.
+        await reply.emit(.modelObserved(requested: "sonnet", observed: "claude-sonnet-5"), for: submission.userMessageID)
+        let before = try XCTUnwrap(coordinator.modelPresentation(for: conversationID))
+        XCTAssertEqual(before.confirmedModel, "claude-opus-5")
+        XCTAssertEqual(before.claudeCodeVersion, "2.1.296")
+        XCTAssertTrue(before.isFromSavedRecord)
+
+        await reply.emit(.modelConfirmed(requested: "sonnet", observed: "claude-sonnet-5", claudeCodeVersion: version),
+                         for: submission.userMessageID)
+        let after = try XCTUnwrap(coordinator.modelPresentation(for: conversationID))
+        XCTAssertEqual(after.confirmedModel, "claude-sonnet-5")
+        XCTAssertEqual(after.claudeCodeVersion, version)
+        XCTAssertFalse(after.isFromSavedRecord)
+        coordinator.finish(conversationID: conversationID, messageID: submission.userMessageID.rawValue, outcome: .completed)
+    }
+
+    func testSupersededModelConfirmationCannotReplaceCurrentModelOrVersion() async throws {
+        let reply = ModelDetailsSavedRecordReplyService(evidence: modelDetailsSavedVersionEvidence())
+        let coordinator = ClaudeTextReplyCoordinator(service: reply, changed: {})
+        let conversationID = UUID()
+        await coordinator.loadSavedModelStatus(conversationID: conversationID)
+        let previous = modelDetailsVersionSubmission(conversationID: conversationID)
+        let current = modelDetailsVersionSubmission(conversationID: conversationID)
+        XCTAssertTrue(coordinator.reserve(conversationID: conversationID, messageID: previous.userMessageID.rawValue))
+        _ = await coordinator.send(previous) { _ in }
+        XCTAssertTrue(coordinator.reserve(conversationID: conversationID, messageID: current.userMessageID.rawValue))
+        XCTAssertTrue(coordinator.supersedesRunningTurn(conversationID: conversationID, messageID: current.userMessageID.rawValue))
+        _ = await coordinator.send(current) { _ in }
+        await reply.emit(.modelConfirmed(requested: "sonnet", observed: "claude-sonnet-5", claudeCodeVersion: "2.1.300"),
+                         for: current.userMessageID)
+        let confirmed = try XCTUnwrap(coordinator.modelPresentation(for: conversationID))
+        XCTAssertEqual(confirmed.confirmedModel, "claude-sonnet-5")
+        XCTAssertEqual(confirmed.claudeCodeVersion, "2.1.300")
+
+        await reply.emit(.modelConfirmed(requested: "opus", observed: "claude-opus-5", claudeCodeVersion: "2.1.296"),
+                         for: previous.userMessageID)
+        XCTAssertEqual(coordinator.modelPresentation(for: conversationID), confirmed)
+        coordinator.finish(conversationID: conversationID, messageID: current.userMessageID.rawValue, outcome: .completed)
+    }
 }
 
-/// A reply service that never runs a turn and only answers for the saved record.
+/// Saved evidence plus retained callbacks for deterministic late-progress checks.
 private actor ModelDetailsSavedRecordReplyService: ClaudeTextReplyServing {
     let evidence: ClaudeExecutionEvidence
     private(set) var conversationsAsked: [ConversationID] = []
+    private var progress: [MessageID: @Sendable (ClaudeTextTurnProgress) async -> Void] = [:]
     init(evidence: ClaudeExecutionEvidence) { self.evidence = evidence }
     func sendText(_ submission: ClaudeTextTurnSubmission,
                   onProgress: @escaping @Sendable (ClaudeTextTurnProgress) async -> Void) async -> ClaudeTextTurnResult {
-        .init(outcome: .failed(.runtimeUnavailable))
+        progress[submission.userMessageID] = onProgress
+        return .init(outcome: .completed)
     }
+    func emit(_ event: ClaudeTextTurnProgress, for messageID: MessageID) async { await progress[messageID]?(event) }
     func messageProvenance(conversationID: ConversationID,
                            messageIDs: [MessageID]) async throws -> [TextTurnMessageProvenance] { [] }
     func latestExecutionEvidence(conversationID: ConversationID) async throws -> ClaudeExecutionEvidence? {
         conversationsAsked.append(conversationID)
         return evidence
     }
+}
+
+private func modelDetailsSavedVersionEvidence() -> ClaudeExecutionEvidence {
+    .init(request: .init(sessionID: UUID(), selection: .init(model: "claude-opus-5", effort: "low", contextWindow: "standard"),
+                        launchModel: "claude-opus-5"),
+          initializedModel: "claude-opus-5", resultModel: "claude-opus-5", claudeCodeVersion: "2.1.296")
+}
+
+private func modelDetailsVersionSubmission(conversationID: UUID) -> ClaudeTextTurnSubmission {
+    .init(conversationID: ConversationID(conversationID), teammateID: TeammateID(UUID()),
+          userMessageID: MessageID(UUID()), text: "Synthetic CLI version check")
 }
 
 private enum ModelDetailsHarnessError: Error {

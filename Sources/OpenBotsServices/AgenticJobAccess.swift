@@ -17,8 +17,8 @@ public enum AgenticCapability: Hashable, Sendable, CaseIterable {
     /// "Work on this Mac": Claude Code's file and shell tools in the bot's own
     /// folder and the folders the user added, under the approval card.
     case work
-    /// Hiring new bots from the bot's own reply: the app
-    /// creates each one, sealed, and never more than three a reply.
+    /// Hiring new bots from the bot's own reply: the app creates each one, sealed, and never
+    /// more than three a reply.
     case hire
     /// Background throwaway workers: one-shot blank helpers.
     case workers
@@ -180,6 +180,8 @@ public actor AgenticJobAccessStore {
     }
 
     public func setAppEnabled(_ enabled: Bool, capability: AgenticCapability = .sampleFolderJobs) {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         let current = app[capability] ?? Switch()
         guard current.enabled != enabled else { return }
         let next = Self.advanced(current, to: enabled)
@@ -194,6 +196,8 @@ public actor AgenticJobAccessStore {
 
     public func setBotEnabled(_ enabled: Bool, capability: AgenticCapability = .sampleFolderJobs,
                               teammateID: OpenBotsDomain.TeammateID) {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         let current = bots[teammateID]?[capability] ?? Switch()
         guard current.enabled != enabled else { return }
         let next = Self.advanced(current, to: enabled)
@@ -206,6 +210,9 @@ public actor AgenticJobAccessStore {
         }
     }
 
+    /// Where a granted bot works. Set once at composition; until then a work
+    /// switch that is on grants nothing, because there is no folder to grant.
+    /// From here on, a folder added or removed reaches every observer of
     /// The browser a granted bot may drive, bridged onto `changes()` the same
     /// way the folders are: a connector taken away is a grant taken away, and a
     /// turn already using it has to end.
@@ -221,9 +228,6 @@ public actor AgenticJobAccessStore {
         }
     }
 
-    /// Where a granted bot works. Set once at composition; until then a work
-    /// switch that is on grants nothing, because there is no folder to grant.
-    /// From here on, a folder added or removed reaches every observer of
     /// `changes()`: the folders are part of what a work turn is launched
     /// with, and a change to them is a change to the grant.
     public func configureWorkspaces(_ resolver: any BotWorkspaceResolving) {
@@ -289,6 +293,23 @@ public actor AgenticJobAccessStore {
         await lastWrite?.value
     }
 
+    /// A swallowed write error is not save success. Under update admission's
+    /// freeze, compare the persisted switches with every current in-memory
+    /// value, including removals, before consenting to restart.
+    public func confirmSavedSettings() async -> Bool {
+        await lastWrite?.value
+        guard let repository else { return true }
+        guard let stored = try? await repository.loadWebSwitches() else { return false }
+        for capability in AgenticCapability.persisted {
+            guard let row = capability.stored else { continue }
+            guard stored.app.contains(row) == (app[capability]?.enabled ?? false) else { return false }
+            for id in Set(bots.keys).union(stored.bots.keys) {
+                guard (stored.bots[id]?.contains(row) ?? false) == (bots[id]?[capability]?.enabled ?? false) else { return false }
+            }
+        }
+        return true
+    }
+
     public func changes() -> AsyncStream<Void> {
         let id = UUID()
         return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -307,8 +328,10 @@ public actor AgenticJobAccessStore {
     /// has named the repository; a write that throws is reported, never retried.
     private func persist(_ change: String, _ write: @escaping @Sendable (any AgenticWebSwitchRepository) async throws -> Void) {
         guard let repository else { return }
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
         let previous = lastWrite, report = reportWriteFailure
         lastWrite = Task {
+            defer { withExtendedLifetime(updateOperation) {} }
             await previous?.value
             do { try await write(repository) }
             catch { report("\(change) was not saved: \(Self.describe(error))") }
@@ -376,6 +399,7 @@ extension AgenticJobAccessStore {
         guard let connectors else { return .init(guids: []) }
         return await connectors.messagesChats(teammateID: teammateID)
     }
+
 
     /// Whether this bot may hire right now: the app-wide hire switch AND its
     /// own. Read when a reply begins; that reading holds until the reply ends.

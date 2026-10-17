@@ -2,9 +2,8 @@ import Foundation
 import Testing
 @testable import OpenBotsRuntime
 
-// Peekaboo's `see` writes each screenshot of the user's screen to the account's
-// own temporary folder as peekaboo-observation-<UUID>.png, whatever TMPDIR says
-// (recorded on 2.1.280), and nothing took it away.
+// Peekaboo's `see` writes screenshots to the account's own temporary folder
+// as peekaboo-observation-<UUID>.png, regardless of TMPDIR in CLI 2.1.280.
 
 private func folder() throws -> URL {
     let url = FileManager.default.temporaryDirectory

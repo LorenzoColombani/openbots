@@ -51,12 +51,38 @@ struct ClaudeExecutionEvidenceTests {
         #expect(Set(root.keys) == ["request", "initializedModel", "resultModel"])
     }
 
+    @Test("Claude Code 2.1.287 alias drift is recorded against the frozen expectation, without rewriting the saved request")
+    func aliasResolutionsRecordable() throws {
+        let alias = ClaudeExecutionSelection(model: "sonnet", effort: "default", contextWindow: "default",
+                                              resolvedModel: "claude-sonnet-5")
+        let request = ClaudeExecutionRequest(sessionID: UUID(), selection: alias, launchModel: alias.launchModel)
+        for reported in ["claude-sonnet-5", "claude-sonnet-5-5", "claude-opus-5-5"] {
+            let evidence = ClaudeExecutionEvidence(request: request, initializedModel: reported, resultModel: reported)
+            let expected: ClaudeExecutionModelStatus = reported == "claude-sonnet-5" ? .resultMatches : .resultDiffers
+            #expect(try evidence.validated().modelStatus == expected)
+            #expect(evidence.request.selection.model == "sonnet")
+            #expect(evidence.request.selection.expectedResolvedModel == "claude-sonnet-5")
+            #expect(try JSONDecoder().decode(ClaudeExecutionEvidence.self, from: JSONEncoder().encode(evidence)) == evidence)
+        }
+        for reported in ["claude-unreviewed", "claude-sonnet-5 --tools Bash", "sonnet"] {
+            #expect(throws: ClaudeExecutionEvidenceError.invalidInitialization) {
+                try ClaudeExecutionEvidence(request: request, initializedModel: reported, resultModel: nil).validated()
+            }
+        }
+        let pinned = ClaudeExecutionSelection(model: "claude-sonnet-5", effort: "default", contextWindow: "default")
+        let pinnedRequest = ClaudeExecutionRequest(sessionID: UUID(), selection: pinned, launchModel: pinned.launchModel)
+        let substitution = ClaudeExecutionEvidence(request: pinnedRequest, initializedModel: "claude-sonnet-5-5",
+                                                   resultModel: "claude-sonnet-5-5")
+        #expect(try substitution.validated().modelStatus == .resultDiffers)
+        #expect(substitution.request.launchModel == "claude-sonnet-5")
+    }
+
     @Test("Opus 5.5 and Fable 5.1 are recordable and match their plain reported ids (CLI 2.1.283)")
     func currentModelsRecordable() throws {
         for model in ["claude-opus-5-5", "claude-fable-5-1"] {
-            #expect(ClaudeExecutionSelection.recordableModels.contains(model))
+            #expect(ClaudeModelPolicy.isModelIdentity(model))
             #expect(ClaudeExecutionSelection.normalizedReportedModel(model) == model)
-            #expect(ClaudeExecutionSelection.normalizedReportedModel(model + "[1m]") == nil)
+            #expect(ClaudeExecutionSelection.normalizedReportedModel(model + "[1m]") == model)
             let selection = ClaudeExecutionSelection(model: model, effort: "xhigh", contextWindow: "long")
             #expect(selection.launchModel == model)
             let request = ClaudeExecutionRequest(sessionID: UUID(), selection: selection, launchModel: selection.launchModel)
@@ -72,9 +98,7 @@ struct ClaudeExecutionEvidenceTests {
             ClaudeExecutionSelection(model: "retired-model", effort: "default", contextWindow: "default"),
             ClaudeExecutionSelection(model: "sonnet --tools Bash", effort: "default", contextWindow: "default"),
             ClaudeExecutionSelection(model: String(repeating: "x", count: 201), effort: "default", contextWindow: "default"),
-            ClaudeExecutionSelection(model: "claude-sonnet-4-6", effort: "xhigh", contextWindow: "default"),
             ClaudeExecutionSelection(model: "claude-opus-5", effort: "ultracode", contextWindow: "default"),
-            ClaudeExecutionSelection(model: "claude-haiku-4-5-20251001", effort: "default", contextWindow: "long"),
             ClaudeExecutionSelection(model: "sonnet", effort: "default", contextWindow: "1m")
         ]
         for selection in values {
@@ -96,11 +120,10 @@ struct ClaudeExecutionEvidenceTests {
     @Test("Malformed, uncorrelated or result-only metadata cannot acquire evidence status")
     func invalidEvidenceFailsClosed() throws {
         let values = [
-            ClaudeExecutionEvidence(request: request(), initializedModel: "claude-opus-5", resultModel: nil),
             ClaudeExecutionEvidence(request: request(), initializedModel: nil, resultModel: "claude-sonnet-5"),
             ClaudeExecutionEvidence(request: request(), initializedModel: "claude-sonnet-5", resultModel: "claude-unreviewed"),
             ClaudeExecutionEvidence(request: request(), initializedModel: "claude-sonnet-5", resultModel: "sonnet"),
-            ClaudeExecutionEvidence(request: request(), initializedModel: "claude-sonnet-5", resultModel: "claude-sonnet-5[1m]")
+            ClaudeExecutionEvidence(request: request(), initializedModel: "claude-sonnet-5", resultModel: "claude-sonnet-5[arbitrary]")
         ]
         for evidence in values {
             #expect(throws: ClaudeExecutionEvidenceError.self) { try evidence.validated() }
@@ -117,7 +140,7 @@ struct ClaudeExecutionEvidenceTests {
         var requestJSON = try #require(root["request"] as? [String: Any])
         requestJSON["launchModel"] = "claude-opus-5"
         wrongLaunch["request"] = requestJSON
-        var wrongInit = root; wrongInit["initializedModel"] = "claude-opus-5"
+        var wrongInit = root; wrongInit["initializedModel"] = "unbounded-provider-text"
         var resultOnly = root; resultOnly.removeValue(forKey: "initializedModel"); resultOnly["resultModel"] = "claude-sonnet-5"
         for invalid in [wrongLaunch, wrongInit, resultOnly] {
             let data = try JSONSerialization.data(withJSONObject: invalid)

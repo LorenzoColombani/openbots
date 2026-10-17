@@ -81,10 +81,8 @@ public enum StoragePersistenceCompositionError: Error, Equatable, Sendable {
         requested: DatabaseProtectionMode
     )
     case databaseOpenFailed(receipt: StorageBootstrapReceipt, reason: String)
-    /// The ledger names a schema version newer than this build's manifest: an
-    /// older copy of the app opened a workspace a newer copy had migrated
-    /// (for example, a displaced rollback bundle launched from the Dock).
-    /// Fail closed and say so; never migrate down.
+    /// A ledger schema newer than this build's manifest means a newer app migrated the
+    /// workspace. Fail closed with an explanation; never migrate down.
     case databaseNewerThanApplication(receipt: StorageBootstrapReceipt, schemaVersion: Int, supportedVersion: Int)
     case databaseInspectionFailed(receipt: StorageBootstrapReceipt, reason: String)
     case databaseValidationFailed(
@@ -152,6 +150,7 @@ public struct StoragePersistenceContext: Sendable {
     /// Where the connector grants live: one `app_metadata` row with its own
     /// revision, its own seam for the same reason the web switches have one.
     public let connectorAccessRepository: any ConnectorAccessRepository
+    public let googleWorkspaceConfigurationRepository: any GoogleWorkspacePublicConfigurationRepository
     public let approvalRepository: any ApprovalRepository
     /// Where each bot works on the Mac: its own folder and the folders the user added.
     public let botWorkspaceRepository: any BotWorkspaceRepository
@@ -219,6 +218,7 @@ public struct StoragePersistenceContext: Sendable {
         agenticWebSwitchRepository = store
         botSelfSetupRepository = store
         connectorAccessRepository = store
+        googleWorkspaceConfigurationRepository = store
         approvalRepository = store
         botWorkspaceRepository = store
         runActivityRepository = store
@@ -320,9 +320,9 @@ public actor StoragePersistenceCompositionService {
         )
     }
 
-    /// Reopens one existing preview installation without creating, repairing, or
-    /// selecting anything. Missing disposable roots are surfaced for a later
-    /// explicit recovery service; they never cause identity regeneration here.
+    /// Reopens the same installation and provisions a wholly absent Claude profile
+    /// left by older builds. Missing disposable roots still require explicit recovery;
+    /// existing roots and profile contents are never repaired or replaced.
     public func reopenExisting() async throws -> StoragePersistenceContext {
         guard lifecycle == .ready else {
             throw StoragePersistenceCompositionError.alreadyAttempted
@@ -357,7 +357,7 @@ public actor StoragePersistenceCompositionService {
 
     /// Reopens an existing installation while recovering only disposable roots
     /// that are completely absent. The method is separately named because,
-    /// unlike `reopenExisting()`, it may publish a missing cache or temporary
+    /// unlike `reopenExisting()`, it may also publish a missing cache or temporary
     /// root. Existing invalid roots and a missing Application Support root still
     /// fail closed, and the immutable installation receipt is never rewritten.
     public func recoverDisposableRootsAndReopenExisting() async throws -> StoragePersistenceContext {
@@ -421,6 +421,11 @@ public actor StoragePersistenceCompositionService {
         guard let applicationSupportRoot = verifiedRoots[.applicationSupport] else {
             throw StoragePersistenceCompositionError.invalidBootstrapReceipt(receipt: receipt)
         }
+        // Older installs omitted this empty profile. Refusals remain untouched and
+        // are surfaced by Claude setup inspection; they must not lock local chats.
+        try? ClaudeProfileProvisioner().ensureExists(
+            applicationSupportRoot: applicationSupportRoot, layout: layout
+        )
 
         let protectionPlan = protectionBridge.persistencePlan(
             for: installationReceipt.protectionSelection,

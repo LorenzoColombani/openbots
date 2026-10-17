@@ -8,12 +8,9 @@ public protocol ClaudeTextFailedTurnKeeping: Sendable {
     func finished(runID: UUID, profileURL: URL, sessionID: UUID, keep: Bool)
 }
 
-/// What a failed reply leaves behind, for the next diagnosis: the turn's
-/// latest stream frames, handed over by the
-/// stream when it refused one, and the CLI's transcript of the session, read
-/// before the service deletes it. The last `keptFailures` failures stay, each
-/// in a folder of its own under `HighChurn.noindex/Logs/failed-turns`, readable
-/// by the user alone. Without them a refused turn leaves nothing to read.
+/// Retain the bounded stream frames of a refused reply and its CLI transcript before session
+/// deletion. Keep only `keptFailures` failures under `HighChurn.noindex/Logs/failed-turns`,
+/// each in a separate folder readable only by the user.
 public final class FailedTurnRecords: ClaudeTextFailedTurnKeeping, @unchecked Sendable {
     public static let keptFailures = 5
     /// The largest transcript kept whole; a larger one is left out.

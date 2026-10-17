@@ -7,6 +7,7 @@ import OpenBotsServices
 @testable import OpenBotsUI
 import Testing
 
+
 /// One Access sheet per bot:
 /// every switch the bot has, each with its app-wide master's state beside it,
 /// writing exactly the stores the Details pane and Settings already write.
@@ -36,6 +37,7 @@ struct BotAccessSheetTests {
                                    includesWorkers: true)
         defer { model.stopObserving() }
         await model.load()
+
 
         // Every switch the bot has, once: work, the two web capabilities,
         // hiring and the two worker switches,
@@ -131,6 +133,7 @@ struct BotAccessSheetTests {
         #expect((await connectors.current(teammateID: stranger)).selectedIDs.isEmpty)
     }
 
+
     /// A worker runs now: the host channel, the blank run and the holder's
     /// wake landed together, so the two switches ship. Built without them, the sheet and the Details line leave them out.
     @Test("The worker switches are on the sheet and the Details line now a worker runs, and a build without workers leaves them out")
@@ -190,6 +193,7 @@ struct BotAccessSheetTests {
         #expect(!calendar.isOn)
         #expect(calendar.notes == [ConnectorCopy.botChanged])
     }
+
 
     /// An edit inside the bot's own folder goes through with no card. The work
     /// row's summary once said a card asks before anything that changes
@@ -272,9 +276,8 @@ struct BotAccessSheetTests {
         #expect(BotAccessCopy.detailsCaptionWithoutConnectors.contains("hiring"))
     }
 
-    /// The sample-folder job runner lost its switch, its toggle and its banner
-    /// so no bot can be inside a job any more; the
-    /// web rows still promised the tools worked there.
+    /// The sample-folder job runner is retired; web rows must name only the
+    /// places where the tools can still run.
     @Test("The web rows say where the tools work and name no retired job")
     func theWebRowsNameNoRetiredJob() {
         #expect(BotAccessCopy.webSummary(.search) == "Look things up on the web, in its conversations.")
@@ -288,7 +291,7 @@ struct BotAccessSheetTests {
     /// Settings work master and under the old Details switch — and three
     /// captions still sent the user to Details or "its settings" for switches that
     /// live on this sheet. The three copy files are swept as text, so a fourth
-    /// copy of either fails here before anyone reads it in the running app. The
+    /// copy of either fails here before they read it in the running app. The
     /// same sweep catches the opposite over-promise: "go through on their own;"
     /// with no exception, when the policy still asks for a protected file and
     /// for a link that leads out of the folder.
@@ -351,14 +354,10 @@ struct BotAccessSheetTests {
         #expect(workspace.botAccess == nil)
     }
 
-    /// A bot's sheet once showed Claude Code's own iMessage plugin as a frozen
-    /// "unavailable" row beside the app's Messages row, which read as iMessage
-    /// being switched off. Leaving such a row off every sheet is not enough: a
-    /// bot that already had it on would keep a grant no surface could turn off. So the row is
-    /// listed only while the bot has it on, its switch moves only to off, even
-    /// with the connector killed for the whole app, and its note says why. The
-    /// catalog is composed the way the app composes it, so the row is exactly
-    /// the one the live app marks as driven by nothing in this build.
+    /// A connector this build cannot launch remains listed while the bot has
+    /// its grant enabled. Its switch can only turn it off, even if the connector
+    /// is disabled app-wide, and its note explains why. Compose the catalog the
+    /// same way the app does to exercise the actual ownership rule.
     @Test("A bot's sheet lists a connector nothing in this build can launch only while the bot has it on, with a switch that only turns it off; an app-owned row that cannot run keeps its reason; Settings still lists every row")
     func aConnectorThisBuildCannotLaunchIsListedOnlyWhileOn() async throws {
         let messages = ConfiguredConnector(
@@ -441,10 +440,10 @@ struct BotAccessSheetTests {
         #expect(empty.connectorsAreEmpty)
     }
 
-    /// The sheet's empty line also showed when every connector on the Mac was
-    /// one nothing in this build can run, and then both its sentences were false: they are
-    /// set up, in Claude Code, and Settings lists exactly the ones this build
-    /// cannot drive. The sentence is read here, not just the flag.
+    /// The sheet's empty line also appears when this build cannot run any of
+    /// the configured connectors. The wording must account for connectors that
+    /// are set up in Claude Code and listed in Settings but cannot be driven.
+    /// The sentence is read here, not just the flag.
     @Test("The sheet's empty connectors line is true whether nothing is listed or nothing listed can run, and absent while a row is drawn")
     func theEmptyConnectorsLineIsTrueInEveryState() async throws {
         let plugin = ConfiguredConnector(
@@ -491,8 +490,8 @@ struct BotAccessSheetTests {
         #expect(working.connectorsEmptyNote == nil)
     }
 
-    /// The line under Access… in Details once promised "every
-    /// connector, each with its app-wide switch beside it", while the sheet
+    /// The line under Access… in Details must not promise "every
+    /// connector, each with its app-wide switch beside it", because the sheet
     /// leaves out a connector nothing in this build can run and shows a
     /// sentence, not a switch, when a master is off.
     @Test("The line under Access… in Details promises neither every connector nor a switch beside each row")
@@ -514,10 +513,9 @@ struct BotAccessSheetTests {
             + "It cannot be switched back on.")
     }
 
-    /// The sheet once decided what to leave out by
-    /// comparing a row's reason to the unowned sentence, so a row a preparation
-    /// owns whose words happened to match was hidden, and a wording change on
-    /// either side would move what is hidden. What is hidden is who owns the row.
+    /// The sheet decides what to omit by row ownership. Comparing reason text
+    /// instead could hide an owned row with matching wording or change which
+    /// rows are visible after a copy edit.
     @Test("What a bot's sheet leaves out is decided by whether anything in this build owns the row, never by the row's words")
     func theSheetLeavesOutByOwnershipNotByWording() async throws {
         let unownedWords = try #require(ConnectorCatalogAvailability.unownedRow.reason)
@@ -567,10 +565,8 @@ struct BotAccessSheetTests {
         #expect(BotSkillsCopy.caption.contains("can never change them"))
     }
 
-    /// The Add Skill menu once said "No
-    /// skills in ~/.claude/skills" before the library had been read, and also
-    /// when it held skills that cannot be added; it read the folder again only
-    /// on selection or after an add or a remove.
+    /// The Add Skill menu must distinguish a library still loading from an
+    /// empty library or one containing skills that cannot be added.
     @Test("The Add Skill menu reads as loading until the library is read, and then says only what is true")
     func theAddSkillMenuSaysWhatIsTrue() async throws {
         let root = URL(fileURLWithPath: "/private/tmp/OpenBotsNextSkillsMenu-\(UUID()).noindex", isDirectory: true)

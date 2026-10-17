@@ -79,7 +79,7 @@ function helper(command, input) {
             // A send may have reached Google before the kill, and its approval
             // is used either way: say so, so nobody sends it twice.
             reject(new Error(command === COMMANDS.send_gmail_message
-                ? "Gmail send timed out, and the message may already have been sent. Do not send it again: tell the user, and ask them to look in the OpenBots account's Sent mail."
+                ? "Gmail send timed out, and the message may already have been sent. Do not send it again: tell him, and ask him to look in the OpenBots account's Sent mail."
                 : "The Google connector timed out. Ask for a narrower result, or reconnect the account."));
         }, 90000);
         child.stdout.on("data", (chunk) => {
@@ -408,7 +408,7 @@ const GMAIL_TOOLS = [
 const GMAIL_SEND_TOOLS = [
     { name: "gmail_send_account", description: "Show the address Gmail send sends from. Call it before send_gmail_message and pass the address as `from`. Read-only.",
       inputSchema: { type: "object", properties: {} } },
-    { name: "send_gmail_message", description: "Send a new plain-text email from the connected OpenBots Gmail account. OpenBots shows the user a card with the account, every recipient, the subject and the whole body first; only that exact message can go.",
+    { name: "send_gmail_message", description: "Send a new plain-text email from the connected OpenBots Gmail account. OpenBots shows him a card with the account, every recipient, the subject and the whole body first; only that exact message can go.",
       inputSchema: { type: "object", properties: {
           from: { type: "string", description: "The address gmail_send_account names, exactly." },
           to: { type: "string", description: "One to three plain email addresses separated by commas, such as a@example.com. No names or angle brackets." },
@@ -487,12 +487,10 @@ const [TOOLS, HANDLERS] = Object.prototype.hasOwnProperty.call(TABLES, SERVICE) 
 
 function write(object) { process.stdout.write(JSON.stringify(object) + "\n"); }
 
-/// One request per 0x0A, split on that byte and nowhere else: the fence proxy's
-/// own framing. `readline` also ends a line at U+000D, U+2028 and U+2029, and
-/// JSON.stringify leaves the last two raw inside a string, so a call carrying
-/// one arrived as halves that were each a parse error, and the call itself was
-/// never answered (Node v26.8.2). Split as bytes, a
-/// character cut across two reads is whole again before it is decoded.
+/// Use one request per 0x0A byte, matching fence-proxy framing. `readline` also splits at
+/// U+000D, U+2028 and U+2029, while JSON.stringify can leave the last two inside strings. Byte
+/// framing prevents valid calls from splitting into parse errors and rejoins split UTF-8
+/// characters before decoding.
 function onRequestLine(input, handle) {
     let pending = Buffer.alloc(0);
     input.on("data", (chunk) => {

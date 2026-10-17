@@ -1,0 +1,37 @@
+[
+  {
+    "value": "default",
+    "resolvedModel": "claude-opus-5-5",
+    "displayName": "Default",
+    "supportsEffort": true,
+    "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+  },
+  {
+    "value": "opus",
+    "resolvedModel": "claude-opus-5-5",
+    "displayName": "Opus",
+    "supportsEffort": true,
+    "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+  },
+  {
+    "value": "fable",
+    "resolvedModel": "claude-fable-5-1",
+    "displayName": "Fable",
+    "supportsEffort": true,
+    "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+  },
+  {
+    "value": "sonnet",
+    "resolvedModel": "claude-sonnet-5-5",
+    "displayName": "Sonnet",
+    "supportsEffort": true,
+    "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+  },
+  {
+    "value": "haiku",
+    "resolvedModel": "claude-haiku-5-5",
+    "displayName": "Haiku",
+    "supportsEffort": true,
+    "supportedEffortLevels": ["low", "medium", "high", "xhigh", "max"]
+  }
+]

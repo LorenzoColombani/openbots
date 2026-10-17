@@ -1,6 +1,7 @@
 import Foundation
 import OpenBotsDomain
 
+
 /// Drops every saved Claude session of one bot.
 public protocol ClaudeSessionRetaining: Sendable {
     func dropSessions(teammateID: TeammateID) async throws -> ClaudeSessionDropReport

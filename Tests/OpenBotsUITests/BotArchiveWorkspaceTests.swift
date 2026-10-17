@@ -264,6 +264,7 @@ final class BotArchiveWorkspaceTests: XCTestCase {
         XCTAssertEqual(unchanged, teammate)
     }
 
+
     /// A message still saving in another bot's chat must not be blamed on this
     /// bot ("Wait for this bot's message"). Saving the
     /// drafts waits for every send, so the archive still waits, and says why.
@@ -295,6 +296,7 @@ final class BotArchiveWorkspaceTests: XCTestCase {
         let archived = try await store.teammate(id: bots.first.id)
         XCTAssertEqual(archived?.lifecycle, .archived)
     }
+
 
     /// A real draft conflict while another chat's message is in flight must not
     /// be called "message saving", since waiting never fixes it. The draft's own failure is named first.
@@ -505,8 +507,8 @@ final class BotArchiveWorkspaceTests: XCTestCase {
     }
 
     /// The dialog's Delete button defers its work to a task, and SwiftUI clears
-    /// the presentation binding before that task gets the main actor. Found live:
-    /// the dismissal wiped the target and nothing was deleted.
+    /// the presentation binding before that task gets the main actor. Keep the
+    /// target until the task has used it.
     func testConfirmedDeleteSurvivesTheDialogDismissalAndTouchesNoOtherBot() async throws {
         for dismissalFirst in [false, true] {
             let fixture = try ReferenceLocalWorkspaceFixture()
@@ -569,6 +571,7 @@ final class BotArchiveWorkspaceTests: XCTestCase {
         let other = try await store.teammate(id: bots.other.id)
         XCTAssertEqual(other, bots.other)
     }
+
 
     /// A card does not block Delete, so the refusal does not send the user
     /// looking for an approval to resolve.

@@ -45,6 +45,7 @@ struct ProducedFileDeliveryTests {
         #expect(items.map(\.lastPathComponent) == ["out.md", "summary 2026.md"])
     }
 
+
     // The bot wrote its script in its folder's root and ran it on a card;
     // nothing offered Save.
     @Test("A script a run used is handed over wherever it is under the bot's folders, once, and never from a protected root")
@@ -68,6 +69,7 @@ struct ProducedFileDeliveryTests {
                          home.appending(path: "missing.py").path])
         #expect(items.map(\.lastPathComponent) == ["chart.py", "list_files_by_date.py"], "\(items.map(\.path))")
     }
+
 
     /// A folder that holds a protected root, as
     /// Pictures holds the Photos library, can be granted. The app reads what a

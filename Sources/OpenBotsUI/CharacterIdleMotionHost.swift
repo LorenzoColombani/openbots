@@ -53,7 +53,7 @@ enum CharacterWorkingMotion {
                 // sways (`CharacterIdleMotionContainer.rasterHeadView`), and
                 // the back of the head shows in its hair colour meanwhile. A
                 // flat picture turned about its own centre reads as a card
-                // flip: half a face on a brown disc, then a 2D coin.
+                // flip, so horizontal movement and the visible back preserve depth.
                 let cosine = cos(angle)
                 opacities.append(min(1, max(0, cosine / 0.18)))
                 return .init(scale: 1, rotation: 0, verticalOffsetFactor: 0,
@@ -155,9 +155,11 @@ struct CharacterEyeMotionLayer<Content: View>: View {
 }
 
 extension CharacterIdleMotion {
-    /// One full idle cycle as a repeating keyframe description. The poses are the
-    /// existing seeded phases in seed order, closing back on the held pose, with
-    /// one equal ease-in-out segment per phase step and the seeded cycle length.
+    /// One full idle cycle. Sampling one sine wave keeps the existing two held
+    /// extremes but crosses neutral without the old extra ease-to-a-stop there.
+    /// Core Animation interpolates these samples; no application frame clock runs.
+    static let sampleCount = 60
+
     struct Keyframes: Equatable {
         let transforms: [CharacterArtworkTransform]
         let keyTimes: [Double]
@@ -165,22 +167,28 @@ extension CharacterIdleMotion {
         var phaseOffset: TimeInterval = 0
         var opacities: [Double]? = nil
         var synchronized = false
+        var linearInterpolation = false
     }
 
     static func keyframes(seed: UInt64, activity: TeammateActivityState = .idle,
                           isSelected: Bool = false) -> Keyframes {
-        let phases = phases(seed: seed)
-        var transforms = phases.map {
-            transform(activity: activity, mode: .creature, phase: $0, reduceMotion: false,
-                      sceneIsActive: true, isVisible: true, isSelected: isSelected)
+        let extreme = transform(activity: activity, mode: .creature, phase: phases(seed: seed)[1],
+                                reduceMotion: false, sceneIsActive: true, isVisible: true,
+                                isSelected: isSelected)
+        let times = (0...sampleCount).map { Double($0) / Double(sampleCount) }
+        let transforms = times.enumerated().map { index, phase -> CharacterArtworkTransform in
+            if index == 0 || index == sampleCount / 2 || index == sampleCount { return .identity }
+            let progress = sin(phase * 2 * .pi)
+            return .init(scale: 1 + (extreme.scale - 1) * progress,
+                         rotation: extreme.rotation * progress,
+                         verticalOffsetFactor: extreme.verticalOffsetFactor * progress)
         }
-        transforms.append(transforms[0])
-        let steps = Double(phases.count)
         let duration = cycleDuration(seed: seed, activity: activity)
         return Keyframes(transforms: transforms,
-                         keyTimes: (0...phases.count).map { Double($0) / steps },
+                         keyTimes: times,
                          duration: duration,
-                         phaseOffset: Double((seed >> 9) % 997) / 997 * duration)
+                         phaseOffset: Double((seed >> 9) % 997) / 997 * duration,
+                         linearInterpolation: true)
     }
 }
 
@@ -204,12 +212,11 @@ extension CharacterArtworkTransform {
     }
 }
 
-/// Hosts the idle creature artwork in a native layer whose repeating pose cycle is
-/// owned by Core Animation on the render server. Per frame, nothing runs in the
-/// app: no SwiftUI graph update, no hosting-view layout pass, no timer. The
-/// SwiftUI `phaseAnimator` that preceded it re-rendered every visible creature on
-/// every display refresh and re-laid out its list row, which cost about a third
-/// of a core with an idle roster on screen.
+/// Hosts the idle creature artwork in a native layer whose repeating pose cycle is owned by
+/// Core Animation on the render server. Per frame, nothing runs in the app: no SwiftUI graph
+/// update, no hosting-view layout pass, no timer. The SwiftUI `phaseAnimator` that preceded it
+/// re-rendered every visible creature on every display refresh and re-laid out its list row,
+/// which cost about a third of a core with an idle roster on screen.
 struct CharacterIdleMotionHost<Content: View>: NSViewRepresentable {
     let seed: UInt64
     let size: CGFloat
@@ -341,7 +348,7 @@ final class CharacterIdleMotionContainer: NSView {
         let animation = CAKeyframeAnimation(keyPath: "transform")
         animation.values = keyframes.transforms.map { NSValue(caTransform3D: $0.layerTransform(size: size)) }
         animation.keyTimes = keyframes.keyTimes.map { NSNumber(value: $0) }
-        animation.timingFunctions = Array(repeating: CAMediaTimingFunction(name: keyframes.synchronized ? .linear : .easeInEaseOut),
+        animation.timingFunctions = Array(repeating: CAMediaTimingFunction(name: keyframes.synchronized || keyframes.linearInterpolation ? .linear : .easeInEaseOut),
                                           count: max(0, keyframes.transforms.count - 1))
         animation.duration = keyframes.duration
         animation.timeOffset = keyframes.phaseOffset

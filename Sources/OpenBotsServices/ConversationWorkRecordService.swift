@@ -1,6 +1,7 @@
 import Foundation
 import OpenBotsDomain
 
+
 /// The "what happened" record of one conversation: the briefs a lead
 /// sent, each member's report, the cards the user answered and every line of
 /// what a bot did, in time order. Never the answer bubble; the transcript shows

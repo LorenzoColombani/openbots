@@ -1,5 +1,6 @@
 import Foundation
 
+
 /// How a bot's reply becomes bubbles: a short first
 /// line on its own, then the answer as one bubble that lands whole. The same
 /// rule runs live, on the text so far, and on the saved reply, so a bubble

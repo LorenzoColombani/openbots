@@ -3,16 +3,14 @@ import OpenBotsDomain
 import Testing
 @testable import OpenBotsRuntime
 
+
 // A throwaway worker is one blank reading turn: no
 // control channel, no cards, no session kept; it reads the folders its holder's
-// own turn reaches and writes nothing. The real wire of that shape, replayed
-// through the parser (Fixtures/claude-cli-2.1.280/worker-probe, captured with
+// own turn reaches and writes nothing. Synthetic protocol fixtures replay
+// through the parser (Fixtures/claude-cli-2.1.280/worker-probe), with
 // the holder's folder holding three one-page PDFs as the read folder, an
 // `appsupport` folder with the run folder inside it as the app's own protected
-// folder, no allow rule, as the app writes none, and the worker's system prompt;
-// paths scrubbed, the neutral run folder then written back, since a scrubber
-// cannot find a path the stream split across two text deltas and the reply would
-// no longer match its result):
+// folder, no allow rule, as the app writes none, and the worker's system prompt:
 //   w1-three-pdfs  a Glob of the holder's folder, a Read of each PDF, a Read
 //                  outside every folder (a `permission_denied` frame), and the
 //                  three summaries. 2.1.280 still forces `default` mode under

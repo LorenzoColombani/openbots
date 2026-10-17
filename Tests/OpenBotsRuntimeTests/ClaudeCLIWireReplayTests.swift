@@ -2,17 +2,10 @@ import Foundation
 import Testing
 @testable import OpenBotsRuntime
 
-// The installed CLI's real wire, replayed through the parser. Each fixture is a
-// capture of `claude` launched with the app's own flags and environment
-// (Tests/OpenBotsRuntimeTests/Fixtures/claude-cli-<version>/), values trimmed,
-// paths and the account name replaced. The parser must accept every frame of
-// every shape and finish the turn; a CLI update that changes the wire is then a
-// red test with the frame named, not a dead turn in the installed app.
-//
-// Why this exists: when Claude Code 2.1.272 updated itself, every chat turn
-// died at the first frame (a forced permission mode), and two team legs had
-// died just before on a question about a tool no turn grants. Both were found by capturing the wire and replaying it
-// here, not by reading the code.
+// CLI protocol fixtures replay through the parser with synthetic content.
+// The parser must accept every frame of each supported shape and finish the
+// turn, including forced permission modes and questions about ungranted tools.
+// A wire-format change should fail a test with the offending frame identified.
 
 private struct WireCapture {
     let shape: String
@@ -187,12 +180,9 @@ func cli2_1_272PlantedInitFrameIsRefused() throws {
     }
 }
 
-// When Claude Code 2.1.281 updated itself, every turn died at the init frame:
-// it announced a built-in plugin, agents-md, that loads a folder's agent
-// instruction files where CLAUDE.md would. The settings now switch it off
-// (`enabledPlugins`), and these captures were made with that setting and a
-// canary instruction file in the bot's folder and in a subfolder the work turn
-// read; the canary never reached the model.
+// Claude Code 2.1.281 announces the built-in agents-md plugin, which loads
+// AGENTS.md files where CLAUDE.md would. The fixtures use `enabledPlugins`
+// to switch it off and pin the resulting plugin-free init frame.
 @Test("Claude Code 2.1.281: the tool-free turn and a work turn replay whole with the built-in plugin off")
 func cli2_1_281TurnsReplay() throws {
     let text = try WireCapture(version: "2.1.281", shape: "text")
@@ -207,7 +197,7 @@ func cli2_1_281TurnsReplay() throws {
     #expect(workReplay.completed && workReplay.text.contains("NONE") && workReplay.text.contains("tea"))
 }
 
-@Test("Claude Code 2.1.281: an init frame that still announces the agents-md plugin is refused at that frame")
+@Test("Claude Code 2.1.281: an init frame that still announces the AGENTS.md plugin is refused at that frame")
 func cli2_1_281AgentsMdPluginIsRefused() throws {
     for shape in ["text", "work"] {
         let planted = try WireCapture(version: "2.1.281", shape: shape).editingInit {
@@ -218,6 +208,7 @@ func cli2_1_281AgentsMdPluginIsRefused() throws {
         #expect(!replay.completed)
     }
 }
+
 
 // This Claude Code 2.1.282 capture was made with the app's environment, the
 // refusal fallback switched off.
@@ -275,12 +266,9 @@ func cli2_1_282RefusalReplaysAsDeclined() throws {
     }
 }
 
-// Claude Code 2.1.283 installed itself overnight, and the next morning two
-// work turns died mid-reply with
-// "responseMismatch": the log named a stream event of type `ping`, sent while
-// a long Write's arguments stalled. This capture reproduces that turn's shape
-// (Opus 5, effort high, long context): a failing command, a refused one, then
-// a Write whose arguments paused for two minutes, with three pings in the gap.
+// Claude Code 2.1.283 can emit `ping` stream events while long Write arguments
+// stall. This fixture includes a failing command, a refused command, then a
+// Write with three pings while its arguments are incomplete.
 @Test("Claude Code 2.1.283: a work turn whose long Write stalls replays whole, its stall pings admitted")
 func cli2_1_283WorkTurnWithStallPingsReplays() throws {
     let capture = try WireCapture(version: "2.1.283", shape: "work")
@@ -326,4 +314,66 @@ func cli2_1_283OnlyTheBarePingIsAdmitted() throws {
         }
         #expect(failure == ClaudeTextOnlyRejection(failure: .invalidStream, code: .responseMismatch), "\(name): \(String(describing: failure))")
     }
+}
+
+// Claude Code 2.1.287 also announces cc-plugin-plugin-authoring, so settings
+// switch off both built-in plugins. The fixtures pin the `sonnet` alias
+// resolving to claude-sonnet-5-5 along with the plugin-free init frame.
+@Test("Claude Code 2.1.287: the tool-free, web and work turns replay whole on the sonnet alias, both built-in plugins off")
+func cli2_1_287TurnsReplay() throws {
+    for shape in ["text", "web", "work"] {
+        let capture = try WireCapture(version: "2.1.287", shape: shape)
+        #expect(capture.meta["model"] as? String == "sonnet" && capture.meta["resolved_model"] as? String == "claude-sonnet-5-5")
+        let quiet: Set<String> = ["Read", "Glob", "Grep"]
+        let replay = try replay(capture, control: shape == "work" ? ClaudeTextTurnControl() : nil) {
+            $0.admitted && quiet.contains($0.toolName)
+        }
+        #expect(replay.rejections.isEmpty, "\(shape): \(replay.rejections)")
+        #expect(replay.completed, "\(shape)")
+        #expect(replay.events.contains(.initialized(sessionID: try capture.request().sessionID, actualModel: "claude-sonnet-5-5")), "\(shape)")
+        switch shape {
+        case "text": #expect(replay.text.hasPrefix("NONE"))
+        case "web":
+            #expect(replay.text.contains("school.example"))
+            #expect(replay.events.contains { if case .toolUse(let use) = $0 { return use.toolName == "WebSearch" }; return false })
+        default: #expect(replay.text.contains("NONE") && replay.text.contains("tea"))
+        }
+    }
+}
+
+@Test("Claude Code 2.1.287: an init frame that announces the plugin-authoring plugin, alone or beside the AGENTS.md one, is refused at that frame")
+func cli2_1_287PluginAuthoringPluginIsRefused() throws {
+    let authoring = ["name": "cc-plugin-plugin-authoring", "path": "builtin", "source": "cc-plugin-plugin-authoring@builtin"]
+    let agentsMd = ["name": "agents-md", "path": "builtin", "source": "agents-md@builtin"]
+    for shape in ["text", "web", "work"] {
+        for plugins in [[authoring], [agentsMd, authoring]] {
+            let planted = try WireCapture(version: "2.1.287", shape: shape).editingInit { $0["plugins"] = plugins }
+            let replay = try replay(planted, control: shape == "work" ? ClaudeTextTurnControl() : nil) { _ in false }
+            let expected = "frame \(try planted.initFrameIndex + 1) unsafeInitialization/initializationPluginsInvalid"
+            #expect(replay.rejections.first?.hasPrefix(expected) == true, "\(shape): \(replay.rejections)")
+            #expect(!replay.completed)
+        }
+    }
+}
+
+@Test("Claude Code 2.1.287: malformed model identities are refused and actual answer evidence survives alias drift")
+func cli2_1_287ModelEvidenceIsBounded() throws {
+    for shape in ["text", "work"] {
+        let capture = try WireCapture(version: "2.1.287", shape: shape)
+        for other in ["claude-unreviewed", "claude-sonnet-5 --tools Bash", "claude-sonnet-5[arbitrary]", "sonnet"] {
+            let planted = try capture.editingInit { $0["model"] = other }
+            let replay = try replay(planted, control: shape == "work" ? ClaudeTextTurnControl() : nil) { _ in false }
+            let expected = "frame \(try planted.initFrameIndex + 1) unsafeInitialization/initializationModelInvalid"
+            #expect(replay.rejections.first?.hasPrefix(expected) == true, "\(shape) as \(other): \(replay.rejections)")
+            #expect(!replay.completed)
+        }
+    }
+    // Initialization is only a startup observation. The captured assistant
+    // frames and successful result agree on Sonnet 5.5, so retain that evidence
+    // even when startup named Sonnet 5. The UI compares it with the frozen request.
+    let mixed = try WireCapture(version: "2.1.287", shape: "work").editingInit { $0["model"] = "claude-sonnet-5" }
+    let mixedReplay = try replay(mixed, control: ClaudeTextTurnControl()) { $0.admitted }
+    #expect(mixedReplay.rejections.isEmpty && mixedReplay.completed, "\(mixedReplay.rejections)")
+    #expect(mixedReplay.events.contains(.initialized(sessionID: try mixed.request().sessionID,
+                                                    actualModel: "claude-sonnet-5")))
 }

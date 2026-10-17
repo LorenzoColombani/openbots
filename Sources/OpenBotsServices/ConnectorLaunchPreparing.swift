@@ -17,7 +17,7 @@ public protocol ConnectorLaunchPreparing: ConnectorAvailabilityProbing {
     /// The browser does: its profile path is also the only honest way to tell
     /// the app's Chrome from the user's. A server that talks to an app already
     /// running on the Mac needs nothing, and must not be given a directory
-    /// nothing will own.
+    /// nothing will own — that was one of the defects the browser slice shipped.
     var needsOwnedProfile: Bool { get }
 
     /// The frozen launch for one turn, fenced when its answers come from

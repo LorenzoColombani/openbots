@@ -73,6 +73,34 @@ public struct NativeClaudeConnectionPreparer: ClaudeConnectionPreparing {
     }
 }
 
+/// The retained selection reports unavailable whenever it holds nothing to
+/// select, so normal setup never suggests reinstalling over a candidate still
+/// waiting for its check. When the native installer's own location is empty
+/// too, the truthful finding is missing, and setup offers the install command.
+/// Any other answer is the selection's own.
+public struct SetupClaudeInstallationInspector: ClaudeInstallationInspecting {
+    private let selected: any ClaudeInstallationInspecting
+    private let installed: any ClaudeInstallationInspecting
+
+    public init(selected: any ClaudeInstallationInspecting, installed: any ClaudeInstallationInspecting) {
+        self.selected = selected
+        self.installed = installed
+    }
+
+    /// The native installer's own location under this home, as the setup
+    /// screens read it before the retained runtime existed.
+    public init(selected: any ClaudeInstallationInspecting, homeDirectory: URL) {
+        self.init(selected: selected, installed: ClaudeInstallationInspector(homeDirectory: homeDirectory))
+    }
+
+    public func inspectInstallation() async -> ClaudeInstallationInspection {
+        let selection = await selected.inspectInstallation()
+        guard case .unavailable = selection.state, !Task.isCancelled else { return selection }
+        let native = await installed.inspectInstallation()
+        return native.state == .missing && !Task.isCancelled ? native : selection
+    }
+}
+
 /// Prepares nonsecret command material only after admission. The official CLI,
 /// Terminal and browser own all login interaction; no output is captured here.
 public struct NativeClaudeConnectionSignInHandoff: ClaudeConnectionSignInHandingOff {

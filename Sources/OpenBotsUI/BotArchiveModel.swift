@@ -19,6 +19,7 @@ public final class BotArchiveModel: ObservableObject {
         self.teamService = teamService
     }
 
+
     /// Whether teams can be archived here at all.
     public var supportsTeams: Bool { teamService != nil }
 

@@ -1,5 +1,6 @@
 import Foundation
 import OpenBotsRuntime
+import OpenBotsDomain
 import Testing
 @testable import OpenBotsServices
 
@@ -7,6 +8,52 @@ private struct ConnectionOfflineFixture: ClaudeOfflineSetupInspecting {
     func inspectOffline() async -> ClaudeOfflineSetupSnapshot {
         .init(installation: .verified, profile: .metadataVerified)
     }
+}
+
+private actor ConnectionCatalogFixture: ClaudeModelCatalogDiscovering {
+    private(set) var calls = 0
+    let catalog: ClaudeModelCatalogSnapshot?
+    init(_ catalog: ClaudeModelCatalogSnapshot?) { self.catalog = catalog }
+    func discover(target: ClaudeConnectionTarget) async -> ClaudeModelCatalogSnapshot? {
+        calls += 1
+        return catalog
+    }
+}
+
+@Test("Model discovery follows eligible subscription proof and never accompanies sign-in or signed-out status",
+      arguments: [ClaudeConnectionStatusResult.eligible(.max), .signedOut, .inconclusive])
+func connectionDiscoversModelsOnlyAfterSubscription(_ status: ClaudeConnectionStatusResult) async throws {
+    let target = try connectionTargetFixture()
+    let catalog = try ClaudeModelCatalogSnapshot.parse(modelsJSON: Data("""
+    [{"value":"sonnet","resolvedModel":"claude-sonnet-5-5","displayName":"Sonnet"}]
+    """.utf8), checkedAt: Date(timeIntervalSince1970: 42))
+    let registry = ClaudeModelCatalogRegistry()
+    let discovery = ConnectionCatalogFixture(catalog)
+    let transport = ConnectionTransportFixture(status: status)
+    let service = OfficialClaudeConnectionService(inspector: ConnectionOfflineFixture(),
+        preparer: ConnectionPreparationFixture(.ready(local: .init(installation: .verified, profile: .metadataVerified), target: target)),
+        admission: ConnectionTestAdmission(), statusChecker: transport, signInHandoff: transport,
+        modelDiscovery: discovery, modelCatalog: registry)
+    #expect(await discovery.calls == 0)
+    _ = await service.checkThisMac()
+    _ = await service.beginOfficialSignIn()
+    #expect(await discovery.calls == 0)
+    _ = await service.checkSubscription()
+    #expect(await discovery.calls == (status == .eligible(.max) ? 1 : 0))
+    #expect(registry.snapshot.isLive == (status == .eligible(.max)))
+}
+
+@Test("Unavailable model discovery retains verified subscription and restores labelled fallback")
+func connectionCatalogFailureKeepsSubscription() async throws {
+    let target = try connectionTargetFixture(), transport = ConnectionTransportFixture()
+    let registry = ClaudeModelCatalogRegistry()
+    let service = OfficialClaudeConnectionService(inspector: ConnectionOfflineFixture(),
+        preparer: ConnectionPreparationFixture(.ready(local: .init(installation: .verified, profile: .metadataVerified), target: target)),
+        admission: ConnectionTestAdmission(), statusChecker: transport, signInHandoff: transport,
+        modelDiscovery: ConnectionCatalogFixture(nil), modelCatalog: registry)
+    let report = await service.checkSubscription()
+    guard case .verified = report.outcome else { Issue.record("Catalog failure must not unverify subscription"); return }
+    #expect(registry.snapshot == ClaudeModelPolicy.bundled)
 }
 
 private actor ConnectionPreparationFixture: ClaudeConnectionPreparing {

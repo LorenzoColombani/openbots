@@ -63,6 +63,8 @@ public struct WorkspaceSettingsView: View {
     private let backupSummary: String?
     private let connectorsContent: AnyView?
     private let notificationsContent: AnyView?
+    private let updatesContent: AnyView?
+    private let runtimeContent: AnyView?
 
     public init(
         navigation: WorkspaceSettingsNavigation, model: ClaudeSetupModel,
@@ -71,7 +73,8 @@ public struct WorkspaceSettingsView: View {
         appearance: WorkspaceAppearanceModel = WorkspaceAppearanceModel(),
         exportBots: [WorkspaceSettingsExportBot] = [], isExporting: Bool = false, exportNotice: String? = nil,
         onExport: (@MainActor (UUID) -> Void)? = nil, backupSummary: String? = nil,
-        connectorsContent: AnyView? = nil, notificationsContent: AnyView? = nil
+        connectorsContent: AnyView? = nil, notificationsContent: AnyView? = nil,
+        updatesContent: AnyView? = nil, runtimeContent: AnyView? = nil
     ) {
         self.navigation = navigation
         self.model = model
@@ -85,6 +88,8 @@ public struct WorkspaceSettingsView: View {
         self.backupSummary = backupSummary
         self.connectorsContent = connectorsContent
         self.notificationsContent = notificationsContent
+        self.updatesContent = updatesContent
+        self.runtimeContent = runtimeContent
         _jobAccess = StateObject(wrappedValue: AgenticJobAccessModel(store: agenticJobAccess))
     }
 
@@ -187,7 +192,7 @@ public struct WorkspaceSettingsView: View {
 
             // Preserve the explicit guarded actions. Opening Settings is inert.
             ClaudeSetupView(model: model, usesReviewFixtures: usesReviewFixtures,
-                            textRepliesEnabled: textRepliesEnabled)
+                            textRepliesEnabled: textRepliesEnabled, runtimeContent: runtimeContent)
                 .scrollContentBackground(.hidden)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -221,6 +226,7 @@ public struct WorkspaceSettingsView: View {
             }
         }
     }
+
 
     /// The two worker masters, shown since a worker runs
     /// (`AgenticWorkerAvailability`).
@@ -295,11 +301,16 @@ public struct WorkspaceSettingsView: View {
     }
 
     private var diagnosticsSettings: some View {
+        VStack(alignment: .leading, spacing: OpenBotsVisualStyle.spacing24) {
         settingsCard("OpenBots Next") {
             ForEach(DiagnosticsFacts.rows(info: Bundle.main.infoDictionary ?? [:]), id: \.label) { row in
                 LabeledContent(row.label, value: row.value)
             }
             LabeledContent("macOS", value: ProcessInfo.processInfo.operatingSystemVersionString)
+        }
+        if let updatesContent {
+            settingsCard("App updates") { updatesContent }
+        }
         }
     }
 
@@ -328,11 +339,9 @@ public struct WorkspaceSettingsView: View {
     }
 }
 
-/// What Diagnostics says about this build, from the bundle's own Info.plist.
-/// `Scripts/build-preview.sh` stamps the source commit and uses the commit's date
-/// as the build number; before that every build read the same build number
-/// and nothing on screen said which one was installed. A bundle built
-/// another way carries no commit, and shows no Source row rather than an empty one.
+/// Diagnostics reads version, release build and source identity from Info.plist.
+/// `Scripts/build-source-update.sh` stamps source identity and Config/ReleaseBuild.xcconfig supplies
+/// the ordered release build. Omit the Source row when no stamp is present.
 struct DiagnosticsFacts {
     struct Row: Equatable {
         let label: String

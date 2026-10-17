@@ -203,11 +203,10 @@ public struct ReadContextMessage: Equatable, Sendable, Identifiable {
     /// of that pair, and every message of a turn that finished, is `finished`.
     public let ending: ReadContextMessageEnding
 
-    /// Repository output contains the text turns that succeeded, acknowledged
-    /// and completed, and every stopped pair, by Stop or by a correction: its
-    /// request acknowledged, its reply cut off
-    /// and marked `stopped`. A failed or declined turn and a team leg
-    /// never come out of it.
+    /// Repository output contains the text turns that succeeded, acknowledged and completed,
+    /// and every stopped pair, by Stop or by a correction: its request acknowledged, its reply
+    /// cut off and marked `stopped`. A failed or declined turn and a team leg never come out of
+    /// it.
     public init(author: MessageAuthor, text: String, reference: ReadContextMessageReference,
                 ending: ReadContextMessageEnding = .finished) {
         self.author = author; self.text = text; self.reference = reference; self.ending = ending

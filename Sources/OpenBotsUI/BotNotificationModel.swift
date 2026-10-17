@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import OpenBotsDomain
+import OpenBotsServices
 import SwiftUI
 @preconcurrency import UserNotifications
 
@@ -84,6 +85,8 @@ public final class BotNotificationModel: ObservableObject {
     }
 
     public func setAppEnabled(_ enabled: Bool) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isClosed else { return }
         deliveryGeneration &+= 1
         authorizationGeneration &+= 1
@@ -114,6 +117,7 @@ public final class BotNotificationModel: ObservableObject {
     }
 
     public func setEnabledByDefault(_ enabled: Bool) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard !isClosed else { return }
         enabledByDefault = enabled
         defaults.set(enabled, forKey: Self.defaultKey)

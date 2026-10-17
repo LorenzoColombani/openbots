@@ -4,25 +4,14 @@ import Foundation
 /*
  * openbots-calendar-read — the app's own read-only window onto Calendar.
  *
- * WHY A BINARY AND NOT JXA, which is what `apple-contacts.js` uses. Two checks
- * came before any code, and both of them came back against Apple Events,
- * measured against a well-filled calendar store:
- *
- *   - A per-calendar `events.whose({start date ≥ … ≤ …})` over several
- *     calendars can take tens of seconds for ANY window — about the same for a
- *     week, a month or a year. The cost is per event STORED, not per event found (a few ms
- *     each, and bulk column reads cost the same), so a range cap is the wrong
- *     lever entirely. EventKit answers the same questions in milliseconds.
- *   - Worse, and decisive: a recurring event has ONE `start date`, its first,
- *     and `iCal.sdef` exposes `recurrence` only as an RRULE string with no
- *     excluded dates and no recurrence-id. So a series cannot be expanded
- *     correctly at any price. Over a year JXA misses most occurrences of
- *     recurring events that EventKit finds, and even over the next month a
- *     `whose start date` query misses a large share of them.
- *   - A third defect: `calendarIdentifier` is IN the sdef and unreadable
- *     through the bridge ("Can't convert types"), and two calendars can both
- *     be named "Calendar" — so a JXA `list_calendars` could not keep its
- *     promise. EventKit has the identifier.
+ * EventKit is used instead of JXA for three reasons:
+ *   - Apple Events range queries can scan every stored event, so a narrow
+ *     date window does not bound their cost. EventKit provides date predicates.
+ *   - A recurring event has one Apple Events `start date`, its first, and
+ *     `iCal.sdef` exposes only an RRULE string without exclusions or a
+ *     recurrence-id. EventKit expands occurrences correctly.
+ *   - `calendarIdentifier` can fail through the Apple Events bridge with
+ *     "Can't convert types". Names need not be unique; EventKit exposes ids.
  *
  * WHAT THIS IS NOT. It is not the MCP server. `apple-calendar.js` is, and it
  * keeps the read-only dispatch table, the argv discipline and the fence exactly
@@ -42,8 +31,7 @@ import Foundation
 /// The cap on how many events one answer may carry. A bot that asks for more
 /// gets the cap, and the answer says how many matched in all — so "there are
 /// forty things that week" is still an answer it can act on, rather than a
-/// truncation it cannot see. It is not needed for speed (EventKit is fast);
-/// it is kept because an unbounded list in front of a model is its own problem.
+/// truncation it cannot see. The bound keeps one model-facing answer manageable.
 let maximumEvents = 100
 let defaultEvents = 50
 
@@ -76,12 +64,9 @@ func emit(_ object: [String: Any]) -> Never {
 nonisolated(unsafe) let isoFormatter: ISO8601DateFormatter = {
     let f = ISO8601DateFormatter()
     f.formatOptions = [.withInternetDateTime]
-    // THIS MAC's zone, not GMT, which is what ISO8601DateFormatter uses if it
-    // is not told. Without it an all-day event in a UTC+2 zone comes back as
-    // the previous day at 22:00Z under a header naming the event's own day —
-    // two dates for one event, and the one a model would quote back is the wrong
-    // one. Parsing is unaffected: a string carrying its own offset still reads
-    // as the instant it names.
+    // Use the Mac's local time zone instead of ISO8601DateFormatter's default GMT. Otherwise an
+    // all-day event can serialize as the previous UTC date while its human-readable heading
+    // shows the local date. Parsing still honors an explicit offset.
     f.timeZone = .current
     return f
 }()
@@ -134,17 +119,14 @@ final class AccessReply: @unchecked Sendable {
     var answer: (Bool, String?)? { lock.withLock { value } }
 }
 
-/// Waits for EventKit's answer without trusting the completion alone (the
-/// first read after the prompt could otherwise take the full 120 s).
+/// Waits for EventKit's answer while also checking authorization status.
 ///
-/// The old wait blocked the main thread on a semaphore that only the
-/// completion could signal. If EventKit delivers that completion on the main
-/// queue, it could not run until the deadline, whatever the user clicked. So every
-/// `pollInterval` this spins the main run loop (letting such a completion
-/// land) and reads the status itself: full access goes on at once, denied or
-/// restricted stops at once. Write-only access is not full access and keeps
-/// waiting. Which of the two causes it was is unproved; this covers both.
-/// Proving it live needs a reset of the user's Calendars permission.
+/// Blocking the main thread on a semaphore could prevent an EventKit
+/// completion delivered on the main queue from running until the deadline.
+/// Every `pollInterval` this spins the main run loop so that completion can
+/// run, then reads authorization status directly: full access proceeds at
+/// once, while denied or restricted access stops at once. Write-only access
+/// is not full access and keeps waiting.
 ///
 /// Everything comes in as a parameter, so the tests drive it without EventKit
 /// and without touching this file's globals (under test the top-level code
@@ -155,9 +137,8 @@ func awaitCalendarAccess(
     timeout: TimeInterval,
     pollInterval: TimeInterval = 0.5
 ) -> CalendarAccessAnswer {
-    // Already allowed: no prompt, no wait, and the store made before this call
-    // is the one to use. Only a
-    // status that turns full DURING the wait means the store predates the grant.
+    // Already allowed: no prompt or wait, and use the existing store. Only a status that
+    // becomes full during the wait means the store predates the grant.
     if status() == .fullAccess { return .granted }
     let reply = AccessReply()
     let arrived = DispatchSemaphore(value: 0)
@@ -182,17 +163,17 @@ func awaitCalendarAccess(
     }
 }
 
-/// Ask once, synchronously, and say plainly which System Settings pane the user
-/// needs if the answer is no.
+/// Ask once, synchronously, and say plainly which System Settings pane the user needs
+/// if the answer is no.
 ///
-/// This is NOT the Automation pane the mail and contacts rows send the user
-/// to — EventKit sends no Apple Events — and naming the wrong pane sends the
-/// user to fix the wrong thing, so the sentence names the right one.
+/// This is NOT the Automation pane the mail and contacts rows send them to —
+/// EventKit sends no Apple Events — and telling them the wrong pane is how the
+/// browser step was born, so the sentence names the right one.
 func authorizedStore() -> EKEventStore {
     let store = EKEventStore()
-    // Generous on purpose: the first call puts a prompt on the user's screen
-    // and they have to read it. A short deadline here would report "refused"
-    // for someone who was still reaching for the mouse.
+    // Generous on purpose: the first call puts a prompt on the user's screen and they
+    // have to read it. A short deadline here would report "refused" for someone
+    // who was still reaching for the mouse.
     let answer = awaitCalendarAccess(
         request: { store.requestFullAccessToEvents(completion: $0) },
         status: { EKEventStore.authorizationStatus(for: .event) },
@@ -242,10 +223,8 @@ func describe(_ event: EKEvent) -> [String: Any] {
 // ──────────────────────────────────────────────────────────────── The verbs
 
 func listCalendars(_ store: EKEventStore) -> Never {
-    // Event calendars only. A Mac can also carry "Scheduled Reminders" and
-    // "Siri Suggestions", which hold no events and which the Apple Events
-    // bridge counts as calendars; they are not calendars a bot can be
-    // asked about.
+    // Event calendars only: reminder and suggestion collections do not
+    // provide events for the bot to query.
     let calendars = store.calendars(for: .event).map { calendar -> [String: Any] in
         [
             "id": calendar.calendarIdentifier,
@@ -398,10 +377,8 @@ func readEvent(_ store: EKEventStore, _ opts: [String: String]) -> Never {
                 default: return ""
                 }
             }(),
-            // Whether THIS attendee is the one who called the meeting — not
-            // whether the organiser happens to be the user, which is a
-            // different question and the one this line asked until it was run
-            // against a real calendar and answered false for every row.
+            // Whether this attendee is the organizer, independently of
+            // whether the organizer is the current user.
             "organizer": event.organizer.map { $0.url == attendee.url } ?? false,
             "isMe": attendee.isCurrentUser,
         ]

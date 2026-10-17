@@ -19,16 +19,20 @@ public final class WorkspaceSidebarOrderCoordinator {
         self.service = service
         self.canReorder = canReorder
         sidebar.configureOrderMoves { [weak self] ids, snapshot in
+            guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
             guard let self, !self.isSaving, !self.isShuttingDown, self.canReorder() else { return }
             // Disable another drop synchronously, before the new task runs.
             self.sidebar.setOrderSaveState(isSaving: true, error: nil)
             self.operation = Task { @MainActor [weak self] in
+                defer { withExtendedLifetime(updateOperation) {} }
                 await self?.reorder(ids, fromSnapshot: snapshot)
             }
         }
     }
 
     public func reorder(_ ids: [UUID], fromSnapshot: [UUID]) async {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
+        defer { withExtendedLifetime(updateOperation) {} }
         guard !isSaving, !isShuttingDown else { return }
         guard canReorder() else {
             sidebar.setOrderSaveState(isSaving: false, error: nil)

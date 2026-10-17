@@ -4,6 +4,7 @@ import OpenBotsServices
 @testable import OpenBotsUI
 import Testing
 
+
 /// A live bug: with a
 /// Messages card waiting the user corrected New Bot once and it landed; the second
 /// correction, typed while the corrected turn was up with its own card, was
@@ -12,6 +13,74 @@ import Testing
 @MainActor
 @Suite("Corrections while a card waits")
 struct ClaudeTextReplyCoordinatorSteeringTests {
+    @Test("Update readiness includes background reservations and clears after they finish")
+    func updatesWaitForEveryConversation() {
+        let coordinator = ClaudeTextReplyCoordinator(service: CardHoldingReplyService(), changed: {})
+        let first = UUID(), hidden = UUID(), firstMessage = UUID(), hiddenMessage = UUID()
+        #expect(!coordinator.hasUpdateBlockingActivity)
+        #expect(coordinator.reserve(conversationID: first, messageID: firstMessage))
+        #expect(coordinator.reserve(conversationID: hidden, messageID: hiddenMessage))
+        coordinator.finish(conversationID: first, messageID: firstMessage, outcome: .completed)
+        #expect(coordinator.phase(for: first) == .completed)
+        #expect(coordinator.hasUpdateBlockingActivity)
+        coordinator.finish(conversationID: hidden, messageID: hiddenMessage, outcome: .completed)
+        #expect(!coordinator.hasUpdateBlockingActivity)
+    }
+    @Test("A settled background authentication failure offers sign-in once; generic failures do not")
+    func backgroundAuthenticationFailureReportsOnce() {
+        var signInRequests = 0
+        let coordinator = ClaudeTextReplyCoordinator(service: CardHoldingReplyService(),
+            authenticationRequired: { _ in signInRequests += 1 }, changed: {})
+        let foreground = UUID(), background = UUID(), foregroundMessage = UUID(), backgroundMessage = UUID()
+        #expect(coordinator.reserve(conversationID: foreground, messageID: foregroundMessage))
+        #expect(coordinator.reserveIdle(conversationID: background, messageID: backgroundMessage))
+        coordinator.finish(conversationID: background, messageID: backgroundMessage, outcome: .failed(.authenticationRequired))
+        #expect(signInRequests == 1)
+        #expect(coordinator.phase(for: background) == .failed(.authenticationRequired))
+        #expect(coordinator.phase(for: foreground) == .sending)
+        coordinator.finish(conversationID: background, messageID: backgroundMessage, outcome: .failed(.authenticationRequired))
+        #expect(signInRequests == 1)
+        for problem in [ClaudeTextTurnProblem.runtimeUnavailable, .subscriptionNotVerified, .invalidResponse] {
+            let id = UUID()
+            #expect(coordinator.reserveIdle(conversationID: background, messageID: id))
+            coordinator.finish(conversationID: background, messageID: id, outcome: .failed(problem))
+            #expect(signInRequests == 1)
+        }
+    }
+
+    @Test("A superseded, stale, or closing turn cannot request sign-in")
+    func staleAuthenticationFailureDoesNotReport() {
+        var signInRequests = 0
+        let coordinator = ClaudeTextReplyCoordinator(service: CardHoldingReplyService(),
+            authenticationRequired: { _ in signInRequests += 1 }, changed: {})
+        let conversation = UUID(), first = UUID(), replacement = UUID()
+        #expect(coordinator.reserve(conversationID: conversation, messageID: first))
+        #expect(coordinator.reserve(conversationID: conversation, messageID: replacement))
+        coordinator.finish(conversationID: conversation, messageID: first, outcome: .failed(.authenticationRequired))
+        coordinator.finish(conversationID: conversation, messageID: UUID(), outcome: .failed(.authenticationRequired))
+        #expect(signInRequests == 0)
+        #expect(coordinator.phase(for: conversation) == .correcting(team: false))
+        coordinator.beginShutdown()
+        coordinator.finish(conversationID: conversation, messageID: replacement, outcome: .failed(.authenticationRequired))
+        #expect(signInRequests == 0)
+    }
+
+    @Test("Authentication failures carry the epoch captured at reservation through later sign-in")
+    func authenticationFailureKeepsReservationEpoch() {
+        var epoch: UInt64 = 0
+        var observed: [UInt64] = []
+        let coordinator = ClaudeTextReplyCoordinator(service: CardHoldingReplyService(),
+            authenticationEpoch: { epoch }, authenticationRequired: { observed.append($0) }, changed: {})
+        let conversation = UUID(), old = UUID(), fresh = UUID()
+        #expect(coordinator.reserveIdle(conversationID: conversation, messageID: old))
+        epoch += 1 // The explicit sign-in completed while the old turn saved.
+        coordinator.finish(conversationID: conversation, messageID: old, outcome: .failed(.authenticationRequired))
+        #expect(observed == [0])
+        #expect(coordinator.reserveIdle(conversationID: conversation, messageID: fresh))
+        coordinator.finish(conversationID: conversation, messageID: fresh, outcome: .failed(.authenticationRequired))
+        #expect(observed == [0, 1])
+    }
+
     @Test("A second correction stops the corrected turn, starts only once it has settled, and Stop stays offered throughout")
     func aSecondCorrectionSupersedesTheCorrectedTurn() async throws {
         let service = CardHoldingReplyService()
@@ -65,6 +134,7 @@ struct ClaudeTextReplyCoordinatorSteeringTests {
         #expect(await service.refusedWhileBusy.isEmpty)
     }
 
+
     /// A message typed during a turn stops it at once, and
     /// if that message is then refused (its attachment or draft could not be
     /// taken) it never sends. The chat stayed "correcting" for good: every later
@@ -108,6 +178,7 @@ struct ClaudeTextReplyCoordinatorSteeringTests {
         #expect(!coordinator.supersedesRunningTurn(conversationID: conversation.rawValue, messageID: next))
     }
 
+
     /// The replaced turn can end before its
     /// correction is refused. Handing the chat back to a turn that already
     /// ended left it "stopping" for good.
@@ -145,6 +216,7 @@ struct ClaudeTextReplyCoordinatorSteeringTests {
         #expect(!coordinator.supersedesRunningTurn(conversationID: conversation.rawValue, messageID: next))
     }
 
+
     /// Stop, then a message typed while the stopped
     /// turn still winds down and refused before it sends, freed the chat with
     /// that turn still running under it.
@@ -181,6 +253,7 @@ struct ClaudeTextReplyCoordinatorSteeringTests {
         #expect(coordinator.phase(for: conversation.rawValue)?.isBusy != true)
         #expect(freed == [conversation.rawValue])
     }
+
 
     /// A handoff leg, a report or a worker's wake
     /// reserved a busy chat the way a typed message does, so it stopped the

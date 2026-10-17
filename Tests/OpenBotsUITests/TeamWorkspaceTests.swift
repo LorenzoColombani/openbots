@@ -197,7 +197,7 @@ private actor TeamWorkspaceTeamFake: TeamChatServing {
     }
 }
 
-/// Archiving is what makes a lead inactive, so this fake moves the team
+/// Archiving makes a lead inactive, so this fake moves the team
 /// roster exactly as the repository would.
 private actor TeamWorkspaceArchiveFake: TeammateArchiving {
     private let teamFake: TeamWorkspaceTeamFake
@@ -635,6 +635,7 @@ struct TeamWorkspaceTests {
         #expect(h.workspace.conversation.messages.map(\.authorName) == ["You", "Ada", "Former member"])
     }
 
+
     /// A deleted bot's team words stay under "Deleted bot"; a bot that merely left the
     /// team is still a former member.
     @Test("A saved message from a deleted bot reads Deleted bot, one from a bot that left reads Former member")
@@ -705,6 +706,7 @@ struct TeamWorkspaceTests {
         #expect(h.workspace.selectedTeam?.members.map(\.profile.displayName) == ["Mira", "Zed"])
     }
 
+
     /// A hidden bot
     /// keeps its seat and shows in its teams. Hide takes its own row out of
     /// the sidebar and nothing out of the team.
@@ -726,6 +728,7 @@ struct TeamWorkspaceTests {
             #expect(workspace.teamMemberSettingsTargets.map(\.id) == [mira], "Her settings open from Hidden Bots, not from here")
         }
         try seated(h.workspace)
+
 
         // Her turn moves her face on this team's surfaces,
         // and her reply there notifies by her own preference.

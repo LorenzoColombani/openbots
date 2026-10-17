@@ -267,9 +267,13 @@ func creatureWorkingAndSelectedMotionPreserveCalmBounds() {
             let normal = CharacterIdleMotion.keyframes(seed: seed, activity: activity)
             let selected = CharacterIdleMotion.keyframes(seed: seed, activity: activity, isSelected: true)
             for (full, quiet) in zip(normal.transforms.dropFirst().dropLast(), selected.transforms.dropFirst().dropLast()) {
-                #expect(abs(quiet.scale - 1) < abs(full.scale - 1))
-                #expect(abs(quiet.rotation) < abs(full.rotation))
-                #expect(abs(quiet.verticalOffsetFactor) < abs(full.verticalOffsetFactor))
+                if full == .identity {
+                    #expect(quiet == .identity)
+                } else {
+                    #expect(abs(quiet.scale - 1) < abs(full.scale - 1))
+                    #expect(abs(quiet.rotation) < abs(full.rotation))
+                    #expect(abs(quiet.verticalOffsetFactor) < abs(full.verticalOffsetFactor))
+                }
                 #expect(abs(full.scale - 1) <= 0.012_001)
                 #expect(abs(full.rotation) <= 1.2)
             }
@@ -330,38 +334,44 @@ func creatureMotionStopsWhenItsRetainedContentIsCovered() {
     }
 }
 
-@Test("Idle keyframes replay the seeded phases once per cycle and close on the held pose")
+@Test("Idle keyframes drift through neutral with continuous loop velocity and unchanged extremes")
 func creatureIdleKeyframesFollowTheSeededCycle() {
     for index in 1...32 {
         let id = UUID(uuidString: String(format: "EB000000-0000-0000-0000-%012x", index))!
         let seed = CharacterIdleMotion.seed(identityID: id, appearanceSeed: 42)
         let keyframes = CharacterIdleMotion.keyframes(seed: seed)
         let phases = CharacterIdleMotion.phases(seed: seed)
-        let expectedCount = phases.count + 1
+        let samples = CharacterIdleMotion.sampleCount
         let identity = CharacterArtworkTransform.identity
-        #expect(keyframes.transforms.count == expectedCount)
+        #expect(keyframes.transforms.count == samples + 1)
         #expect(keyframes.transforms.first == identity)
         #expect(keyframes.transforms.last == identity)
-        for (offset, phase) in phases.enumerated() {
+        #expect(keyframes.transforms[samples / 2] == identity)
+        for (offset, phase) in phases.dropFirst().enumerated() {
             let expected = CharacterIdleMotion.transform(
                 activity: .idle, mode: .creature, phase: phase,
                 reduceMotion: false, sceneIsActive: true, isVisible: true)
-            let actual = keyframes.transforms[offset]
-            #expect(actual == expected)
+            let actual = keyframes.transforms[samples * (offset == 0 ? 1 : 3) / 4]
+            #expect(abs(actual.scale - expected.scale) < 0.000_001)
+            #expect(abs(actual.rotation - expected.rotation) < 0.000_001)
+            #expect(abs(actual.verticalOffsetFactor - expected.verticalOffsetFactor) < 0.000_001)
         }
-        let thirds: [Double] = [0, 1.0 / 3, 2.0 / 3, 1]
-        let expectedDuration = CharacterIdleMotion.cycleDuration(seed: seed)
-        #expect(keyframes.keyTimes == thirds)
-        #expect(keyframes.duration == expectedDuration)
-        let moving = Array(keyframes.transforms.dropFirst().dropLast())
-        #expect(moving.allSatisfy { $0 != identity })
+        #expect(keyframes.keyTimes.first == 0 && keyframes.keyTimes.last == 1)
+        #expect(keyframes.keyTimes == keyframes.keyTimes.sorted())
+        #expect(keyframes.duration == CharacterIdleMotion.cycleDuration(seed: seed))
+        #expect(keyframes.linearInterpolation)
+        let offsets = keyframes.transforms.map(\.verticalOffsetFactor)
+        let entering = offsets[1] - offsets[0]
+        let leaving = offsets[samples] - offsets[samples - 1]
+        #expect(abs(entering - leaving) < 0.000_001, "The repeating boundary must not change velocity")
+        #expect(abs(entering) > 0.004, "The avatar crosses neutral instead of easing to a stop")
+        #expect(abs(offsets[samples / 2 + 1] - offsets[samples / 2]) > 0.004)
+        #expect(abs(offsets[samples / 4 + 1] - offsets[samples / 4]) < 0.0003,
+                "The turn at the top stays gentle")
     }
 }
 
-/// Watching Scriptsmith on the installed app, nothing seemed to move, though
-/// the head should float and move a bit. The idle loop moved 0.17 points and tilted 0.15
-/// degrees, and the attention hop rose 1 point for a tenth of a second. The
-/// idle float and the hop must now be big enough to see at sidebar size.
+/// The idle float and attention hop must be large enough to see at sidebar size.
 @Test("The idle float and the attention hop are big enough to see")
 func creatureMotionIsVisible() {
     let size: CGFloat = 42

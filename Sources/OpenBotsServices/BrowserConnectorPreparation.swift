@@ -15,8 +15,8 @@ import OpenBotsRuntime
 /// resolution fails closed and the connector reads "needs setup"; it never
 /// falls back to `npx`, and it never fetches anything.
 public struct BrowserConnectorPreparation: Sendable {
-    /// The only server package this preparation knows how to prepare. Mail,
-    /// calendar and Drive have preparations of their own.
+    /// The only server package this slice knows how to prepare. Mail, calendar
+    /// and Drive follow in their own slices.
     public static let browserPackageName = "chrome-devtools-mcp"
 
     public enum Failure: Error, Equatable, Sendable {
@@ -108,8 +108,8 @@ public struct BrowserConnectorPreparation: Sendable {
 
     /// Finds the cached copy of that exact version.
     ///
-    /// The cache holds one opaque hash directory per invocation — often several
-    /// for this package, one per version ever run — so the version
+    /// The cache holds one opaque hash directory per invocation — ten of them
+    /// for this package on this Mac, one per version ever run — so the version
     /// recorded in each copy's own `package.json` is the only safe key. A
     /// directory whose version does not match exactly is not a near miss; it is
     /// a different package.
@@ -142,6 +142,7 @@ public struct BrowserConnectorPreparation: Sendable {
         throw Failure.packageNotCached(version: specification.version)
     }
 
+
     // MARK: - The launch
 
     /// The frozen launch for one turn.
@@ -171,9 +172,8 @@ public struct BrowserConnectorPreparation: Sendable {
                 "HOME": profileURL.deletingLastPathComponent().path,
                 "TMPDIR": temporaryDirectoryURL.path,
                 "LANG": "en_US.UTF-8",
-                // Containment, not courtesy: without this the server spawns a
-                // telemetry watchdog into its own process group, out of reach
-                // of the turn's kill.
+                // Containment, not courtesy: without this the server spawns a telemetry
+                // watchdog into its own process group, out of reach of the turn's kill.
                 "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS": "1",
                 // No update check means no network call at launch. The spelling
                 // is plural; the singular one the earlier draft used is read by

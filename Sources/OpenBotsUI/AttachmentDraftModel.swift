@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import OpenBotsDomain
+import OpenBotsServices
 
 /// A path-free summary returned by the attachment ingestion boundary.
 ///
@@ -165,6 +166,9 @@ public final class AttachmentDraftModel: ObservableObject {
     }
 
     public var isDurable: Bool { conversationID != nil }
+    public var hasUpdateBlockingActivity: Bool {
+        !importTasks.isEmpty || !removalTasks.isEmpty || !activeOperationIDs.isEmpty || loadState == .loading
+    }
     public var hasDurableAttachments: Bool { !assetsByRow.isEmpty }
     public var canSubmit: Bool {
         !isShuttingDown && loadState == .ready && activeOperationIDs.isEmpty && removalTasks.isEmpty
@@ -213,6 +217,7 @@ public final class AttachmentDraftModel: ObservableObject {
     /// A synchronous immutable send capture. It never clears the draft; only
     /// a confirmed durable message write permits acknowledgeSubmitted.
     public func freezeForSubmission() throws -> [AttachmentAsset] {
+        guard ApplicationUpdateGate.shared.allowsWork else { throw AttachmentDraftSubmissionError.unresolvedDraft }
         guard !isShuttingDown, loadState == .ready, activeOperationIDs.isEmpty, removalTasks.isEmpty,
               !rows.contains(where: { $0.isRemoving }) else { throw AttachmentDraftSubmissionError.unresolvedDraft }
         return try rows.map { row in
@@ -243,7 +248,7 @@ public final class AttachmentDraftModel: ObservableObject {
         at exactURL: URL,
         operationID: UUID = UUID()
     ) -> Bool {
-        guard !isShuttingDown, let displayName = Self.validDisplayName(for: exactURL),
+        guard ApplicationUpdateGate.shared.allowsWork, !isShuttingDown, let displayName = Self.validDisplayName(for: exactURL),
               loadState == .ready,
               !consumedOperationIDs.contains(operationID),
               activeOperationIDs.count < Self.maximumPendingRows,
@@ -310,6 +315,7 @@ public final class AttachmentDraftModel: ObservableObject {
     /// A cancelled import remains visible until its possible durable link is
     /// removed; late completion cannot silently bring it back into the draft.
     public func removePresentationRow(id: UUID) {
+        guard ApplicationUpdateGate.shared.allowsWork else { return }
         guard !isShuttingDown, loadState != .loading, let row = rows.first(where: { $0.id == id }), !row.isRemoving else { return }
         guard isDurable else {
             importTasks[id]?.cancel()

@@ -279,7 +279,7 @@ extension SQLiteStore: TextTurnRepository {
             // A page of turns is read ahead in a handful of statements, not
             // ten per turn: the journal record, input and reply of every run
             // come from the same rows the one-run read would fetch, one at a
-            // time, on its own.
+            // time, on its own (F8a).
             let runIDs = try rows.map { try parseID(RunID.self, $0.text("id")) }
             var page = try journalRowPage(runIDs: runIDs)
             let records = try runIDs.map { try requiredJournalRecord($0, from: .page(page)) }

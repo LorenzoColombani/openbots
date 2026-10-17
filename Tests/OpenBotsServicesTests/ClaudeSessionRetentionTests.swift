@@ -4,6 +4,7 @@ import OpenBotsDomain
 @testable import OpenBotsServices
 import Testing
 
+
 /// Session retention: a kept session leaves the CLI's transcript and history
 /// lines under the app profile, so dropping a stored session removes those
 /// files before its row goes. Archiving a bot drops every session it had.
@@ -22,9 +23,9 @@ struct ClaudeSessionRetentionTests {
         try await store.storeClaudeSession(first, conversationID: pillow.conversationID, teammateID: pillow.id)
         try await store.storeClaudeSession(second, conversationID: secondConversation, teammateID: pillow.id)
         try await store.storeClaudeSession(zeds, conversationID: zed.conversationID, teammateID: zed.id)
-        try f.transcript(first.sessionID, in: "-Users-someone-Bots-Pillow")
-        try f.transcript(second.sessionID, in: "-Users-someone-Bots-Pillow-Work-noindex")
-        try f.transcript(zeds.sessionID, in: "-Users-someone-Bots-Zed")
+        try f.transcript(first.sessionID, in: "-Users-fixture-Bots-Pillow")
+        try f.transcript(second.sessionID, in: "-Users-fixture-Bots-Pillow-Work-noindex")
+        try f.transcript(zeds.sessionID, in: "-Users-fixture-Bots-Zed")
         try f.writeHistory([f.historyLine(first.sessionID), f.historyLine(zeds.sessionID), f.historyLine(second.sessionID)])
 
         let service = TeammateArchiveService(repository: store, clock: RetentionClock(date: f.at(60)),
@@ -79,8 +80,8 @@ extension ClaudeSessionRetentionTests {
         let pillow = try await f.seedBot(store, name: "Pillow")
         let session = StoredClaudeSession(sessionID: UUID(), startedAt: f.date, lastUsedAt: f.at(10))
         try await store.storeClaudeSession(session, conversationID: pillow.conversationID, teammateID: pillow.id)
-        try f.transcript(session.sessionID, in: "-Users-someone-Bots-Pillow")
-        let folder = f.profile.appendingPathComponent("projects/-Users-someone-Bots-Pillow", isDirectory: true)
+        try f.transcript(session.sessionID, in: "-Users-fixture-Bots-Pillow")
+        let folder = f.profile.appendingPathComponent("projects/-Users-fixture-Bots-Pillow", isDirectory: true)
         try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: folder.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
 
@@ -150,7 +151,7 @@ private struct RetentionFixture: Sendable {
     }
 
     func historyLine(_ id: UUID) -> String {
-        "{\"display\":\"Hello\",\"pastedContents\":{},\"timestamp\":1789440900000,\"project\":\"/Users/someone/Bots\",\"sessionId\":\"\(id.uuidString.lowercased())\"}"
+        "{\"display\":\"Hello\",\"pastedContents\":{},\"timestamp\":1789440900000,\"project\":\"/Users/fixture/Bots\",\"sessionId\":\"\(id.uuidString.lowercased())\"}"
     }
 
     func writeHistory(_ lines: [String]) throws {

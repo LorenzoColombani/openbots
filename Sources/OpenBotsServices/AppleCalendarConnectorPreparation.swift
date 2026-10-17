@@ -3,27 +3,12 @@ import Foundation
 import OpenBotsDomain
 import OpenBotsRuntime
 
-/// Freezes the launch for the app's own Calendar reader.
-///
-/// The Contacts reader's shape, with one difference that runs through the whole
-/// connector: this one drives no application. Contacts and Mail are read through
-/// Apple Events, so their rows check that the app is installed and their
-/// scripts start it hidden. Calendar is read through EventKit, in a binary the
-/// bundle carries, so Calendar.app need not exist and is never launched.
-///
-/// Why a binary rather than the JXA every other app-owned reader uses is argued
-/// in `apple-calendar.js`: an Apple Events reader
-/// misses much of a year of a calendar because a recurring event has one start
-/// date and `iCal.sdef` cannot expand a series. That is not a performance
-/// preference, it is the difference between a reader that is right and one that
-/// is quietly wrong, so the availability branches below are about the binary.
-///
-/// It IS fenced. An invitation's title, location and notes are written by
-/// whoever sent it, and the reader hands them back verbatim, so the fence being
-/// unavailable means the row does not launch at all rather than launching
-/// unfenced.
-///
-/// Nothing is written for a read, so a calendar turn owns no directory.
+/// Freeze launch configuration for the app-owned Calendar reader. It uses the bundled EventKit
+/// helper instead of launching Calendar.app. EventKit correctly expands recurring series; Apple
+/// Events lacks the required recurrence details.
+/// Invitation titles, locations and notes are untrusted and returned verbatim. If the fence is
+/// unavailable, refuse launch rather than return unfenced content. A read creates no files, so
+/// the turn owns no directory.
 public struct AppleCalendarConnectorPreparation: Sendable {
     public enum Failure: Error, Equatable, Sendable {
         /// The row is not the calendar reader's.
@@ -129,8 +114,8 @@ extension AppleCalendarConnectorPreparation: ConnectorLaunchPreparing {
             return .unavailable("This build is missing the calendar reader. Reinstall the app.")
         } catch Failure.helperMissing {
             // Deliberately the same sentence as the one above. Which half of
-            // the reader is missing is a fact about the build, not something the
-            // user can act on differently, and both mean the same thing to them.
+            // the reader is missing is a fact about the build, not something the user
+            // can act on differently, and both mean the same thing to them.
             return .unavailable("This build is missing the calendar reader. Reinstall the app.")
         } catch Failure.interpreterMissing {
             return .needsSetup("Node is not installed where the app can use it, and the calendar "

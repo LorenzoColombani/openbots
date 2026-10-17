@@ -59,10 +59,9 @@ let package = Package(
             resources: [.process("Resources")]
         ),
         // The app's own read-only window onto Calendar, and the one piece of a
-        // connector that cannot be JavaScript. Apple Events cannot expand a
-        // recurring series at all — it misses most occurrences across a year —
-        // and can take tens of seconds for any window where EventKit costs
-        // milliseconds. The reasons are in the file's own header.
+        // connector that cannot be JavaScript. EventKit expands recurring
+        // series into occurrences within the requested window; the Apple
+        // Events bridge cannot provide that recurrence expansion.
         .executableTarget(name: "openbots-calendar-read"),
         // Owns Google OAuth and REST calls so tokens stay in one Keychain item
         // visible only to this same bundled executable. The node MCP server
@@ -76,6 +75,7 @@ let package = Package(
         .target(
             name: "OpenBotsAgenticRuntime",
             dependencies: [
+                "OpenBotsDomain",
                 "OpenBotsExecutionRules",
                 "OpenBotsContent",
                 "OpenBotsSecurity",

@@ -6,6 +6,7 @@ extension SQLiteStore: TeammateRepository {
         try teammateRows(whereClause: "t.id=?", bindings: [.text(id.persistedValue)]).first
     }
 
+
     /// Never a bot Delete kept only for its team chat history: it is no bot
     /// any more, archived or not.
     public func listTeammates(includingArchived: Bool) async throws -> [Teammate] {

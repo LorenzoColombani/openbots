@@ -25,13 +25,9 @@ public struct ConnectorCatalogAvailability: ConnectorCatalogReading {
         self.source = source; self.probes = probes
     }
 
-    /// What a row says when no probe owns it: this build has no way to launch
-    /// it, so its switch is dead rather than inviting. Every connector Claude
-    /// Code has configured appears in the catalog, and this app can drive two of
-    /// them today — a live switch on the others would turn on and do nothing,
-    /// which is a silently dead grant. It is
-    /// the `unowned` case, so anything that treats such a row differently asks
-    /// `isUnowned` and never compares these words.
+    /// An entry with no owning probe cannot be launched by this build, so its switch is
+    /// disabled. Use the `unowned` state and `isUnowned`, never wording comparisons, to
+    /// identify these entries.
     public static let unownedRow = ConnectorAvailability.unowned(
         "This version of OpenBots Next cannot drive this connector yet.")
 

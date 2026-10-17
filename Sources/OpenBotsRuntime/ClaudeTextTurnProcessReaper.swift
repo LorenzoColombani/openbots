@@ -2,24 +2,20 @@ import Darwin
 import Foundation
 
 /// Ends every program a turn's CLI started, wherever it went.
-///
-/// The turn's own cleanup, `kill(-pid, SIGKILL)` on the CLI's process group,
-/// never reached the Bash tool's work: Claude Code runs each command in a shell
-/// that leads a process group of its own (seen on 2.1.280, fixture
-/// `run-code-probe`). The CLI died at Stop; the shell and the script
-/// under it were handed to launchd and ran on. A run sent to the background
-/// (`nohup python3 x.py &`) outlived even a turn that ended normally.
-///
-/// Two facts about a process name it as this turn's, and nothing else is ever
-/// signalled. It descends from the CLI, which holds only while the CLI lives;
-/// or its environment carries this turn's mark, which the CLI hands to every
-/// shell it starts and a shell hands to every program, so it still holds for a
-/// background run whose parents are gone. A process leading a group of its own
-/// is killed with its group, which takes the script under the shell; any other
-/// is killed alone. Twice when the first pass found something, like the
-/// connector reaper: something may be starting as the first pass runs. Only this user's processes started since the turn
-/// began are read. This is lifecycle control, not containment: a program that
-/// clears its own environment and leaves the tree deliberately is not chased.
+/// The turn's own cleanup, `kill(-pid, SIGKILL)` on the CLI's process group, never reached the
+/// Bash tool's work: Claude Code runs each command in a shell that leads a process group of its
+/// own. The CLI died at Stop; the shell and the script under it were handed to launchd and ran
+/// on. A run sent to the background (`nohup python3 x.py &`) outlived even a turn that ended
+/// normally.
+/// Two facts about a process name it as this turn's, and nothing else is ever signalled. It
+/// descends from the CLI, which holds only while the CLI lives; or its environment carries this
+/// turn's mark, which the CLI hands to every shell it starts and a shell hands to every
+/// program, so it still holds for a background run whose parents are gone. A process leading a
+/// group of its own is killed with its group, which takes the script under the shell; any other
+/// is killed alone. Twice when the first pass found something, like the connector reaper:
+/// something may be starting as the first pass runs. Only this user's processes started since
+/// the turn began are read. This is lifecycle control, not containment: a program that clears
+/// its own environment and leaves the tree deliberately is not chased.
 enum ClaudeTextTurnProcessReaper {
     /// The environment variable that carries a turn's mark.
     static let markName = "OPENBOTS_TURN"

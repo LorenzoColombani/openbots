@@ -44,14 +44,14 @@ public struct NativeClaudeStatusChecker: ClaudeStatusChecking {
     }
 }
 
-private final class ClaudeConnectionCancellation: @unchecked Sendable {
+final class ClaudeConnectionCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
     var isCancelled: Bool { lock.withLock { value } }
     func cancel() { lock.withLock { value = true } }
 }
 
-private enum ClaudeConnectionStatusProcess {
+enum ClaudeConnectionStatusProcess {
     static func run(
         target: ClaudeConnectionTarget,
         timeoutNanoseconds: UInt64,
@@ -154,7 +154,7 @@ private enum ClaudeConnectionStatusProcess {
         }
     }
 
-    private static func matchesFingerprint(
+    static func matchesFingerprint(
         _ target: ClaudeConnectionTarget,
         deadline: UInt64,
         cancellation: ClaudeConnectionCancellation
@@ -183,7 +183,7 @@ private enum ClaudeConnectionStatusProcess {
         return false
     }
 
-    private static func withStrings(
+    static func withStrings(
         _ values: [String],
         body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> Int32
     ) -> Int32 {

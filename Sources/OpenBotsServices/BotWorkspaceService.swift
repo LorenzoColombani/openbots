@@ -45,6 +45,7 @@ public struct BotSkillLibrary: Equatable, Sendable {
     public init(offered: [BotSkill], unusableCount: Int) { self.offered = offered; self.unusableCount = unusableCount }
 }
 
+
 /// Each bot's desk on the Mac: a folder of its own under the content
 /// root, created the first time it is needed and named after the bot, plus any
 /// folder the user adds with the native picker. The record is kept whole per
@@ -79,6 +80,7 @@ public actor BotWorkspaceService: BotWorkspaceResolving {
         layout.contentRoot.url.appending(path: "Bots", directoryHint: .isDirectory)
     }
 
+
     /// The team's shared folder beside the bots' folders: the user drops documents there and every work turn
     /// reaches it. Made on first use, like a bot's own folder.
     public nonisolated var sharedFolderURL: URL {
@@ -94,6 +96,7 @@ public actor BotWorkspaceService: BotWorkspaceResolving {
     /// A copied skill stays small: its files, not a whole project behind a link.
     public static let maximumSkillFiles = 256
     public static let maximumSkillBytes = 8 * 1_048_576
+
 
     /// The folder inside a bot's own where what it makes for the user lands;
     /// each item there becomes a chip on the reply.
@@ -261,11 +264,10 @@ public actor BotWorkspaceService: BotWorkspaceResolving {
     private func notify() { for observer in observers.values { observer.yield(()) } }
     private func remove(_ id: UUID) { observers[id] = nil }
 
-    /// The user's skills folder as Details offers it: each skill a bot can be
-    /// given (a folder, or a link to one, with a plain name and a SKILL.md),
-    /// and how many other folders are there, so an empty menu never says there
-    /// are no skills when there are ones it cannot offer. A hidden entry or a plain file is not a skill and is
-    /// not counted.
+    /// The user's skills folder as Details offers it: each skill a bot can be given (a folder,
+    /// or a link to one, with a plain name and a SKILL.md), and how many other folders are
+    /// there, so an empty menu never says there are no skills when there are ones it cannot
+    /// offer. A hidden entry or a plain file is not a skill and is not counted.
     public func skillLibrary() -> BotSkillLibrary {
         let library = userSkillsLibraryURL
         let names = (try? fileManager.contentsOfDirectory(atPath: library.path)) ?? []
@@ -409,6 +411,7 @@ public actor BotWorkspaceService: BotWorkspaceResolving {
         return ""
     }
 
+
     /// What a turn without Work may read: the
     /// shared folder, made on first use, and the bot's skills folder when it
     /// holds a skill, with the protected roots. Nil when neither can be had.
@@ -467,6 +470,7 @@ public actor BotWorkspaceService: BotWorkspaceResolving {
         try await repository.saveBotWorkspace(record, teammateID: teammateID)
         return record
     }
+
 
     /// A bot that set itself up under a new name: its folder follows
     /// the name while nothing is in it yet, so a bot called PriceWatch does not
@@ -564,8 +568,8 @@ public actor BotWorkspaceService: BotWorkspaceResolving {
         return BotWorkspace(homeURL: URL(fileURLWithPath: record.homePath), folders: folders)
     }
 
-    /// A path written on the data volume (`/System/Volumes/Data/Users/x`) as
-    /// its plain spelling (`/Users/x`) when that names the same folder;
+    /// A path written on the data volume (`/System/Volumes/Data/Users/fixture`) as
+    /// its plain spelling (`/Users/fixture`) when that names the same folder;
     /// anything else as given.
     static func plainSpelling(_ path: String) -> String {
         let volume = ClaudeTextWorkApprovalPolicy.dataVolume

@@ -3,6 +3,7 @@ import Combine
 import OpenBotsDomain
 import OpenBotsServices
 
+
 /// Reviewed against Anthropic's model overview and Claude Code 2.1.283, which
 /// served both new ids as asked. Pinned versions avoid automatically moving a
 /// user's choice. Fable 5 left the list; a bot that saved it keeps the
@@ -14,52 +15,50 @@ enum ClaudeModelCatalog {
         let menuLabel: String
         let detail: String
     }
-    static let options: [Option] = [
-        .init(id: "claude-haiku-4-5-20251001", name: "Haiku 4.5",
-              menuLabel: "Haiku 4.5 · Quick tasks · 200K",
-              detail: "Fast, lighter reasoning. 200,000-token model context."),
-        .init(id: "claude-sonnet-5", name: "Sonnet 5",
-              menuLabel: "Sonnet 5 · Balanced · 1M",
-              detail: "Everyday work. 1,000,000-token model context."),
-        .init(id: "claude-opus-5-5", name: "Opus 5.5",
-              menuLabel: "Opus 5.5 · Complex reasoning · 1M · Max",
-              detail: "Newest Opus. 1,000,000-token model context, included with Max. Its default intensity is medium."),
-        .init(id: "claude-fable-5-1", name: "Fable 5.1",
-              menuLabel: "Fable 5.1 · Highest capability · 1M · Max",
-              detail: "Highest intensity. 1,000,000-token model context. Included in Max within its Fable allowance; uses the shared weekly limit faster."),
-        .init(id: "claude-opus-5", name: "Opus 5",
-              menuLabel: "Opus 5 · Complex reasoning · 1M · Max",
-              detail: "Earlier Opus version. 1,000,000-token model context, included with Max."),
-        .init(id: "claude-opus-4-8", name: "Opus 4.8",
-              menuLabel: "Opus 4.8 · Complex reasoning · 1M · Max", detail: "Earlier Opus version. 1M context on Max."),
-        .init(id: "claude-opus-4-7", name: "Opus 4.7",
-              menuLabel: "Opus 4.7 · Complex reasoning · 1M · Max", detail: "Earlier Opus version. 1M context on Max."),
-        .init(id: "claude-opus-4-6", name: "Opus 4.6",
-              menuLabel: "Opus 4.6 · Complex reasoning · 1M · Max", detail: "Earlier Opus version. 1M context on Max."),
-        .init(id: "claude-sonnet-4-6", name: "Sonnet 4.6",
-              menuLabel: "Sonnet 4.6 · Balanced · 200K", detail: "Earlier Sonnet version. Ordinary 200K context; the separate 1M option requires usage credits."),
-        .init(id: "claude-opus-4-5-20251101", name: "Opus 4.5",
-              menuLabel: "Opus 4.5 · Complex reasoning · 200K", detail: "Earlier Opus version. 200K context."),
-        .init(id: "claude-sonnet-4-5-20250929", name: "Sonnet 4.5",
-              menuLabel: "Sonnet 4.5 · Balanced · 200K", detail: "Earlier Sonnet version. 200K context.")
-    ]
-    static let availabilityNote = "Catalog reference, reviewed September 27, 2026. Availability and limits depend on your Claude account. Provider use beyond included limits may consume enabled usage credits. Saving a preference does not verify access, change account settings, or enable or purchase credits."
+    static var options: [Option] {
+        options(in: ClaudeModelPolicy.current)
+    }
+    static func options(in catalog: ClaudeModelCatalogSnapshot) -> [Option] {
+        catalog.models.map { model in
+            let context = model.contextTokens.map { $0 == 1_000_000 ? "1M" : "200K" }
+            return Option(id: model.id, name: model.name,
+                menuLabel: model.name + (context.map { " · \($0) reference" } ?? ""),
+                detail: context.map { "Bundled context reference: \($0). Actual context is not verified." }
+                    ?? "Claude Code did not supply context capabilities for this model.")
+        }
+    }
+    static var availabilityNote: String {
+        availabilityNote(for: ClaudeModelPolicy.current)
+    }
+    static func availabilityNote(for catalog: ClaudeModelCatalogSnapshot) -> String {
+        let source = catalog.isLive
+            ? "Model list from Claude Code after your subscription check. Context options use the bundled reference where known."
+            : "Using the bundled model list (September 27, 2026). Check Claude in Settings to refresh it."
+        return source + " Availability and allowances depend on your account. Saving a preference does not enable or purchase usage credits."
+    }
 
-    /// Shown directly under the picker, so the charge is never hidden. Print-mode
-    /// Fable turns keep going on usage credits
-    /// once the plan's Fable allowance is spent, without asking first.
-    static func creditsWarning(for id: String) -> String? {
-        guard id == "claude-fable-5-1" else { return nil }
+    static func creditsWarning(for id: String, in catalog: ClaudeModelCatalogSnapshot = ClaudeModelPolicy.current) -> String? {
+        let resolved = catalog.model(id)?.id ?? ClaudeModelPolicy.normalizedIdentity(id)
+        guard resolved?.hasPrefix("claude-fable-") == true else { return nil }
         return "Extra charges possible: once your plan’s Fable allowance runs out, this bot’s replies are billed to your usage credits, if you have turned them on."
     }
     static func option(for id: String) -> Option? { options.first { $0.id == id } }
+    static func contains(_ id: String, in catalog: ClaudeModelCatalogSnapshot) -> Bool {
+        catalog.model(id) != nil
+    }
+    static func savedPreferenceLabel(for id: String, in catalog: ClaudeModelCatalogSnapshot) -> String {
+        guard contains(id, in: catalog) else {
+            return "Saved preference: \(id) (not in catalog)"
+        }
+        return "\(id.capitalized) · Existing preference"
+    }
     static func label(for id: String) -> String {
-        id == "sonnet" ? "Sonnet (existing default)" : option(for: id)?.name ?? id
+        option(for: id)?.name ?? ClaudeModelPolicy.current.model(id)?.name ?? id
     }
     static func matches(requested: String, observed: String) -> Bool {
-        let resolved = ["claude-opus-4-6[1m]", "claude-sonnet-4-6[1m]"].contains(observed)
-            ? String(observed.dropLast(4)) : observed
-        return requested == resolved || (requested == "sonnet" && resolved == "claude-sonnet-5")
+        let requested = ClaudeModelPolicy.normalizedIdentity(requested)
+            ?? ClaudeModelPolicy.resolvedModel(requested)
+        return requested != nil && requested == ClaudeModelPolicy.normalizedIdentity(observed)
     }
     static func effortLabel(_ value: String, model: String) -> String {
         guard value == "default" else {
@@ -134,6 +133,7 @@ public final class TeammateProfileEditorModel: ObservableObject {
     @Published private var namesRefusedAtSave: [(typed: String, existing: String)] = []
 
     private let service: any TeammateProfileEditing
+    private var catalogObservation: AnyCancellable?
     private let photoImporter: (@Sendable (URL) async throws -> ProfilePhotoAsset)?
     /// The name another active bot already carries for the typed one, if any,
     /// under the one rule the creation sheet and the services read. The bot
@@ -157,6 +157,9 @@ public final class TeammateProfileEditorModel: ObservableObject {
         self.teammateID = teammateID
         self.photoImporter = photoImporter
         self.takenName = takenName
+        catalogObservation = NotificationCenter.default.publisher(for: ClaudeModelCatalogRegistry.changed)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     public var originalIdentity: TeammateIdentitySnapshot? {
@@ -213,7 +216,7 @@ public final class TeammateProfileEditorModel: ObservableObject {
     }
 
     public var isEditingEnabled: Bool {
-        !isShuttingDown && originalTeammate != nil && !isLoading && !isSaving && !isImportingPhoto
+        ApplicationUpdateGate.shared.allowsWork && !isShuttingDown && originalTeammate != nil && !isLoading && !isSaving && !isImportingPhoto
             && !isCancelled && savedTeammate == nil
     }
 

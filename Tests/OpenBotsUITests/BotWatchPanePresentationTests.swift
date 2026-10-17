@@ -17,6 +17,7 @@ final class BotWatchPanePresentationTests: XCTestCase {
         )
     }
 
+
     /// A member's pane shows the open team chat's turn, and
     /// nothing says which member drove the Mac, so the words never name this bot.
     func testTeamChatActivityNeverClaimsThisBotSawThePicture() {

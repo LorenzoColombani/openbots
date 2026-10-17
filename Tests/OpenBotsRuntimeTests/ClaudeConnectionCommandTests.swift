@@ -13,10 +13,11 @@ func claudeConnectionCommandContract() throws {
     #expect(environment["TMPDIR"] == target.temporaryDirectoryURL.path)
     #expect(environment["CLAUDE_CODE_TMPDIR"] == target.temporaryDirectoryURL.path)
     #expect(environment["NETRC"] == "/dev/null")
+    #expect(environment["DISABLE_UPDATES"] == "1")
     #expect(environment["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin")
     #expect(Set(environment.keys) == [
         "HOME", "PATH", "LANG", "TERM", "TMPDIR", "CLAUDE_CODE_TMPDIR", "CLAUDE_CONFIG_DIR", "NETRC",
-        "DISABLE_AUTOUPDATER", "DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "DISABLE_BUG_COMMAND",
+        "DISABLE_AUTOUPDATER", "DISABLE_UPDATES", "DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "DISABLE_BUG_COMMAND",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
         "CLAUDE_CODE_DISABLE_CRON", "CLAUDE_CODE_SKIP_PROMPT_HISTORY", "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS"

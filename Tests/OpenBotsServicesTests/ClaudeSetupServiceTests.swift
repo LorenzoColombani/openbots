@@ -142,3 +142,58 @@ func claudeSetupSubscriptionEvidenceRejectsAlternateOrUncertainAuthentication() 
         apiProvider: "firstParty", subscriptionType: "max", checkedAt: date
     ) == nil)
 }
+
+private actor CountingClaudeInstallationInspector: ClaudeInstallationInspecting {
+    private(set) var calls = 0
+    let state: ClaudeInstallationState
+    init(state: ClaudeInstallationState) { self.state = state }
+    func inspectInstallation() async -> ClaudeInstallationInspection {
+        calls += 1
+        return .init(state: state, details: .init(requestedPath: "/fixture/.local/bin/claude"))
+    }
+}
+
+// With no retained runtime the selection reports
+// unavailable, so a Mac without Claude Code never saw the install command.
+@Test("An empty selection with no Claude Code installed reads as missing on every setup path")
+func setupReportsMissingClaudeCodeWhenTheSelectionIsEmpty() async {
+    let layout = PreviewStorageLayout(homeDirectory: URL(fileURLWithPath: "/fixture"),
+                                      systemTemporaryDirectory: URL(fileURLWithPath: "/private/tmp"))
+    let installation = SetupClaudeInstallationInspector(
+        selected: FixedClaudeInstallationInspector(state: .unavailable(.invalidPolicy)),
+        installed: FixedClaudeInstallationInspector(state: .missing))
+    #expect(await installation.inspectInstallation().state == .missing)
+
+    let root = ClaudeSetupRootLookupSpy()
+    let offline = NativeClaudeOfflineSetupInspector(layout: layout, installationInspector: installation,
+                                                    applicationSupportRoot: { await root.lookup() })
+    let report = await GuardedClaudeSetupService(inspector: offline).checkThisMac()
+    #expect(report.outcome == .problem(.installationMissing))
+    #expect(report.local?.installation == .missing)
+
+    let preparer = NativeClaudeConnectionPreparer(layout: layout, installationInspector: installation,
+                                                  applicationSupportRoot: { await root.lookup() })
+    guard case .refused(let refused) = await preparer.prepareConnection() else {
+        Issue.record("A missing installation must refuse the connection")
+        return
+    }
+    #expect(refused.outcome == .problem(.installationMissing))
+    #expect(await root.calls == 0, "A missing installation never reaches the account folder")
+}
+
+@Test("The native installer location decides only an empty selection; any other answer is the selection's own")
+func setupKeepsTheSelectionsOwnAnswer() async {
+    for native in [ClaudeInstallationState.verified, .rejected(.unexpectedSigner), .unavailable(.invalidPolicy)] {
+        let installation = SetupClaudeInstallationInspector(
+            selected: FixedClaudeInstallationInspector(state: .unavailable(.invalidPolicy)),
+            installed: FixedClaudeInstallationInspector(state: native))
+        #expect(await installation.inspectInstallation().state == .unavailable(.invalidPolicy), "\(native)")
+    }
+    for selected in [ClaudeInstallationState.verified, .rejected(.unexpectedSigner)] {
+        let installed = CountingClaudeInstallationInspector(state: .missing)
+        let installation = SetupClaudeInstallationInspector(
+            selected: FixedClaudeInstallationInspector(state: selected), installed: installed)
+        #expect(await installation.inspectInstallation().state == selected)
+        #expect(await installed.calls == 0, "A selection that answered is not second-guessed")
+    }
+}

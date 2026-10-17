@@ -328,11 +328,11 @@ struct GoogleWorkspaceAPITests {
 
     @Test("Provider calendar ids containing a hash stay one percent-encoded path component")
     func holidayCalendarIDsAreAcceptedAndEncoded() async throws {
-        let calendarID = "en.german#holiday@group.v.calendar.google.com"
+        let calendarID = "en.example#holiday@group.v.calendar.google.com"
         let (api, http, _) = try await googleAPI([
-            (200, ["items": [["id": calendarID, "summary": "Holidays in Germany"]]]),
-            (200, ["items": [["id": "event_1", "summary": "Unity Day"]]]),
-            (200, ["id": "event_1", "summary": "Unity Day"]),
+            (200, ["items": [["id": calendarID, "summary": "Example Holidays"]]]),
+            (200, ["items": [["id": "event_1", "summary": "Founding Day"]]]),
+            (200, ["id": "event_1", "summary": "Founding Day"]),
         ])
         _ = try await api.calendarSearch([
             "from": "2026-09-12T00:00:00Z", "to": "2026-10-12T00:00:00Z",
@@ -344,7 +344,7 @@ struct GoogleWorkspaceAPITests {
         #expect(requests.count == 3)
         for request in requests.dropFirst() {
             #expect(request.url?.absoluteString.contains(
-                "en.german%23holiday@group.v.calendar.google.com") == true)
+                "en.example%23holiday@group.v.calendar.google.com") == true)
             #expect(request.url?.fragment == nil)
         }
     }
@@ -764,7 +764,7 @@ struct GoogleWorkspaceAPITests {
 }
 
 extension GoogleWorkspaceAPITests {
-    @Test("Drive search is GET-only, keeps the bin out, and the search words stay one quoted string")
+    @Test("Drive search is GET-only, keeps the bin out, and the user's words stay one quoted string")
     func driveSearchIsClosedAndEscaped() async throws {
         let (api, http, _) = try await googleAPI([(200, ["files": [], "incompleteSearch": false])])
         _ = try await api.driveSearch(["query": "O'Brien \\ notes", "limit": 80], clientID: googleClientID)
@@ -800,13 +800,8 @@ extension GoogleWorkspaceAPITests {
         #expect(googleQuery(requests[1])["q"] == "trashed = false and fullText contains 'C++'")
     }
 
-    /// Every one of these fields is optional in its tool's schema, and a model
-    /// that means "none" often sends an empty string. The helper refused `""`
-    /// as "required": the tool said the words could be
-    /// left out, and the helper said they could not.
-    /// A refusal that told the user to find "the
-    /// project that holds the OpenBots Desktop client" would be no help when
-    /// Google's answer already names it. The page is built by the app from a service it knows
+    /// The refusal identifies the Cloud project already named by Google's answer.
+    /// The page is built by the app from a service it knows
     /// and a project number of digits only; Google's own address is never used,
     /// so nothing in the answer can choose where the link goes.
     @Test("An API switched off names its Cloud project and the page of its switch, built by the app")
@@ -1317,8 +1312,7 @@ struct GoogleWorkspaceApprovalPolicyTests {
         #expect(card.kind == .metadataMutation)
     }
 
-    /// The draft card shows the words as the Gmail send card does, not only
-    /// recipients and subject: the subject
+    /// The draft card shows message content as the Gmail send card does: the subject
     /// on its own labelled line, then the body whole after a blank line, under
     /// the send card's bound, and a body past it is refused.
     @Test("A draft card shows the words whole, with the send card's bound and layout")
@@ -1613,11 +1607,12 @@ private extension String {
     }
 }
 
+
 // MARK: - Gmail send
 
 private func sendInput(_ changes: [String: Any?] = [:]) -> [String: Any] {
     var input: [String: Any] = [
-        "from": "openbots@example.com", "to": "alex@example.com",
+        "from": "openbots@example.com", "to": "user@example.com",
         "subject": "Hello from Kite", "body": "First line.\n\nSecond paragraph, café ☕.",
     ]
     for (key, value) in changes { input[key] = value }
@@ -1652,8 +1647,8 @@ struct GoogleGmailSendTests {
             (["\u{FEFF}body": "x"], "a BOM-prefixed key"),
             (["to": nil], "no recipient"),
             (["subject": 7], "a subject that is not text"),
-            (["to": "Alex <alex@example.com>"], "a display name"),
-            (["to": "alex\u{200B}@example.com"], "a hidden character in an address"),
+            (["to": "Alex <user@example.com>"], "a display name"),
+            (["to": "user\u{200B}@example.com"], "a hidden character in an address"),
             (["to": "a@example.com, b@example.com, c@example.com, d@example.com"], "four recipients"),
             (["to": "a@example.com,,b@example.com"], "an empty recipient"),
             (["to": "zoë@example.com"], "a non-ASCII address"),
@@ -1680,7 +1675,7 @@ struct GoogleGmailSendTests {
     @Test("Every refusal tells the bot that nothing was sent")
     func refusalsSayNothingWasSent() {
         do {
-            _ = try GoogleGmailSendProposal(input: sendInput(["to": "Alex <alex@example.com>"]))
+            _ = try GoogleGmailSendProposal(input: sendInput(["to": "Alex <user@example.com>"]))
             Issue.record("a display name was accepted")
         } catch let refusal as GoogleGmailSendProposal.Refusal {
             #expect(refusal.sentence.hasSuffix("Nothing was sent."))
@@ -1696,7 +1691,7 @@ struct GoogleGmailSendTests {
         let lines = mime.components(separatedBy: "\r\n")
         #expect(lines.allSatisfy { $0.utf8.count <= 78 })
         #expect(lines.contains("From: openbots@example.com"))
-        #expect(lines.contains("To: alex@example.com"))
+        #expect(lines.contains("To: user@example.com"))
         #expect(lines.contains("Content-Transfer-Encoding: base64"))
         #expect(lines.contains("Content-Type: text/plain; charset=UTF-8"))
         // The subject comes back whole from its encoded words.
@@ -1764,7 +1759,7 @@ struct GoogleGmailSendTests {
             Issue.record("the account check was not quiet"); return
         }
         guard case .denyQuietly(let reason, _) = ClaudeTextConnectorApprovalPolicy.decide(
-            try sendRequest("send_gmail_message", sendInput(["to": "Alex <a@example.com>"])),
+            try sendRequest("send_gmail_message", sendInput(["to": "Alex <l@example.com>"])),
             botName: "Kite", role: .googleGmailSend) else {
             Issue.record("an unshowable send was not refused"); return
         }

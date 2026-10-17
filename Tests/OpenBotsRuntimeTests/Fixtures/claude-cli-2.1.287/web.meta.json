@@ -1,0 +1,12 @@
+{
+  "shape": "web",
+  "claude_code_version": "2.1.287",
+  "captured": "2000-01-01",
+  "model": "sonnet",
+  "resolved_model": "claude-sonnet-5-5",
+  "session_id": "b7063b86-917c-57a2-8257-43c7a9ccb890",
+  "message_id": "a4f57001-2fee-519c-8aa9-9e3bfcc47f18",
+  "control_id": "52695ca8-35e2-5665-bed7-b9bf74a84c52",
+  "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+  "prompt": "Use web search to find the official website of the Velmont School and tell me its home page title in one sentence."
+}

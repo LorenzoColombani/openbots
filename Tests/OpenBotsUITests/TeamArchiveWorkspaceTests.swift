@@ -5,6 +5,7 @@ import XCTest
 @testable import OpenBotsPersistence
 @testable import OpenBotsUI
 
+
 /// Archive Team
 /// takes a team out of the sidebar and the archive window brings it back.
 @MainActor
@@ -125,6 +126,7 @@ final class TeamArchiveWorkspaceTests: XCTestCase {
         let stillActive = try await store.team(id: team.team.id)
         XCTAssertEqual(stillActive?.lifecycle, .active)
     }
+
 
     /// A bot still replying in its own chat once said "a message in this team's chat is saving". Saving is per chat.
     func testAMessageSavingInOneChatCountsForThatChatOnly() async throws {

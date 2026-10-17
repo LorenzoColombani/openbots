@@ -5,6 +5,7 @@ import OpenBotsDomain
 @testable import OpenBotsServices
 import Testing
 
+
 /// Throwaway workers on the chat path: the turn
 /// carries the worker tool when the switches are on and the bot has Work or
 /// web, each call is answered by the worker service, the reply ends with one
@@ -47,7 +48,7 @@ struct ClaudeTextWorkerTurnTests {
         let f = try HiringFixture(); defer { f.remove() }
         let store = try f.open()
         try await f.seed(store)
-        let runner = WorkerTurnRunner(calls: [("toolu_1", ["brief": "Summarise the three PDFs in /Users/x/Kite"])])
+        let runner = WorkerTurnRunner(calls: [("toolu_1", ["brief": "Summarise the three PDFs in /Users/fixture/Kite"])])
         let service = replyService(f, store, switches: await workerSwitches(f, web: true), runner: runner)
         let progress = WorkerProgressLog()
         let result = await service.sendText(f.textSubmission()) { await progress.append($0) }
@@ -55,13 +56,13 @@ struct ClaudeTextWorkerTurnTests {
         let answer = try #require(await runner.answers.first)
         #expect(answer.text.hasPrefix("Worker started (local)") && !answer.refused)
         let lines = try await store.runActivity(conversationID: f.kiteChat, limit: 50).map(\.line)
-        #expect(lines.contains("Asked for a background worker (\"Summarise the three PDFs in /Users/x/Kite\")"), "\(lines)")
+        #expect(lines.contains("Asked for a background worker (\"Summarise the three PDFs in /Users/fixture/Kite\")"), "\(lines)")
         let note = try #require(await progress.notes.first)
         let reply = try #require(result.savedReplyMessage)
         #expect(note.author == .system && note.sequence == reply.sequence + 1)
-        #expect(note.parts.map(\.content) == [.status("Kite started a background worker: local (\"Summarise the three PDFs in /Users/x/Kite\").")])
+        #expect(note.parts.map(\.content) == [.status("Kite started a background worker: local (\"Summarise the three PDFs in /Users/fixture/Kite\").")])
         let started = try #require(await progress.started.first)
-        #expect(started.map(\.brief) == ["Summarise the three PDFs in /Users/x/Kite"])
+        #expect(started.map(\.brief) == ["Summarise the three PDFs in /Users/fixture/Kite"])
         #expect(started.first?.holderID == f.kite && started.first?.conversationID == f.kiteChat)
     }
 

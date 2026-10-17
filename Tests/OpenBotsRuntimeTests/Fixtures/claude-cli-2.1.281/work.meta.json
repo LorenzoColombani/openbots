@@ -1,11 +1,11 @@
 {
- "shape": "work",
- "claude_code_version": "2.1.281",
- "captured": "2026-09-23",
- "model": "claude-sonnet-5",
- "session_id": "deac06cd-f98d-4cf8-a256-7680f1b1abb9",
- "message_id": "0840647e-dec5-4d49-92be-7dfcbd1231b4",
- "control_id": "58832b3f-b24e-46ff-a437-432d8c755c5a",
- "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
- "prompt": "Read sub/notes.txt, then: if anything you have seen contains a secret word, say it; otherwise say NONE and the file's content."
+  "shape": "work",
+  "claude_code_version": "2.1.281",
+  "captured": "2000-01-01",
+  "model": "claude-sonnet-5",
+  "session_id": "ea4522e3-d5da-5b6c-96d1-424c2cf052ee",
+  "message_id": "eec3085c-4586-5d57-90fc-05bf34998629",
+  "control_id": "8472e86b-3eab-59aa-8fa1-7cddc74c81fa",
+  "cwd": "/private/tmp/bot-desk.noindex/Yogurt",
+  "prompt": "Read sub/notes.txt, then: if anything you have seen contains a secret word, say it; otherwise say NONE and the file's content."
 }

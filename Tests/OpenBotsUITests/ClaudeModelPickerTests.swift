@@ -6,6 +6,74 @@ import XCTest
 
 @MainActor
 final class ClaudeModelPickerTests: XCTestCase {
+    func testSavedAliasesAreAvailablePreferencesAndKeepTheirExactValues() async throws {
+        for alias in ["sonnet", "opus", "haiku", "default"] {
+            XCTAssertTrue(ClaudeModelCatalog.contains(alias, in: ClaudeModelPolicy.bundled))
+            XCTAssertEqual(ClaudeModelCatalog.savedPreferenceLabel(for: alias, in: ClaudeModelPolicy.bundled),
+                           "\(alias.capitalized) · Existing preference")
+            var teammate = try modelPickerTeammate()
+            teammate.claudeModel = alias
+            let editor = TeammateProfileEditorModel(service: ModelPickerProfileService(teammate), teammateID: teammate.id)
+            await editor.load()
+            editor.title = "Updated label"
+            let saved = await editor.save()
+            XCTAssertEqual(saved?.claudeModel, alias)
+        }
+    }
+
+    func testSavedPreferenceAvailabilityUsesTheCurrentCatalogIncludingAliases() throws {
+        let catalog = try ClaudeModelCatalogSnapshot.parse(modelsJSON: Data("""
+        [{"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus"}]
+        """.utf8), checkedAt: Date())
+        XCTAssertTrue(ClaudeModelCatalog.contains("opus", in: catalog))
+        XCTAssertTrue(ClaudeModelCatalog.contains("claude-opus-5-5", in: catalog))
+        for unavailable in ["haiku", "retired-model", "claude-mythos-5-1"] {
+            XCTAssertFalse(ClaudeModelCatalog.contains(unavailable, in: catalog))
+            XCTAssertEqual(ClaudeModelCatalog.savedPreferenceLabel(for: unavailable, in: catalog),
+                           "Saved preference: \(unavailable) (not in catalog)")
+        }
+    }
+
+    func testLiveCatalogPresentationIsSanitizedAndLabelsItsSource() throws {
+        let catalog = try ClaudeModelCatalogSnapshot.parse(modelsJSON: Data("""
+        [{"value":"sonnet","resolvedModel":"claude-sonnet-5-5","displayName":"Sonnet","description":"$2/$10 per Mtok"}]
+        """.utf8), checkedAt: Date())
+        let options = ClaudeModelCatalog.options(in: catalog)
+        XCTAssertEqual(options.map(\.id), ["claude-sonnet-5-5"])
+        XCTAssertEqual(options.first?.menuLabel, "Sonnet 5.5")
+        XCTAssertFalse(options.contains { $0.detail.contains("$") || $0.menuLabel.contains("1M") })
+        XCTAssertTrue(ClaudeModelCatalog.availabilityNote(for: catalog).contains("from Claude Code"))
+        XCTAssertTrue(ClaudeModelCatalog.availabilityNote(for: ClaudeModelPolicy.bundled).contains("bundled model list"))
+    }
+
+    func testMismatchNoticeNamesActualModelAndNormalizedAliasesDoNotWarn() {
+        var presentation = ClaudeModelRunPresentation()
+        presentation.confirmedRequest = "claude-sonnet-5-5"
+        presentation.confirmedModel = "claude-opus-5-5"
+        XCTAssertTrue(presentation.mismatchNotice?.contains("Opus 5.5") == true)
+        XCTAssertTrue(presentation.mismatchNotice?.contains("unchanged") == true)
+        presentation.confirmedRequest = "sonnet"
+        presentation.confirmedModel = "claude-sonnet-5"
+        XCTAssertNil(presentation.mismatchNotice)
+        presentation.confirmedRequest = "claude-opus-4-6"
+        presentation.confirmedModel = "claude-opus-4-6[1m]"
+        XCTAssertNil(presentation.mismatchNotice)
+    }
+
+    func testMismatchNoticeWarnsWhenAnUnrequestedSubstituteCanBillCredits() {
+        var presentation = ClaudeModelRunPresentation()
+        presentation.confirmedRequest = "claude-sonnet-5-5"
+        presentation.confirmedModel = "claude-fable-5-1"
+        XCTAssertTrue(presentation.mismatchNotice?.contains("usage credits") == true)
+        // A Fable request was already warned under the picker.
+        presentation.confirmedRequest = "claude-fable-5-1"
+        presentation.confirmedModel = "claude-opus-5-5"
+        XCTAssertFalse(presentation.mismatchNotice?.contains("usage credits") ?? true)
+        presentation.confirmedRequest = "claude-sonnet-5-5"
+        presentation.confirmedModel = "claude-opus-5-5"
+        XCTAssertFalse(presentation.mismatchNotice?.contains("usage credits") ?? true)
+    }
+
     func testModelOnlyEditSavesForExactBotAndReopenedEditor() async throws {
         let teammate = try modelPickerTeammate()
         let service = ModelPickerProfileService(teammate)
@@ -32,7 +100,7 @@ final class ClaudeModelPickerTests: XCTestCase {
     }
 
     func testCatalogOffersOpus55AndFable51ButNotFable5() {
-        // Both current models, and not Fable 5.
+        // Offer both current model IDs and omit the superseded Fable 5 ID.
         let ids = ClaudeModelCatalog.options.map(\.id)
         XCTAssertTrue(ids.contains("claude-opus-5-5"))
         XCTAssertTrue(ids.contains("claude-fable-5-1"))
@@ -55,6 +123,21 @@ final class ClaudeModelPickerTests: XCTestCase {
             XCTAssertNil(ClaudeModelCatalog.creditsWarning(for: option.id), option.id)
         }
         XCTAssertNil(ClaudeModelCatalog.creditsWarning(for: "sonnet"))
+    }
+
+    func testNewFableModelsAndAliasesKeepCreditsWarning() throws {
+        let catalog = try ClaudeModelCatalogSnapshot.parse(modelsJSON: Data("""
+        [{"value":"default","resolvedModel":"claude-fable-6","displayName":"Fable"},
+         {"value":"sonnet","resolvedModel":"claude-fable-6","displayName":"Fable"},
+         {"value":"fable","resolvedModel":"claude-fable-6","displayName":"Fable"},
+         {"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus"}]
+        """.utf8), checkedAt: Date())
+        for selection in ["claude-fable-6", "default", "sonnet", "fable"] {
+            let warning = try XCTUnwrap(ClaudeModelCatalog.creditsWarning(for: selection, in: catalog), selection)
+            XCTAssertTrue(warning.contains("credits"))
+        }
+        XCTAssertNil(ClaudeModelCatalog.creditsWarning(for: "opus", in: catalog))
+        XCTAssertNil(ClaudeModelCatalog.creditsWarning(for: "claude-sonnet-5-5", in: catalog))
     }
 
     func testUnknownChoiceSurvivesUnrelatedEditAndDiscardDoesNotSave() async throws {
@@ -129,6 +212,10 @@ final class ClaudeModelPickerTests: XCTestCase {
         XCTAssertEqual(status?.confirmedRequest, "sonnet")
         XCTAssertEqual(status?.confirmedModel, "claude-sonnet-5")
         XCTAssertTrue(ClaudeModelCatalog.matches(requested: "sonnet", observed: "claude-sonnet-5"))
+        // The bundled expectation remains Sonnet 5; a 2.1.287 answer on 5.5
+        // must remain a visible difference until a live catalog resolves the alias.
+        XCTAssertFalse(ClaudeModelCatalog.matches(requested: "sonnet", observed: "claude-sonnet-5-5"))
+        XCTAssertFalse(ClaudeModelCatalog.matches(requested: "claude-sonnet-5", observed: "claude-sonnet-5-5"))
         XCTAssertFalse(ClaudeModelCatalog.matches(requested: "sonnet", observed: "claude-sonnet-6"))
         XCTAssertFalse(ClaudeModelCatalog.matches(requested: "claude-opus-5", observed: "claude-sonnet-5"))
         let reopened = ClaudeTextReplyCoordinator(service: service, changed: {})

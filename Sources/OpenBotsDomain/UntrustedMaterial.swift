@@ -1,5 +1,6 @@
 import Foundation
 
+
 /// The one contract for material that came back from a connector.
 ///
 /// Connector output, web pages, files and peer messages are untrusted
@@ -35,6 +36,7 @@ public enum UntrustedMaterial {
     public static func header(label: String) -> String {
         "\(openMarker) — tool result from \(label)]"
     }
+
 
     /// Neutralises every marker a body forges, with a middle dot, as the proxy
     /// does (`defang` in `Resources/fence-proxy.js`): visibly, never censored.
@@ -108,6 +110,7 @@ public enum UntrustedMaterial {
         }
         return result
     }
+
 
     /// Fences a throwaway worker's reply for the wake of the bot that started
     /// it. The worker read files or pages to write it, so

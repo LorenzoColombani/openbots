@@ -4,10 +4,9 @@ import OpenBotsDomain
 @testable import OpenBotsPersistence
 import Testing
 
-/// The four tables the chat picker reads, as `.schema` printed them from a
-/// real chat.db (definitions only; the server's
-/// suite, `AppleMessagesScriptTests`, carries the same text and the message
-/// table). Triggers are left out.
+/// The four chat.db tables the picker reads. `AppleMessagesScriptTests`
+/// carries the same schema and the message table. Triggers are omitted;
+/// test rows are synthetic.
 private let pickerSchema = """
 PRAGMA journal_mode=WAL;
 CREATE TABLE handle (
@@ -43,7 +42,7 @@ private func literal(_ value: String?) -> String {
     return "'" + value.replacingOccurrences(of: "'", with: "''") + "'"
 }
 
-/// Apple nanoseconds for a moment `secondsAgo` before now, as real messages are dated.
+/// Apple nanoseconds for a moment `secondsAgo` before now, as the user's messages are dated.
 private func appleNanoseconds(_ secondsAgo: Double) -> Int64 {
     Int64((Date().timeIntervalSinceReferenceDate - secondsAgo) * 1_000_000_000)
 }
@@ -92,12 +91,12 @@ struct MessagesHistoryReaderTests {
     func everyConversationNewestFirst() throws {
         let fixture = try HistoryFixture(sql: """
             INSERT INTO handle(ROWID, id, service) VALUES (1, '+33612345678', 'iMessage'), (2, '+14155550100', 'iMessage'),
-                (3, 'Carrier Info', 'SMS');
+                (3, 'Example Sender', 'SMS');
             INSERT INTO chat(ROWID, guid, chat_identifier, style, display_name, last_read_message_timestamp) VALUES
                 (1, 'any;-;+33612345678', '+33612345678', 45, NULL, 0),
-                (2, 'any;+;chat123456789012345678', 'chat123456789012345678', 43, 'Family', 0),
-                (3, \(literal("any;-;Carrier Info")), 'Carrier Info', 45, '', 0),
-                (4, \(literal("any;-;L'Atelier")), \(literal("L'Atelier")), 45, NULL, 900),
+                (2, 'any;+;chat123456789012345678', 'chat123456789012345678', 43, 'Example Group', 0),
+                (3, \(literal("any;-;Example Sender")), 'Example Sender', 45, '', 0),
+                (4, \(literal("any;-;D'Example")), \(literal("D'Example")), 45, NULL, 900),
                 (5, 'any;-;caf\u{E9}', 'caf\u{E9}', 45, NULL, 100);
             INSERT INTO chat_handle_join VALUES (1, 1), (2, 2), (2, 1), (3, 3);
             INSERT INTO chat_message_join(chat_id, message_id, message_date) VALUES
@@ -108,20 +107,20 @@ struct MessagesHistoryReaderTests {
         let listed = try MessagesHistoryReader.conversations(databaseURL: fixture.database)
         // Newest message first (the seconds-dated one last of those with a
         // message), then those with none by when they were last read.
-        #expect(listed.map(\.guid) == ["any;+;chat123456789012345678", "any;-;+33612345678", "any;-;Carrier Info",
-                                       "any;-;L'Atelier", "any;-;caf\u{E9}"])
-        let family = try #require(listed.first)
-        #expect(family.isGroup && family.displayName == "Family")
-        #expect(family.memberAddresses == ["+14155550100", "+33612345678"])
-        #expect(abs((family.lastMessageAt?.timeIntervalSinceNow ?? 0) + 60) < 5)
+        #expect(listed.map(\.guid) == ["any;+;chat123456789012345678", "any;-;+33612345678", "any;-;Example Sender",
+                                       "any;-;D'Example", "any;-;caf\u{E9}"])
+        let exampleGroup = try #require(listed.first)
+        #expect(exampleGroup.isGroup && exampleGroup.displayName == "Example Group")
+        #expect(exampleGroup.memberAddresses == ["+14155550100", "+33612345678"])
+        #expect(abs((exampleGroup.lastMessageAt?.timeIntervalSinceNow ?? 0) + 60) < 5)
         let free = listed[2]
-        #expect(!free.isGroup && free.displayName == nil && free.identifier == "Carrier Info")
+        #expect(!free.isGroup && free.displayName == nil && free.identifier == "Example Sender")
         #expect(abs((free.lastMessageAt?.timeIntervalSinceNow ?? 0) + 7_200) < 5)
         #expect(listed[3].lastMessageAt == nil && listed[3].memberAddresses.isEmpty)
         #expect(listed.allSatisfy { AppleMessagesChatScope.isChoosable($0.guid) })
     }
 
-    /// Messages writes to its history while the picker reads it, and the newest
+    /// Messages writes to its history while the picker reads it, and the user's newest
     /// conversations sit in the write-ahead log until Messages checkpoints it.
     @Test("A conversation still in the write-ahead log of a history Messages holds open is listed")
     func aConversationInTheLiveLogIsListed() throws {
@@ -141,7 +140,7 @@ struct MessagesHistoryReaderTests {
         #expect(listed.map(\.guid) == ["any;-;+33700000001"])
     }
 
-    @Test("Listing writes nothing to the history")
+    @Test("Listing writes nothing to the user's history")
     func listingWritesNothing() throws {
         let fixture = try HistoryFixture(sql: """
             INSERT INTO chat(guid, chat_identifier, style) VALUES ('any;-;+33612345678', '+33612345678', 45);

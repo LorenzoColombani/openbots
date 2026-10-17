@@ -49,9 +49,10 @@ final class BuiltInAvatarTests: XCTestCase {
     }
 
     func testBundledCutoutsHaveApprovedBytesAndRealTransparency() throws {
+        // Pin the public assets after removing non-image metadata.
         let hashes: [BuiltInAvatar: String] = [
-            .guide: "d4f77b6f9376f6f4ef2a823f3ad507d5be17554bd005056067e20c715f3bb2dd",
-            .fin: "cd07757eb49027c09ccb93ba2804133d321812e2f7a273ed196bec79508a0a9b"
+            .guide: "5328adf3292ef6a1037af4c5d0f755f227fa318ae51c8da42c9cd76a033054d4",
+            .fin: "484853a2c7005fae661b19b8bb76f371f1c1fd075f835197854200161dffdd3a"
         ]
         for (avatar, expectedHash) in hashes {
             let url = try XCTUnwrap(BuiltInAvatarResources.url(for: avatar))

@@ -6,7 +6,7 @@ public struct BotSelfSetupSubmission: Equatable, Sendable {
     public let toolUseID: String
     public let teammateID: TeammateID
     /// The arguments as the call ran them: after the switch card, only the
-    /// switches the person approved.
+    /// switches the user approved.
     public let argumentsJSON: Data
     /// False when the call did not come from the bot's own reply.
     public let isOwnCall: Bool
@@ -58,6 +58,7 @@ public protocol BotFolderRenaming: Sendable {
 
 extension BotWorkspaceService: BotFolderRenaming {}
 
+
 /// A new bot sets itself up.
 public protocol BotSelfSetting: Sendable {
     /// The placeholder name a bot waiting to set itself up was born with; nil
@@ -70,7 +71,7 @@ public protocol BotSelfSetting: Sendable {
 }
 
 /// Turns one setup call into the bot's own profile and switches. The profile is
-/// written only while the person has not written any of it (the person's edits win);
+/// written only while the person has not written any of it (the user's edits win);
 /// the switches are the bot's own; the waiting mark goes, so the tool is never
 /// offered again; the folder follows the new name while it is unused.
 public actor BotSelfSetupService: BotSelfSetting {
@@ -146,7 +147,7 @@ public actor BotSelfSetupService: BotSelfSetting {
                 try await teammates.update(teammate, expectedProfileRevision: expected)
                 wroteProfile = true
             } catch RepositoryError.optimisticLockFailed {
-                // The person saved the profile while the bot was writing: their words stand.
+                // The user saved the profile while the bot was writing: their words stand.
                 teammate = (try? await teammates.teammate(id: id)) ?? teammate
             } catch {
                 AgenticDiagnosticsLog.error("setup", "profile not saved: \(String(describing: error).prefix(160))")

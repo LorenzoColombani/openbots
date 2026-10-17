@@ -1,6 +1,7 @@
 import Foundation
 import OpenBotsSecurity
 
+
 /// The exact authority requested from Google for the four rows.
 ///
 /// Gmail has no draft-only scope. `gmail.compose` also authorizes the provider's
@@ -817,6 +818,7 @@ public struct GoogleWorkspaceAPI: Sendable {
                                             method: "POST", jsonBody: body), clientID: clientID)
     }
 
+
     /// The only send this helper can spell: the approved message,
     /// once. Nothing reaches Google without a waiting approval; the sender is
     /// checked against the connected account before the approval is used, so a
@@ -1366,10 +1368,7 @@ public struct GoogleWorkspaceAPI: Sendable {
         return string
     }
 
-    /// Whether an optional field was left out. A model that means "none" often
-    /// sends an empty string, and every optional field of these tools says it
-    /// may be left out, so empty or blank text is read as absent rather than
-    /// refused as "required".
+    /// Treat empty or blank strings as absent for optional fields, matching their tool schema.
     private func isLeftOut(_ value: Any?) -> Bool {
         guard let value, !(value is NSNull) else { return true }
         return (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true

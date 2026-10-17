@@ -6,8 +6,8 @@ import Foundation
 /// The turn's own cleanup is `kill(-pid, SIGKILL)` on the child's process
 /// group, which is the right instrument for the CLI and everything it keeps
 /// inside that group. Chrome is not inside it: the connector server launches it
-/// into a group of its own, so the turn's kill cannot reach it. Stop has to end
-/// the run and its whole process tree, so this type ends the browser.
+/// into a group of its own, so the turn's kill cannot reach it. Stop must also
+/// end those browser processes.
 ///
 /// The instrument is the profile directory. Each turn gets a fresh, app-owned
 /// profile whose path contains that turn's own identifier, and Chrome carries

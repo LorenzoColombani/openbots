@@ -8,24 +8,21 @@ public enum ClaudeExecutionEvidenceError: Error, Equatable, Sendable {
 /// Unknown saved profile values stay in Teammate; they cannot become launch proof.
 public struct ClaudeExecutionSelection: Codable, Equatable, Sendable {
     public static let maximumModelBytes = 200
-    /// Keep historical identities recordable if future launch availability changes.
-    public static let recordableModels: Set<String> = [
-        "sonnet", "claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-5-5", "claude-opus-5",
-        "claude-fable-5-1", "claude-fable-5",
-        "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6",
-        "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929"
-    ]
     private static let suffixedModels: Set<String> = ["claude-opus-4-6", "claude-sonnet-4-6"]
 
     public let model: String
     public let effort: String
     public let contextWindow: String
+    /// Frozen alias resolution at launch. Nil on older records, whose bundled
+    /// alias mapping remains stable even after the live catalog changes.
+    public let resolvedModel: String?
 
-    public init(model: String, effort: String, contextWindow: String) {
+    public init(model: String, effort: String, contextWindow: String, resolvedModel: String? = nil) {
         self.model = model; self.effort = effort; self.contextWindow = contextWindow
+        self.resolvedModel = resolvedModel
     }
 
-    public var expectedResolvedModel: String { model == "sonnet" ? "claude-sonnet-5" : model }
+    public var expectedResolvedModel: String { resolvedModel ?? ClaudeModelPolicy.bundled.model(model)?.id ?? model }
     public var launchModel: String {
         contextWindow == "long" && Self.suffixedModels.contains(model) ? model + "[1m]" : model
     }
@@ -33,9 +30,11 @@ public struct ClaudeExecutionSelection: Codable, Equatable, Sendable {
     @discardableResult
     public func validated() throws -> Self {
         guard model.utf8.count <= Self.maximumModelBytes, effort.utf8.count <= 16, contextWindow.utf8.count <= 16,
-              Self.recordableModels.contains(model),
-              effort == "default" || ClaudeEffortPolicy.supportedValues(for: model).contains(effort),
-              ClaudeContextWindowPolicy.supportedValues(for: model).contains(contextWindow) else {
+              ClaudeModelPolicy.isModelIdentity(model) || ClaudeModelPolicy.aliases.contains(model),
+              resolvedModel == nil || ClaudeModelPolicy.isModelIdentity(resolvedModel!),
+              resolvedModel == nil || resolvedModel == model || ClaudeModelPolicy.aliases.contains(model),
+              effort == "default" || ClaudeModelPolicy.efforts.contains(effort),
+              ["default", "standard", "long"].contains(contextWindow) else {
             throw ClaudeExecutionEvidenceError.invalidSelection
         }
         return self
@@ -43,20 +42,16 @@ public struct ClaudeExecutionSelection: Codable, Equatable, Sendable {
 
     /// Suffix normalization proves only an identity match, never context capacity.
     public static func normalizedReportedModel(_ value: String) -> String? {
-        guard value.utf8.count <= maximumModelBytes else { return nil }
-        if value.hasSuffix("[1m]") {
-            let base = String(value.dropLast(4))
-            return suffixedModels.contains(base) ? base : nil
-        }
-        return value != "sonnet" && recordableModels.contains(value) ? value : nil
+        ClaudeModelPolicy.normalizedIdentity(value)
     }
 
-    private enum CodingKeys: String, CodingKey { case model, effort, contextWindow }
+    private enum CodingKeys: String, CodingKey { case model, effort, contextWindow, resolvedModel }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         self.init(model: try values.decode(String.self, forKey: .model),
                   effort: try values.decode(String.self, forKey: .effort),
-                  contextWindow: try values.decode(String.self, forKey: .contextWindow))
+                  contextWindow: try values.decode(String.self, forKey: .contextWindow),
+                  resolvedModel: try values.decodeIfPresent(String.self, forKey: .resolvedModel))
         try validated()
     }
     public func encode(to encoder: any Encoder) throws {
@@ -65,6 +60,7 @@ public struct ClaudeExecutionSelection: Codable, Equatable, Sendable {
         try values.encode(model, forKey: .model)
         try values.encode(effort, forKey: .effort)
         try values.encode(contextWindow, forKey: .contextWindow)
+        try values.encodeIfPresent(resolvedModel, forKey: .resolvedModel)
     }
 }
 
@@ -129,18 +125,17 @@ public struct ClaudeExecutionEvidence: Codable, Equatable, Sendable {
     }
 
     public var modelStatus: ClaudeExecutionModelStatus {
-        guard (try? validated()) != nil, let initializedModel else { return .notObserved }
+        guard (try? validated()) != nil, initializedModel != nil else { return .notObserved }
         guard let resultModel else { return .startupObserved }
         return ClaudeExecutionSelection.normalizedReportedModel(resultModel)
-            == ClaudeExecutionSelection.normalizedReportedModel(initializedModel) ? .resultMatches : .resultDiffers
+            == request.selection.expectedResolvedModel ? .resultMatches : .resultDiffers
     }
 
     @discardableResult
     public func validated() throws -> Self {
         try request.validated()
         if let initializedModel {
-            guard ClaudeExecutionSelection.normalizedReportedModel(initializedModel)
-                    == request.selection.expectedResolvedModel else {
+            guard ClaudeExecutionSelection.normalizedReportedModel(initializedModel) != nil else {
                 throw ClaudeExecutionEvidenceError.invalidInitialization
             }
         }

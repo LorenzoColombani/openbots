@@ -7,6 +7,7 @@ public protocol TeammateArchiving: Sendable {
     func restoreTeammate(id: TeammateID, expectedProfileRevision: UInt64) async throws -> Teammate
 }
 
+
 /// Archive and restore only change durable lifecycle. This service has no
 /// executor, cancellation, scheduling or attachment authority; its one act on
 /// disk is dropping the archived bot's saved Claude sessions under the app

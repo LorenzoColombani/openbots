@@ -3,6 +3,7 @@ import Foundation
 import OpenBotsDomain
 import OpenBotsPersistence
 
+
 /// One conversation as the chat picker shows it: the words the user knows it by,
 /// and the guid a bot's list names.
 public struct MessagesChatChoice: Identifiable, Equatable, Sendable {
@@ -56,7 +57,7 @@ public struct MessagesChatChoice: Identifiable, Equatable, Sendable {
     /// lower case; a phone number by its last nine digits, the rule the server
     /// looks people up by (`matchClause` in apple-messages.js), so "06 12 34 56
     /// 78" in Contacts names "+33612345678" in Messages; a short number whole;
-    /// and nothing for a sender like "Carrier Info", which no card would carry.
+    /// and nothing for a sender like "Example Sender", which no card would carry.
     public static func contactKey(_ address: String) -> String? {
         let trimmed = address.trimmingCharacters(in: .whitespaces)
         if trimmed.contains("@") { return trimmed.lowercased() }
@@ -79,7 +80,7 @@ public enum MessagesContactNames: Equatable, Sendable {
 /// Where the picker's names come from.
 public protocol MessagesContactNameSource: Sendable {
     func state() async -> MessagesContactNames
-    /// Asks macOS, which asks the user once. Never called except by the user's press.
+    /// Asks macOS, which asks the user once. Never called except by their press.
     func requestAccess() async
     /// Every name the user's Contacts give an address, keyed by `MessagesChatChoice.contactKey`;
     /// empty unless `state()` is `.shown`.

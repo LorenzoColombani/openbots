@@ -686,7 +686,7 @@ func activityCaptionIsOnePlainLine() {
     #expect(NormalBusyFeedbackPolicy.activityCaption(nil) == nil)
 }
 
-// Attaching a file used to grey out Send with only a caption to explain. The caption now carries the door.
+// A draft attachment disables Send; the caption offers a way to send just the text.
 @Test("A file in the draft keeps Send off but offers to send just the text, and the file stays in the draft")
 @MainActor
 func textOnlySendKeepsTheFileInTheDraft() async throws {
@@ -712,8 +712,7 @@ func textOnlySendKeepsTheFileInTheDraft() async throws {
     #expect(model.canSend && !model.canSendTextOnly)
 }
 
-// A refused send used to look like a send that did nothing: Send lit, pressed, silence. It says why now, keeps the
-// text, and the reason goes away on the next edit.
+// A refused send explains why, keeps the text, and clears the reason on the next edit.
 @Test("A refused send publishes its reason, keeps the text, and clears on the next edit")
 @MainActor
 func aRefusedSendPublishesItsReasonAndKeepsTheText() async throws {

@@ -1,50 +1,15 @@
 #!/usr/bin/env node
 "use strict";
 /*
- * OpenBots apple-calendar — read-only reads of the user's own calendars.
- *
- * WHY THIS ROW EXISTS. A bot that reads the user's mail and looks people up in
- * Contacts still cannot answer "am I free Thursday" or "when is the conference
- * trip", and it cannot reason about anything it cannot see. A bot reads the
- * user's calendar with the switch on and cannot with it off.
- *
- * WHY THIS ONE IS NOT JXA, where `apple-contacts.js` is. Two checks were made
- * before any code and both came back against Apple Events:
- *
- *   - A `whose start date >= ... <= ...` query can take tens of SECONDS for any
- *     window — a week, a month and a year cost about the same, because the
- *     cost is per event STORED, not per event found. EventKit answers the same
- *     queries in milliseconds.
- *   - And, decisively, a recurring event has ONE start date, its first. Over a
- *     year the Apple Events reader misses every later occurrence of a repeating
- *     event — most of a busy calendar. It cannot be repaired: `iCal.sdef`
- *     gives `recurrence` as an RRULE string with no excluded dates and no
- *     recurrence-id, so a series cannot be expanded correctly at any price.
- *
- * So the reads happen in `openbots-calendar-read`, a small binary shipped in
- * the app bundle, and this file is what it always was for Contacts: the MCP
- * server, the read-only dispatch table, and the one place words are folded
- * before they are printed. The seam is the same one `apple-contacts.js` has for
- * `osascript` — a program that takes a verb and values as ARGV and hands back
- * one JSON object.
- *
- * READ-ONLY BY CONSTRUCTION, not by a flag. Three tools, three handlers, and no
- * writing verb anywhere in this file or in the binary it calls for one to be
- * reached through.
- *
- * VALUES TRAVEL AS ARGV. Nothing a bot types is ever interpolated into a
- * command line as text; every value is a separate argument, so there is no
- * string for one to break out of.
- *
- * ONE NORMALISER. The card in the app and the sender's own script drifted twice
- * over how they folded a subject. So folding
- * happens HERE, in node, in `oneLine`, and the binary compares and folds
- * nothing.
- *
- * NOTHING IS LAUNCHED. Contacts and Mail are driven by Apple Events, so their
- * readers start the app hidden first. EventKit reads the store directly:
- * Calendar.app need not be running, and this server never starts it. There is
- * no `pgrep`, no `open -g -j`, and no window to keep off the user's screen.
+ * OpenBots apple-calendar provides read-only calendar queries through the bundled
+ * `openbots-calendar-read` EventKit helper. Apple Events date queries can scan all stored
+ * events and cannot correctly expand recurring series because iCal.sdef lacks exclusions and
+ * recurrence ids.
+ * This file owns MCP dispatch and text normalization. The helper accepts a verb and separate
+ * argv values and returns one JSON object; it does not compare or normalize text. Neither side
+ * exposes a writing verb.
+ * Values are never interpolated into command text. EventKit reads the store directly, so
+ * Calendar.app need not run and the connector never launches it.
  */
 
 const { execFile } = require("child_process");
@@ -145,23 +110,17 @@ async function helper(args) {
 
 // --------------------------------------------------------------- Dates
 
-/// A bot says "2026-09-17"; the user's Mac means midnight in THEIR zone, not in UTC.
-/// A day boundary read in the wrong zone moves every all-day event by a day,
-/// so the expansion happens here, where the local zone is known, and crosses
-/// into the binary as an offset-bearing ISO string.
+/// Expand bare calendar dates at local midnight, then pass offset-bearing ISO strings to the
+/// helper. Assuming UTC would shift all-day event boundaries.
 function startOfLocalDay(text) {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
     if (!m) return null;
     return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
 }
 
-/// N calendar days after a date, in the local zone — which is not the same as
-/// N x 86,400,000 milliseconds, and the difference is exactly the bug that made
-/// a query for 25 October 2026 end at 23:00 and report "nothing that day" for
-/// an event at 23:15. A day the clocks change is 23 or 25 hours long, and only
-/// the calendar-field construction knows that. `startOfLocalDay` above already
-/// built dates this way; the window did not, so there were two notions of a day
-/// in one file.
+/// Advance N calendar days in local time using calendar fields. Adding N × 86,400,000
+/// milliseconds is wrong across daylight-saving changes, when a day can be 23 or 25 hours. Use
+/// the same construction as `startOfLocalDay`.
 function addLocalDays(date, days) {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days,
                     date.getHours(), date.getMinutes(), date.getSeconds(),
@@ -290,8 +249,8 @@ function failureText(err, what) {
     const detail = (err.message || err.stderr || "").trim();
     // Narrow on purpose. `denied` and `Privacy` alone matched failures that had
     // nothing to do with permission, and sending the user to a settings pane that is
-    // not the problem is worse than saying nothing: the user is sent to fix
-    // the wrong thing. These are the phrasings EventKit and the reader actually use.
+    // not the problem is worse than saying nothing — it is how the browser step
+    // was born. These are the phrasings EventKit and the reader actually use.
     const refused = /Calendar refused|not authori[sz]ed|access denied|access to calendar/i.test(detail);
     if (refused) {
         return detail + "\n(Calendars must be allowed for " + APP_NAME + " in System Settings -> "
@@ -317,8 +276,8 @@ async function listCalendars() {
     const lines = calendars.map((calendar) => {
         const name = oneLine(calendar.name) || "(unnamed)";
         const account = oneLine(calendar.account);
-        // Two calendars can both be named "Calendar" — the account is what
-        // tells them apart, and the id is what a search should be given.
+        // Calendar names need not be unique. Show the account to distinguish
+        // them and provide the id for subsequent queries.
         const where = account ? " (" + account + ")" : "";
         const readOnly = calendar.writable ? "" : " | read-only in Calendar";
         return name + where + readOnly + "\n" + FACT + "id: " + oneLine(calendar.id);
@@ -466,16 +425,16 @@ const TOOLS = [
     {
         name: "list_calendars",
         description: "List the calendars on this Mac — their names, which account each belongs to, "
-            + "and the id to pass to search_events. Call this first when the user names a calendar "
+            + "and the id to pass to search_events. Call this first when he names a calendar "
             + "(\"my work calendar\"), because two calendars can share a name and only the id tells "
             + "them apart. Read-only: nothing can be added, changed or deleted from here.",
         inputSchema: { type: "object", properties: {} },
     },
     {
         name: "search_events",
-        description: "Read what is on the user's calendar between two dates — every occurrence, including "
-            + "repeating events. Use this BEFORE asking the user whether they are free, what a meeting is, "
-            + "or when something happens: their Mac already holds the answer. Searches every calendar "
+        description: "Read what is on his calendar between two dates — every occurrence, including "
+            + "repeating events. Use this BEFORE asking him whether he is free, what a meeting is, "
+            + "or when something happens: his Mac already holds the answer. Searches every calendar "
             + "unless you pass one. Read-only: nothing can be added, changed or deleted from here.",
         inputSchema: { type: "object",
             properties: {
@@ -490,7 +449,7 @@ const TOOLS = [
         name: "read_event",
         description: "Read one event in full — its notes, its organiser, and the attendees with their "
             + "names and email addresses, so you can write to everyone on a meeting without asking "
-            + "the user for an address. Takes the `id` search_events printed; pass the `occurrence` line "
+            + "him for an address. Takes the `id` search_events printed; pass the `occurrence` line "
             + "too for a repeating event, or you may read a different week's. Read-only.",
         inputSchema: { type: "object",
             properties: {
@@ -509,12 +468,10 @@ const HANDLERS = {
 
 function write(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
 
-/// One request per 0x0A, split on that byte and nowhere else: the fence proxy's
-/// own framing. `readline` also ends a line at U+000D, U+2028 and U+2029, and
-/// JSON.stringify leaves the last two raw inside a string, so a call carrying
-/// one arrived as halves that were each a parse error, and the call itself was
-/// never answered (Node v26.8.2). Split as bytes, a
-/// character cut across two reads is whole again before it is decoded.
+/// Use one request per 0x0A byte, matching fence-proxy framing. `readline` also splits at
+/// U+000D, U+2028 and U+2029, while JSON.stringify can leave the last two inside strings. Byte
+/// framing prevents valid calls from splitting into parse errors and rejoins split UTF-8
+/// characters before decoding.
 function onRequestLine(input, handle) {
     let pending = Buffer.alloc(0);
     input.on("data", (chunk) => {

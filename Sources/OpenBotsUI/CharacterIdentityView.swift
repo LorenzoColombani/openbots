@@ -317,8 +317,7 @@ enum CharacterTransitionMotion {
         case .thinkingOrWorking:
             return .init(scale: state.scale * 1.015, rotation: state.rotation - 2,
                          verticalOffsetFactor: state.verticalOffsetFactor)
-        // The hop when a bot needs the user: about 4 points at sidebar size. At 1
-        // point for a tenth of a second it was too small to notice.
+        // The attention hop is about 4 points at sidebar size so it is visible.
         case .waitingForUser:
             return .init(scale: state.scale * 1.03, rotation: state.rotation,
                          verticalOffsetFactor: state.verticalOffsetFactor - 0.09)
@@ -378,8 +377,8 @@ enum CharacterIdleMotion {
         let working = isWorking(activity)
         switch phase {
         case .held: return .identity
-        // The head should float and move a bit: about 2 points up and down and a degree of tilt at
-        // sidebar size; it had been a fifth of a point, which nobody saw.
+        // A floating motion: about 2 points up and down and a degree of tilt
+        // at sidebar size, large enough to be visible.
         case .upperLeft:
             return .init(scale: 1 + 0.012 * intensity,
                          rotation: -1.2 * Double(intensity),

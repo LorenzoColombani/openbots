@@ -30,6 +30,7 @@ public enum ChromeTabLookup: Equatable, Sendable {
     case unreadable
 }
 
+
 /// What the app knew of the user's Chrome when a card went up, checked again
 /// when they approve: the same Chrome process, and for a tab card
 /// the same tab still on the site the card named.
@@ -51,7 +52,7 @@ public struct ChromeControlContext: Equatable, Sendable {
     /// The tab a tab tool named, looked up in the user's Chrome; nil for a call that
     /// names no tab.
     public var tab: ChromeTabLookup?
-    /// The bot's web access is on (the only door out).
+    /// The bot's web access is on.
     public var grantsWeb: Bool
 
     public init(processID: Int32?, tab: ChromeTabLookup? = nil, grantsWeb: Bool) {
@@ -69,6 +70,7 @@ public struct ChromeControlContext: Equatable, Sendable {
         return ChromeCardAnchor(processID: processID, tab: nil)
     }
 }
+
 
 /// What the card says when a bot wants to use the user's Chrome, through the
 /// Claude Desktop extension "Control Chrome" (0.1.6).
@@ -113,24 +115,24 @@ public enum ClaudeTextChromeControlApprovalPolicy {
     static let maximumAddressScalars = 1_500
 
     static let refusalActivity = "Blocked a Chrome call that could not be shown exactly"
-    static let notOpenReason = "Google Chrome is not open on the user's Mac, and a bot never starts it. Ask the user to open "
+    static let notOpenReason = "Google Chrome is not open on his Mac, and a bot never starts it. Ask him to open "
         + "Chrome, then try again. Nothing was done."
     static let notOpenActivity = "Blocked a Chrome call: Chrome was not open"
-    static let scriptReason = "Running scripts in the user's Chrome is not offered in this version of OpenBots Next. "
+    static let scriptReason = "Running scripts in his Chrome is not offered in this version of OpenBots Next. "
         + "Use get_page_content to read a page, by its tab number. Nothing was run."
     static let scriptActivity = "Blocked running a script in Chrome (not offered)"
-    static let noWebReason = "Opening an address in the user's Chrome needs your web access, and it is off for you. "
+    static let noWebReason = "Opening an address in his Chrome needs your web access, and it is off for you. "
         + "Nothing was opened."
     static let noWebActivity = "Blocked opening an address in Chrome: web access is off"
-    static let unansweredReason = "The user's Chrome did not answer in time, so the tab could not be named on a card. If "
-        + "macOS is asking the user whether OpenBots Next may control Google Chrome, they must answer that first; then "
+    static let unansweredReason = "His Chrome did not answer in time, so the tab could not be named on a card. If "
+        + "macOS is asking him whether OpenBots Next may control Google Chrome, he must answer that first; then "
         + "try again. Nothing was done."
     static let unansweredActivity = "Blocked a Chrome call: Chrome did not answer in time"
     static let notAllowedReason = "macOS does not let OpenBots Next control Google Chrome, so the tab could not be "
-        + "named on a card. The user can allow it in System Settings, Privacy & Security, Automation, under OpenBots "
+        + "named on a card. He can allow it in System Settings, Privacy & Security, Automation, under OpenBots "
         + "Next. Nothing was done."
     static let notAllowedActivity = "Blocked a Chrome call: OpenBots Next may not control Chrome"
-    static let unreadableReason = "The user's Chrome's answer about that tab could not be read, so the tab could not be "
+    static let unreadableReason = "His Chrome's answer about that tab could not be read, so the tab could not be "
         + "named on a card. Nothing was done."
     static let unknownToolActivity = "Blocked a Chrome tool this version never reviewed"
     /// Said when the user approves a card whose tab moved to another site, or whose
@@ -139,12 +141,13 @@ public enum ClaudeTextChromeControlApprovalPolicy {
         + "card named, or Chrome was restarted. Nothing was done. List the tabs again and ask again."
     public static let changedActivity = "Blocked a Chrome call: the tab changed before the approval"
     static let secretRefusal = "This address carries something the user gave as a secret earlier in this turn, "
-        + "and opening it would hand it to the site. Nothing was opened. Never put a secret the user gave you into an "
+        + "and opening it would hand it to the site. Nothing was opened. Never put a secret he gave you into an "
         + "address."
     static let secretActivity = "Blocked opening an address that carried a secret you gave"
     /// Said on every card, because it is what makes this connector different:
     /// the bot acts in the user's own browser.
     static let signedIn = "This is your own Chrome, signed in to your sites."
+
 
     /// The tab number a call names, read as the extension reads it, or nil when
     /// the call names none, or one the card cannot show exactly, or carries a
@@ -204,10 +207,9 @@ public enum ClaudeTextChromeControlApprovalPolicy {
         URLComponents(string: address)?.host ?? address
     }
 
-    /// What must not change between a tab's card and the user's Approve: the site
-    /// of a web page, or the whole address, less its fragment, of a page with
-    /// no site. Every file has the same empty host, so a host alone let one
-    /// file stand for another.
+    /// What must not change between a tab's card and the user's Approve: the site of a web page, or
+    /// the whole address, less its fragment, of a page with no site. Every file has the same
+    /// empty host, so a host alone let one file stand for another.
     public static func place(of address: String) -> String {
         guard var components = URLComponents(string: address) else { return address }
         let scheme = components.scheme?.lowercased() ?? ""
@@ -216,10 +218,9 @@ public enum ClaudeTextChromeControlApprovalPolicy {
         return components.string ?? address
     }
 
-    /// A tab as the card names it: the site first, since a page chooses its
-    /// own title and can make it say anything. A page with no site (a file,
-    /// a Chrome page) is named by what it shows, never by its tab number,
-    /// which the user cannot recognise.
+    /// A tab as the card names it: the site first, since a page chooses its own title and can
+    /// make it say anything. A page with no site (a file, a Chrome page) is named by what it
+    /// shows, never by its tab number, which the user cannot recognise.
     static func named(_ tab: ChromeTab) -> (line: String, target: String, place: String) {
         let components = URLComponents(string: tab.address)
         let scheme = components?.scheme?.lowercased() ?? ""
@@ -279,7 +280,7 @@ public enum ClaudeTextChromeControlApprovalPolicy {
                 guard let number = flag as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID(),
                       number.boolValue else {
                     return deny("open_url opens a new tab only: leave new_tab out, or set it to true. Replacing the "
-                        + "page in the user's front tab is not offered, since they may be using it. Nothing was opened.",
+                        + "page in his front tab is not offered, since he may be using it. Nothing was opened.",
                         refusalActivity)
                 }
             }
@@ -336,7 +337,7 @@ public enum ClaudeTextChromeControlApprovalPolicy {
             case .success(let found): id = found
             case .missing:
                 return deny("Name the tab by its number: list the tabs first, then call \(tool) with tab_id. "
-                    + "Without one it acts on whichever tab is in front, which can change after the user approves. "
+                    + "Without one it acts on whichever tab is in front, which can change after he approves. "
                     + "Nothing was done.", refusalActivity)
             case .notExact:
                 return deny("tab_id must be a whole number from the tab list, written as a number or as digits "
@@ -355,7 +356,7 @@ public enum ClaudeTextChromeControlApprovalPolicy {
                     target: named.target, kind: .metadataMutation,
                     activity: "Asked to \(words.verb) a tab \(named.place) in your Chrome"))
             case .noSuchTab, .found:
-                return deny("No tab with the number \(id) is open in the user's Chrome now. List the tabs again and use "
+                return deny("No tab with the number \(id) is open in his Chrome now. List the tabs again and use "
                     + "a number from that list. Nothing was done.", refusalActivity)
             case .unanswered, nil:
                 return deny(unansweredReason, unansweredActivity)

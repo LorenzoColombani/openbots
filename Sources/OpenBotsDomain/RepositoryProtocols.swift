@@ -74,8 +74,8 @@ public protocol TeamConversationRepository: Sendable {
     func activeParticipantIDs(conversationID: ConversationID) async throws -> Set<TeammateID>
 }
 
-/// Durable two-phase handoff delivery. Updates are
-/// compare-and-set on the state the caller last saw.
+/// Durable two-phase handoff delivery. Updates are compare-and-set on the state the caller last
+/// saw.
 public protocol HandoffRepository: Sendable {
     func insert(_ record: HandoffRecord) async throws
     func update(_ record: HandoffRecord, expectedState: HandoffState) async throws
@@ -213,6 +213,7 @@ public protocol CapabilityGrantRepository: Sendable {
     func update(_ grant: CapabilityGrant) async throws
 }
 
+
 /// Bots waiting to set themselves up: each keeps the
 /// placeholder name it was born with until its setup call lands. One
 /// `app_metadata` row per waiting bot; nil clears it.
@@ -226,14 +227,14 @@ public protocol BotSelfSetupRepository: Sendable {
 public enum AgenticWebSwitchCapability: String, CaseIterable, Codable, Hashable, Sendable {
     case webSearch
     case webFetch
-    /// "Work on this Mac" (files and shell), kept in the same rows as the web
-    /// switches: one app-wide master, one grant per bot.
+    /// "Work on this Mac" (files and shell), stored alongside web switches: one app-wide master
+    /// and one grant per bot.
     case work
-    /// Hiring new bots from a reply, in the same rows: one app-wide master, one
-    /// grant per bot.
+    /// Hiring new bots from a reply, stored alongside the other switches: one app-wide master
+    /// and one grant per bot.
     case hire
-    /// Background throwaway workers: one-shot blank helpers,
-    /// no sidebar seat, local files only unless fetchers are also granted.
+    /// Background throwaway workers: one-shot blank helpers, no sidebar seat, local files only
+    /// unless fetchers are also granted.
     case workers
     /// Fetcher workers: workers that may use web search/fetch. Separate from
     /// the holder's own web grant; treated like a web door for poisoned pages.
@@ -254,6 +255,7 @@ public struct AgenticWebSwitchSnapshot: Equatable, Sendable {
     }
 }
 
+
 /// Keeps the app-wide web switches and each bot's own web grants between
 /// launches: the web switches survive a relaunch. The sample-folder jobs switch is
 /// deliberately absent; it stays session-local. These rows are not
@@ -265,6 +267,7 @@ public protocol AgenticWebSwitchRepository: Sendable {
     func setAppWebSwitch(_ capability: AgenticWebSwitchCapability, enabled: Bool) async throws
     func setBotWebSwitch(_ capability: AgenticWebSwitchCapability, enabled: Bool, teammateID: TeammateID) async throws
 }
+
 
 /// One Claude session per bot and conversation, resumed turn after turn. The
 /// id is the CLI's own; the dates say when the session began and when it last
@@ -304,8 +307,8 @@ public struct StoredClaudeSession: Codable, Equatable, Sendable {
     /// existed, and on a session that read neither.
     public let readTexts: Bool?
     public let readChrome: Bool?
-    /// The same for the user's Mail, contacts, calendars, notes, Gmail or
-    /// Drive: the first such connector's role name, nil when none.
+    /// The same for Mail, contacts, calendars, notes, Gmail or Drive:
+    /// the first such connector's role name, nil when none.
     public let readPrivate: String?
     public init(sessionID: UUID, startedAt: Date, lastUsedAt: Date,
                 isRefused: Bool = false, systemPromptDigest: String? = nil, lastSequence: Int64? = nil,
@@ -388,6 +391,7 @@ public protocol ApprovalRepository: Sendable {
 public extension ApprovalRepository {
     func approvals(conversationID: ConversationID, limit: Int) async throws -> [ApprovalRequest] { [] }
 }
+
 
 /// One line of what a bot did during a run (the "what happened" record).
 public struct RunActivityLine: Equatable, Sendable, Identifiable {

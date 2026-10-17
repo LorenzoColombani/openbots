@@ -11,6 +11,7 @@ public struct WorkRecordHandoffCard: Identifiable, Equatable, Sendable {
     public init(card: ChatHandoffCardSnapshot, legID: UUID) { self.card = card; self.legID = legID }
 }
 
+
 /// The "what happened" record of the open conversation: the briefs
 /// between bots with their controls, each member's report, the cards the user
 /// answered and what each bot did on the Mac. Never the answer bubble.

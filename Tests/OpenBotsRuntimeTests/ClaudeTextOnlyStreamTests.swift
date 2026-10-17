@@ -24,8 +24,8 @@ func claudeTextStreamRejectsInitialization() throws {
     let overrides: [[String: Any]] = [
         ["tools": ["Read"]], ["mcp_servers": [["name": "external"]]], ["plugins": [["name": "plugin"]]],
         ["plugin_errors": [["message": "discard"]]], ["mcp_server_errors": [["message": "discard"]]],
-        ["apiKeySource": "user"], ["permissionMode": "acceptEdits"], ["model": "claude-opus-4-6"],
-        ["model": "claude-sonnet-5[1m]"], ["session_id": "wrong"], ["tools": NSNull()]
+        ["apiKeySource": "user"], ["permissionMode": "acceptEdits"], ["model": "unrecognized"],
+        ["model": "claude-sonnet-5[arbitrary]"], ["session_id": "wrong"], ["tools": NSNull()]
     ]
     for override in overrides {
         var stream = ClaudeTextOnlyStream(request: request)
@@ -178,9 +178,8 @@ func claudeTextStreamIgnoresReviewedInformationalFrames() throws {
         actualModel: "claude-sonnet-5", text: "Hello back", confirmedActualModel: "claude-sonnet-5")))
 }
 
-/// CLI 2.1.261+ streams a live thinking-token estimate during headless turns. The
-/// job path accepted it; the text path once rejected it as an unexpected
-/// system event and every text reply failed with the current CLI (2.1.263).
+/// CLI 2.1.261+ streams a live thinking-token estimate during headless turns.
+/// Both the job and text paths must accept it as bounded metadata.
 @Test("The CLI's thinking-token progress frames are bounded metadata inside a text turn and grant nothing")
 func claudeTextStreamIgnoresThinkingTokenFrames() throws {
     let request = try textOnlyTestRequest()
@@ -326,7 +325,7 @@ func claudeTextStreamBounds() throws {
     #expect(truncated.finish(exitCode: 0) == .failed(.invalidStream))
 }
 
-@Test("Each admitted model must initialize as its exact resolved model",
+@Test("Each admitted model preserves both requested identity and any reported substitution",
       arguments: ClaudeTextOnlyRequest.supportedModels.sorted())
 func claudeTextStreamRequestedModelProof(_ model: String) throws {
     let request = try textOnlyTestRequest(model: model)
@@ -336,9 +335,11 @@ func claudeTextStreamRequestedModelProof(_ model: String) throws {
         actualModel: request.expectedResolvedModel, text: "Hello back", confirmedActualModel: request.expectedResolvedModel)))
     var mismatch = ClaudeTextOnlyStream(request: request)
     let other = request.expectedResolvedModel == "claude-opus-5" ? "claude-sonnet-5" : "claude-opus-5"
-    #expect(throws: ClaudeTextOnlyRejection(failure: .unsafeInitialization, code: .initializationModelInvalid)) {
-        try mismatch.consume(textOnlyTestInit(request, override: ["model": other])) { _ in Issue.record("Mismatched init escaped") }
-    }
+    let events = try mismatch.consume(textOnlyTestInit(request, override: ["model": other])
+        + textOnlyTestReplay(request) + textOnlyTestResult(request, override: ["modelUsage": [other: [:]]]))
+    #expect(events.contains(.initialized(sessionID: request.sessionID, actualModel: other)))
+    #expect(mismatch.finish(exitCode: 0) == .success(.init(sessionID: request.sessionID,
+        actualModel: other, text: "Hello back", confirmedActualModel: other)))
 }
 
 @Test("Documented long-context suffix normalization preserves the exact pinned model identity",
@@ -353,9 +354,14 @@ func claudeTextStreamLongContextModelIdentity(_ model: String) throws {
             actualModel: observed, text: "Hello back", confirmedActualModel: observed)))
     }
     var different = ClaudeTextOnlyStream(request: request)
-    #expect(throws: ClaudeTextOnlyFailure.unsafeInitialization) {
-        try different.consume(textOnlyTestInit(request, override: ["model": "claude-sonnet-5"]))
-    }
+    let events = try different.consume(textOnlyTestInit(request, override: ["model": "claude-sonnet-5"])
+        + textOnlyTestReplay(request)
+        + textOnlyTestResult(request, override: ["modelUsage": ["claude-sonnet-5[1m]": [:]]]))
+    #expect(events.contains(.initialized(sessionID: request.sessionID, actualModel: "claude-sonnet-5")))
+    #expect(different.finish(exitCode: 0) == .success(.init(sessionID: request.sessionID,
+        actualModel: "claude-sonnet-5[1m]", text: "Hello back", confirmedActualModel: "claude-sonnet-5[1m]")))
+    #expect(request.model == model)
+    #expect(request.launchModel == model + "[1m]")
 }
 
 @Test("Successful result metadata reports an actual-model mismatch without rewriting the requested choice")
@@ -645,6 +651,92 @@ func claudeTextStreamRejectsOtherEventsAfterResult() throws {
     }
 }
 
+@Test("A correlated synthetic authentication failure emits no provider text or sentinel model")
+func claudeTextStreamAuthenticationFailure() throws {
+    let request = try textOnlyTestRequest(runID: UUID())
+    let seen = RefusedFrames()
+    let token = ClaudeTextOnlyRefusalLog.observeFrames { runID, frames in seen.record(runID, frames) }
+    defer { ClaudeTextOnlyRefusalLog.removeObserver(token) }
+    for fullMetadata in [false, true] {
+        var frame = textOnlyTestAuthenticationFailureFrame(request)
+        if fullMetadata {
+            frame["uuid"] = UUID().uuidString
+            frame["timestamp"] = "2026-10-12T10:00:00Z"
+            var message = try #require(frame["message"] as? [String: Any])
+            message.merge(["container": NSNull(), "context_management": NSNull(), "diagnostics": NSNull(),
+                "id": "synthetic-fixture", "stop_details": NSNull(), "stop_reason": "end_turn", "stop_sequence": "",
+                "type": "message", "usage": ["input_tokens": 0, "output_tokens": 0, "iterations": []]]) { _, new in new }
+            frame["message"] = message
+        }
+        var stream = ClaudeTextOnlyStream(request: request)
+        var events: [ClaudeTextOnlyEvent] = []
+        let data = try textOnlyTestInit(request) + textOnlyTestReplay(request) + textOnlyTestLine(frame)
+        #expect(throws: ClaudeTextOnlyRejection(failure: .authenticationRequired, code: .providerFailure)) {
+            try stream.consume(data) { events.append($0) }
+        }
+        #expect(events == [.initialized(sessionID: request.sessionID, actualModel: "claude-sonnet-5"),
+                           .inputAcknowledged(messageID: request.messageID)])
+        #expect(stream.grantedToolUseCount == 0)
+        #expect(seen.frames(for: request.runID) == nil)
+    }
+}
+
+@Test("Authentication recovery requires exact root correlation and typed error evidence")
+func claudeTextStreamRejectsUncorrelatedAuthenticationFailures() throws {
+    let request = try textOnlyTestRequest()
+    let original = textOnlyTestAuthenticationFailureFrame(request)
+    let rootChanges: [[String: Any]] = [
+        ["session_id": UUID().uuidString], ["user_message_uuid": UUID().uuidString],
+        ["user_message_uuids": [UUID().uuidString]], ["user_message_uuids": []],
+        ["user_message_uuids": [request.messageID.uuidString, UUID().uuidString]],
+        ["parent_tool_use_id": "nested-tool"], ["is_api_error_message": 1], ["is_api_error_message": false],
+        ["is_api_error_message": "true"], ["error": "rate_limit_error"], ["tool_use_id": "tool-1"]
+    ]
+    var frames = rootChanges.map { original.merging($0) { _, new in new } }
+    for key in ["session_id", "user_message_uuid", "user_message_uuids", "parent_tool_use_id", "is_api_error_message", "error"] {
+        var missing = original
+        missing.removeValue(forKey: key)
+        frames.append(missing)
+    }
+    let message = try #require(original["message"] as? [String: Any])
+    let messageChanges: [[String: Any]] = [
+        ["model": "claude-sonnet-5"], ["role": "user"],
+        ["content": [["type": "tool_use", "id": "tool-1", "name": "Read", "input": [:]]]],
+        ["content": [["type": "text", "text": "private", "tool_use": [:]]]],
+        ["content": [["type": "text", "text": String(repeating: "x", count: 16_385)]]],
+        ["content": []]
+    ]
+    for change in messageChanges {
+        frames.append(original.merging(["message": message.merging(change) { _, new in new }]) { _, new in new })
+    }
+    for frame in frames {
+        var stream = ClaudeTextOnlyStream(request: request)
+        _ = try stream.consume(textOnlyTestInit(request) + textOnlyTestReplay(request))
+        var emitted: [ClaudeTextOnlyEvent] = []
+        do {
+            try stream.consume(textOnlyTestLine(frame)) { emitted.append($0) }
+            Issue.record("Untrusted authentication envelope was accepted")
+        } catch let rejection as ClaudeTextOnlyRejection {
+            #expect(rejection.failure == .invalidStream)
+        }
+        #expect(emitted.isEmpty)
+        #expect(stream.grantedToolUseCount == 0)
+    }
+    for prefix in [Data(), try textOnlyTestInit(request)] {
+        var stream = ClaudeTextOnlyStream(request: request)
+        _ = try stream.consume(prefix)
+        #expect(throws: ClaudeTextOnlyFailure.invalidStream) { try stream.consume(textOnlyTestLine(original)) }
+    }
+}
+
+func textOnlyTestAuthenticationFailureFrame(_ request: ClaudeTextOnlyRequest) -> [String: Any] {
+    ["type": "assistant", "session_id": request.sessionID.uuidString,
+     "user_message_uuid": request.messageID.uuidString, "user_message_uuids": [request.messageID.uuidString],
+     "parent_tool_use_id": NSNull(), "error": "authentication_failed", "is_api_error_message": true,
+     "message": ["role": "assistant", "model": "<synthetic>",
+                 "content": [["type": "text", "text": "Failed to authenticate: OAuth session expired and could not be refreshed"]]]]
+}
+
 @Test("The CLI's retry notice lets it retry: the turn does not fail on it, and the budget is finite")
 func claudeTextStreamLetsTheCLIRetry() throws {
     let request = try textOnlyTestRequest()
@@ -660,7 +752,7 @@ func claudeTextStreamLetsTheCLIRetry() throws {
     }
     var stream = ClaudeTextOnlyStream(request: request)
     var frames = try textOnlyTestInit(request)
-    frames += try retry()
+    frames += try retry(["error": "authentication_failed"])
     frames += try textOnlyTestReplay(request)
     frames += try retry(["error_status": NSNull()])
     frames += try textOnlyTestDelta(request, text: "Hello ")
@@ -741,9 +833,7 @@ func refusedStreamEventShapeNamesTheEvent() throws {
     #expect(stream.refusalShape(block).contains("event=[type:content_block_start block:server_tool_use delta:- stop_reason:- model:-]"))
 }
 
-/// A model that declines is the bot deciding, not a broken stream. A `refusal`
-/// stop reason once threw `responseMismatch`, so the person read "Claude's response could not be verified" about a turn in which
-/// nothing had gone wrong.
+/// A model's `refusal` stop reason is a declined turn, not a stream failure.
 @Test("A refusal stop reason ends the turn as declined, keeping the text already delivered")
 func refusalStopReasonEndsTheTurnWithoutRejecting() throws {
     let request = try textOnlyTestRequest()
@@ -787,6 +877,7 @@ func refusalStopReasonEndsTheTurnWithoutRejecting() throws {
         actualModel: granted.expectedResolvedModel, text: "Parent answer",
         confirmedActualModel: granted.expectedResolvedModel)))
 }
+
 
 /// Claude Code 2.1.280 to
 /// 2.1.282 write a `system` frame when the model refuses and no other model
@@ -860,9 +951,9 @@ func refusalFallbackFrameEndsTheTurnAsDeclined() throws {
 
 @Test("Claude Code 2.1.272 forces the default permission mode under the app's environment scrub; a turn with no control channel accepts it, because its fences are the empty tool set and the deny list, not the mode")
 func forcedDefaultModeIsAcceptedWithoutAControlChannel() throws {
-    // The init frame exactly as the installed CLI (2.1.272)
-    // announced it for the shipped tool-free command, session id substituted.
-    // Its stderr said: "Permission mode forced to default —
+    // CLI 2.1.272's init shape for the tool-free command, with a synthetic session id.
+    // Its reason for the forced mode is:
+    // "Permission mode forced to default —
     // CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set (allowed_non_write_users hardening)".
     func realInit(_ request: ClaudeTextOnlyRequest, tools: [String]) -> [String: Any] {
         ["agents": [], "analytics_disabled": true, "apiKeySource": "none",
@@ -917,8 +1008,8 @@ func initFrameNamesTheClaudeCodeVersion() throws {
 
 @Test("A resumed turn whose session the CLI no longer holds is named as a lost session, not an unverifiable reply")
 func lostSessionIsNamed() throws {
-    // The frame exactly as 2.1.272 sent it for `--resume 00000000-dead-beef-…`:
-    // no init, one error result, nothing else.
+    // The frame exactly as 2.1.272 sent it for `--resume 00000000-dead-beef-…`
+    // with a missing session: no init, one error result, nothing else.
     let request = try textOnlyTestRequest(resumesSession: true)
     let frame: [String: Any] = [
         "type": "result", "subtype": "error_during_execution", "duration_ms": 0, "duration_api_ms": 0,
@@ -958,8 +1049,8 @@ func lostSessionIsNamed() throws {
 
 @Test("A refused frame's code and shape reach the refusal observer, the app's diagnostics file, and no value does")
 func claudeTextStreamReportsRefusalShape() throws {
-    // The unified log drops the app's refusal lines within about a day, so
-    // the shape also goes to the observer the app points at its own file.
+    // Unified logs may omit refusal lines, so the shape also goes to the
+    // observer the app points at its own diagnostics file.
     let seen = RefusalLines()
     let token = ClaudeTextOnlyRefusalLog.observeLines { seen.append($0) }
     defer { ClaudeTextOnlyRefusalLog.removeObserver(token) }
@@ -989,7 +1080,9 @@ func claudeTextStreamHandsBackLastFramesOnRefusal() throws {
     let seen = RefusedFrames()
     let token = ClaudeTextOnlyRefusalLog.observeFrames { runID, frames in seen.record(runID, frames) }
     defer { ClaudeTextOnlyRefusalLog.removeObserver(token) }
-    let request = try textOnlyTestRequest()
+    // Its own run: the observer keeps one record per run, and parallel tests
+    // that refuse a frame under the shared fixture run would overwrite it.
+    let request = try textOnlyTestRequest(runID: UUID())
     var stream = ClaudeTextOnlyStream(request: request)
     let prefix = try textOnlyTestInit(request) + textOnlyTestReplay(request)
     _ = try stream.consume(prefix)
@@ -1007,7 +1100,9 @@ func claudeTextStreamKeepsOnlyTheLatestFrames() throws {
     let seen = RefusedFrames()
     let token = ClaudeTextOnlyRefusalLog.observeFrames { runID, frames in seen.record(runID, frames) }
     defer { ClaudeTextOnlyRefusalLog.removeObserver(token) }
-    let request = try textOnlyTestRequest()
+    // Its own run: the observer keeps one record per run, and parallel tests
+    // that refuse a frame under the shared fixture run would overwrite it.
+    let request = try textOnlyTestRequest(runID: UUID())
     var stream = ClaudeTextOnlyStream(request: request)
     _ = try stream.consume(try textOnlyTestInit(request) + textOnlyTestReplay(request))
     let long = String(repeating: "a", count: ClaudeTextOnlyRefusalLog.maximumFrameBytes * 2)

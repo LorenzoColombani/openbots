@@ -152,7 +152,7 @@ struct MacControlConnectorPreparationTests {
         // (MCPClientManager.swift at Peekaboo 4.0.0's pinned submodule); "1" is
         // read as not set.
         #expect(server.environment["PEEKABOO_DISABLE_MCP_AUTOCONNECT"] == "true")
-        // Foundation takes its home from CFFIXED_USER_HOME, never HOME (probed),
+        // Foundation takes its home from CFFIXED_USER_HOME, never HOME,
         // and Peekaboo keeps a copy of every screenshot `see`
         // takes under that home's .peekaboo/snapshots.
         #expect(server.environment["CFFIXED_USER_HOME"] == home.path)
@@ -203,7 +203,7 @@ struct MacControlConnectorPreparationTests {
         }
     }
 
-    /// This Mac's own npx cache, where the app looks for Peekaboo.
+    /// The test runner's existing npx cache, used only by the conditional pin check.
     static let realCacheRoot = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".npm/_npx")
 
     @Test("The real-cache check runs only for the pinned version: another version cached alone is not the pin")

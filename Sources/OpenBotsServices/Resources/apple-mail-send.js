@@ -3,32 +3,27 @@
 /*
  * OpenBots apple-mail-send — send/draft mail through the user's own Mail.app.
  *
- * Ported into OpenBots Next from the old app's
- * Resources/mcp/apple-mail-send.js, with the approve-before-send outbox and its
- * executor mode removed: this app answers the CLI's permission channel, so the
- * approval card is the gate and the tool call itself only runs once the user
- * has approved it. Everything else is carried over whole — the argv-only
+ * This app answers the CLI's permission channel, so the
+ * approval card is the gate and the tool call itself only runs once the user has
+ * approved it. The connector uses argv-only
  * AppleScript, the no-default-account rule, the create-last ordering that
  * leaks no phantom message on a refusal, and the timeout wording that refuses
  * to call an unknown outcome a failure.
  *
- * WHY: the mail-app connector is READ-ONLY by construction, so
+ * The mail-app connector is READ-ONLY by construction, so
  * the only way a mail teammate could send through Apple Mail was driving the whole
  * Mac via the mac-control grant — the broadest capability in the catalog
  * standing in for the narrowest need. This server is the narrow need: two
  * verbs, Mail.app only, nothing else reachable.
  *
- * RULE: NO default sending account. Mail often holds several (for example a
- * personal and a work account) and they are materially different identities
- * — every send/draft must name one explicitly, and the agent asks the user
- * when they haven't said.
+ * NO default sending account: Mail can hold materially different identities.
+ * Every send/draft must name one explicitly, and the agent asks the user when
+ * no account was specified.
  *
- * Mechanics proven live before writing this:
+ * Scripting mechanics:
  *  - `tell application id "com.apple.mail"` is the form that compiles
- *    reliably here; the by-name form hit terminology errors on a test Mac.
- *  - outgoing-message scripting works (created + deleted a probe draft).
- *  - Same zero-dependency osascript-argv pattern as messages-server.js:
- *    values travel as argv into `on run argv`, never interpolated into
+ *    reliably; the by-name form can produce terminology errors.
+ *  - Values travel as argv into `on run argv`, never interpolated into
  *    AppleScript source, so nothing can break out of a string.
  */
 
@@ -72,17 +67,12 @@ tell application id "com.apple.mail"
 end tell
 end run`;
 
-/// argv: 1 mode ("send"|"draft") · 2 account name · 3 subject · 4 body ·
-///       5 to (comma-separated) · 6 cc · 7 bcc · 8 signature name ("" = auto)
-/// The account is resolved FIRST and by exact name — an unknown account is an
-/// error before any message object exists.
-///
-/// SIGNATURE (the first live send went out without one): Mail does NOT apply
-/// signatures to script-created messages — `message signature` must be set explicitly (verified live: settable and
-/// readable on a probe draft). Auto rule: a named signature is used (unknown
-/// name = error listing the real ones); with no name, a SOLE signature is
-/// applied — that is the user's setup — and with several, none is, reported so
-/// the agent can ask rather than pick an identity for the user.
+/// argv: 1 mode (send or draft), 2 account name, 3 subject, 4 body, 5 comma-separated to, 6 cc,
+/// 7 bcc, 8 signature name (empty means automatic).
+/// Resolve the account by exact name before creating a message. Script-created mail needs
+/// `message signature` set explicitly. Use a named signature, refusing unknown names. Without a
+/// name, use a sole signature; if several exist, use none and report that so the user can
+/// choose.
 const COMPOSE = `on run argv
 set theMode to item 1 of argv
 set theAccount to item 2 of argv
@@ -93,8 +83,8 @@ set ccList to my splitAddrs(item 6 of argv)
 set bccList to my splitAddrs(item 7 of argv)
 set theSig to item 8 of argv
 tell application id "com.apple.mail"
-	-- EVERYTHING that can fail resolves BEFORE the message object exists:
-	-- a compose object created with visible:false is an
+	-- EVERYTHING that can fail resolves BEFORE the message object exists
+	-- because a compose object created with visible:false is an
 	-- invisible phantom that neither delete nor close removes — it holds the
 	-- body and sender until Mail restarts. The old order abandoned one on
 	-- every unknown-signature error; creating last leaks nothing on refusals.
@@ -164,56 +154,39 @@ end trimmed`;
 
 // ─────────────────────────────────────────────────────────────────── helpers
 
-// Rejects invisible/bidi characters outright (both servers): a
-// zero-width space inside an address looks identical to the real one in every
-// confirmation the user reads, while addressing someone else.
-// What is stripped from the words the user reads. U+200C and U+200D are deliberately
-// NOT here: the joiner is what makes 👩‍💻 one emoji instead of two, and the
-// non-joiner is orthographically required in Persian and Urdu. Stripping them
-// scrambled real subjects, and the card scrambled them the same way, so the
-// user could not see it happen. `HIDDEN_IN_ADDRESS`
-// below is wider than this list on purpose, because an address needs none of
-// them and cannot show the user which one it carries.
+// Rejects invisible/bidi characters outright: a zero-width space inside an address looks
+// identical to the real one in every confirmation the user reads, while addressing someone
+// else. What is stripped from the words the user reads. U+200C and U+200D are deliberately NOT here:
+// the joiner is what makes 👩‍💻 one emoji instead of two, and the non-joiner is orthographically
+// required in Persian and Urdu. Stripping them scrambled real subjects, and the card scrambled
+// them the same way, so they could not see it happen. `HIDDEN_IN_ADDRESS` below is wider than
+// this list on purpose, because an address needs none of them and cannot show them which one it
+// carries.
 const INVISIBLES = /[\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\u061c\ufeff]/g;
-/// The address rule is a PROPERTY, not a second list. The list version refused
-/// 22 code points and let 4,152 others through — the soft hyphen, every
-/// variation selector, the Hangul filler, the tag characters — and at the
-/// system font
-/// `al<U+00AD>ice@example.test` and `alice@example.test` draw to the same width,
-/// to the same pixel. The card and the mail agreed perfectly and the *reader*
-/// could not, which is the same defect one step further out. Anything Unicode
-/// itself calls ignorable is refused in an address, because no address needs
-/// one. Subjects keep their own narrower list: a variation selector is content
-/// there, exactly as the joiners are.
-///
-/// One real address changes behaviour, and it is named here rather than left
-/// to be found later: `alice@i❤️.ws` was accepted before this rule and is
-/// refused by it, because the emoji keyboard emits U+FE0F. `alice@i❤.ws` is
-/// the same mailbox and still sends. Of the 4,152 code points this rule adds,
-/// IDNA rejects 3,865 outright and ignores 287 — so the variation selectors
-/// are the only group a person could plausibly type, and the refusal names the
-/// character.
+/// Reject Unicode default-ignorable characters in addresses using the Unicode property rather
+/// than an incomplete hand-maintained list. Otherwise distinct recipient strings can render
+/// identically on the approval card. Subjects use a narrower stripping set because variation
+/// selectors and joiners can be meaningful content there.
+/// A variation selector in an emoji domain is refused even when IDNA would ignore it. The
+/// refusal names the character so the user can supply an address whose displayed and approved
+/// forms agree.
 const HIDDEN_IN_ADDRESS = /\p{Default_Ignorable_Code_Point}/u;
-/// Exactly what the card does to a subject before it draws it: drop the
-/// characters that hide or reorder, then collapse every run of whitespace to
-/// one space. Trimming alone was not the same thing — a subject with blank
-/// lines in it read as one line on the card and reached Mail with the blank
-/// lines still there.
-/// U+0085 is whitespace to Unicode and to Swift, and is NOT in JavaScript's
-/// `\s`, so it has to be named: without it the card said "Invoice March" and
-/// the mail carried the line break.
-///
-/// It is named ONCE, here, and every rule about a space is built from it. The
-/// same gap once existed one field over: U+0085 was named for the subject and
-/// forgotten for the addresses, so the card drew
-/// `alice@example.test` while the mail went to that address with a line break
-/// on the end of it — a recipient the card never showed. Two copies of a set
+/// Exactly what the card does to a subject before it draws it: drop the characters that hide or
+/// reorder, then collapse every run of whitespace to one space. Trimming alone was not the same
+/// thing — a subject with blank lines in it read as one line on the card and reached Mail with
+/// the blank lines still there. U+0085 is whitespace to Unicode and to Swift, and is NOT in
+/// JavaScript's `\s`, so it has to be named: without it the card said "Invoice March" and the
+/// mail carried the line break.
+/// It is named ONCE, here, and every rule about a space is built from it. The same gap
+/// once appeared one field over: U+0085 was named for the subject and forgotten for
+/// the addresses, so the card drew `alice@example.test` while the mail went to that address
+/// with a line break on the end of it — a recipient the card never showed. Two copies of a set
 /// drift apart; one cannot.
 const WHITESPACE = "\\s\\u0085";
 const oneLineSubject = (value) => String(value).replace(INVISIBLES, "")
     .split(new RegExp("[" + WHITESPACE + "]+", "u")).filter((part) => part !== "").join(" ");
 
-/// The body as the card shows it (the card shows the whole body). The same hiding characters as the subject are dropped and
+/// The whole body as the card shows it. The same hiding characters as the subject are dropped and
 /// nothing else is changed: the line breaks are the mail's own, so the body is
 /// not flattened as a subject is. The card's `visibleBody` is the same rule,
 /// and AppleMailBodyReadsAlikeTests runs both over one input.
@@ -234,7 +207,7 @@ const hasWords = (text) => String(text).replace(new RegExp("[" + WHITESPACE + "]
 /// the address rule would silently begin refusing every address containing a
 /// "p" rather than throwing.
 /// The apostrophe is allowed in the local part and nowhere else:
-/// `o'brien@example.ie` is a real address, `'` is RFC 5321
+/// `o'brien@example.test` is valid, `'` is RFC 5321
 /// `atext`, and it was refused with advice to drop a `Name <addr>` form it
 /// never had. No host name carries one, so the domain's two classes keep it
 /// out. The card draws an address as given, so this widens what the script
@@ -249,15 +222,13 @@ const isEmail = (s) => {
     return !HIDDEN_IN_ADDRESS.test(t) && ADDRESS.test(t);
 };
 
-/// An address is echoed back with everything invisible named. The refusal used
-/// to print the offending address raw, so a hidden character was hidden in the
-/// error too: it read `to contains "alice@example.test", which is not an email
-/// address \u2014 pass bare addresses, not names or 'Name <addr>' forms`, which is
-/// not merely unhelpful but untrue, since the address *is* bare and following
-/// the advice changes nothing.
-/// An ordinary space is not one of these: a space in an address almost always
-/// means a `Name <addr>` form, and that advice is right there and wrong for
-/// everything else.
+/// An address is echoed back with everything invisible named. The refusal used to print the
+/// offending address raw, so a hidden character was hidden in the error too: it read `to
+/// contains "alice@example.test", which is not an email address \u2014 pass bare addresses, not
+/// names or 'Name <addr>' forms`, which is not merely unhelpful but untrue, since the address
+/// *is* bare and following the advice changes nothing. An ordinary space is not one of these: a
+/// space in an address almost always means a `Name <addr>` form, and that advice is right there
+/// and wrong for everything else.
 const cannotBeSeen = (character) => HIDDEN_IN_ADDRESS.test(character)
     || (ONE_SPACE.test(character) && character !== " ");
 
@@ -285,12 +256,11 @@ function describeAddress(value) {
             // carrying the character it only described.
             piece = "<" + named(character) + ">";
         }
-        // 320 soft hyphens made a 2,791-character refusal, so the echo stops
-        // at 120. It stops rather than skipping what does not fit: skipping
-        // dropped a named character out of the MIDDLE and closed the gap, so
-        // the text either side read as one address and the single trailing
-        // ellipsis looked like an ordinary cut at the end. The scan keeps going after the echo stops, because
-        // the character that explains the refusal can sit past the cut.
+        // 320 soft hyphens made a 2,791-character refusal, so the echo stops at 120. It stops
+        // rather than skipping what does not fit: skipping dropped a named character out of the
+        // MIDDLE and closed the gap, so the text either side read as one address and the single
+        // trailing ellipsis looked like an ordinary cut at the end. The scan keeps going after
+        // the echo stops, because the character that explains the refusal can sit past the cut.
         if (capped) continue;
         if (shown.length + piece.length > 120) { capped = true; continue; }
         shown += piece;
@@ -299,21 +269,10 @@ function describeAddress(value) {
              angled: /[<>]/.test(text) };
 }
 
-/// Answering a message the user was sent, in two steps on purpose.
-///
-/// The first version of this took Mail's *internal* id and checked the caller's
-/// claimed subject with a substring test. Both were wrong: Mail's internal id
-/// is per-store, so
-/// the same number can name a different message in another account — and the
-/// walk took the first match in whichever account Mail enumerated first, which
-/// also decides the account the reply goes out from. The substring test then
-/// let `expect_subject: "a"` match "Lawyer: sign the NDA today". Between them,
-/// a card the user approved could describe one mail while another was answered.
-///
-/// So: the key is the RFC 5322 Message-ID, which is globally unique and is what
-/// the reading tools hand back as `rfc_message_id`; the subject is compared for
-/// EXACT equality after normalising; and the resolve is a separate script whose
-/// answer is checked in JavaScript before any reply object exists.
+/// Resolve a reply target before creating a Mail reply object. Use RFC 5322 Message-ID, which
+/// the reader exposes as `rfc_message_id`, instead of Mail's per-store internal id. Compare
+/// normalized subjects exactly, never by substring. Check the resolver's result in JavaScript
+/// before any mutation so an approved message cannot resolve to a different account's copy.
 const RESOLVE = `on run argv
 set midBare to item 1 of argv
 set hintAccount to item 2 of argv
@@ -338,12 +297,9 @@ tell application id "com.apple.mail"
 			end repeat
 		end try
 	end if
-	-- No silent fallback when an account is named. One Message-ID can exist
-	-- twice on a Mac — the copy the user received, and the copy in Sent from
-	-- when they wrote it — and Mail answers from whichever one is found. Falling
-	-- back across accounts is how a reply once came out of the Sent copy
-	-- instead of the received one, so a named account that does not hold
-	-- the message is an error, not a hint to ignore.
+	-- No silent fallback for a named account. A Message-ID can exist in both
+	-- an inbox and Sent, and Mail answers from the copy it finds. Refuse a
+	-- missing message in the selected account rather than changing the sender.
 	if found is missing value and hintAccount is not "" then error "NOT_IN_THAT_ACCOUNT"
 	if found is missing value then
 		repeat with acc in accounts
@@ -364,12 +320,10 @@ tell application id "com.apple.mail"
 end tell
 end run`;
 
-/// argv: 1 mode ("send"|"draft") · 2 Mail's internal id (resolved above) ·
-///       3 the account it was found in · 4 the body · 5 "all" for reply-to-all
-///
-/// The account is not a choice here: Mail answers from the address the original was sent to. Passing the account the
-/// resolve found only stops the second lookup from wandering into a different
-/// store; the reply verb still picks the sender itself.
+/// argv: 1 mode (send or draft), 2 resolved Mail internal id, 3 resolved account, 4 body, 5 all
+/// for reply-to-all.
+/// Pass the resolved account to prevent the second lookup from selecting another store. Mail's
+/// reply verb chooses the sender from the account addressed by the original.
 const REPLY = `on run argv
 set theMode to item 1 of argv
 set theID to item 2 of argv
@@ -393,11 +347,9 @@ tell application id "com.apple.mail"
 	else
 		set m to reply origMsg opening window false
 	end if
-	-- Setting "content of m" directly is SILENTLY IGNORED on a message that
-	-- came back from "reply". Every reply this tool ever sent went out with no
-	-- words in it, carrying only the signature. Proved by hand: save the reply as a draft and read it back from the Drafts mailbox,
-	-- where the body is readable -- ours was not there. Setting it through
-	-- "properties" does take, and changes nothing else about the message.
+	-- Directly setting "content of m" is silently ignored for a reply object.
+	-- Set it through "properties" so the body is included without changing
+	-- other message properties.
 	--
 	-- Mail's own quote cannot be read back off the outgoing message: reading
 	-- the content of one returns a one-character stub on this macOS, before AND
@@ -418,12 +370,9 @@ tell application id "com.apple.mail"
 end tell
 end run`;
 
-/// Recipients arrive as ONE shape: a comma-separated string, or nothing.
-///
-/// This used to accept an array too, and that broke the card: the card reads
-/// `to`/`cc`/`bcc` as strings, so an array vanished from the words the user
-/// approved while the mail still carried every address — a blind bcc, exactly what the card exists to prevent. Anything
-/// the card cannot describe is refused here rather than sent.
+/// Recipients must be a comma-separated string or absent. The card reads to/cc/bcc as strings,
+/// so accepting an array here could send recipients the card did not show. Refuse any input
+/// shape the card cannot describe.
 function normaliseAddresses(field, value, verb) {
     if (value !== undefined && value !== null && typeof value !== "string") {
         throw new Error(`${field} must be a comma-separated STRING of bare addresses. It arrived as `
@@ -441,12 +390,11 @@ function normaliseAddresses(field, value, verb) {
         }
         if (!isEmail(a)) {
             const seen = describeAddress(a);
-            // An address can be wrong in more than one way at once, and being
-            // told about only the invisible half sends the caller back for a
-            // second round trip. Each fault is its own sentence and the last
-            // sentence says what to do: a refusal that only diagnoses is the
-            // same wrong message as one whose remedy changes nothing, with
-            // the sign flipped.
+            // An address can be wrong in more than one way at once, and being told about only
+            // the invisible half sends the caller back for a second round trip. Each fault is
+            // its own sentence and the last sentence says what to do: a refusal that only
+            // diagnoses is the same wrong message as one whose remedy changes nothing, with the
+            // sign flipped.
             const why = [`${field} contains "${seen.shown}", which is not an email address.`];
             if (seen.hidden) {
                 why.push(`It carries ${seen.hidden}, which nothing on screen can show, so the `
@@ -471,15 +419,11 @@ function normaliseAddresses(field, value, verb) {
 }
 
 /**
- * Foundation's JSONSerialization drops exactly one leading U+FEFF from every
- * string it reads; JSON.parse keeps it. The app
- * reads a call that way both to build its card and to hand the approved input
- * back to the CLI, so a body approved through the app never arrives here
- * beginning with one. A body that still begins with the mark is not the body
- * the app read, so it is refused rather than sent. The card shows the body,
- * and it drops U+FEFF wherever it stands, as
- * `visibleBody` below does once this check has passed; the refusal stays
- * because it is about which input was approved, not about what is drawn.
+ * Foundation's JSONSerialization removes one leading U+FEFF from strings; JSON.parse preserves
+ * it. The app parses both the card and the approved input returned to the CLI. A body still
+ * starting with that mark therefore differs from what the app approved and is refused. After
+ * this check, `visibleBody` applies the same display rule as the card, removing U+FEFF wherever
+ * it occurs.
  */
 function refuseLeadingByteOrderMark(body, verb) {
     if (body.startsWith("\uFEFF")) {
@@ -494,9 +438,9 @@ function refuseLeadingByteOrderMark(body, verb) {
  * for draft_mail, whose refusals used to say a draft was not sent.
  */
 function validateCompose(args, verb) {
-    // Every field the card shows the user must be a string, for the same reason
-    // as the addresses: the card and this script have to read one input the
-    // same way, or the user approves words that do not describe the mail.
+    // Every field the card shows the user must be a string, for the same reason as
+    // the addresses: the card and this script have to read one input the same
+    // way, or they approve words that do not describe the mail.
     for (const field of ["account", "subject", "body", "signature"]) {
         const value = args[field];
         if (value !== undefined && value !== null && typeof value !== "string") {
@@ -505,11 +449,10 @@ function validateCompose(args, verb) {
                 + `from these values, so nothing was ${verb}.`);
         }
     }
-    // The reply path has capped its inputs since it was written; the compose
-    // path capped nothing, so a 533-character "address" was accepted and a
-    // 50 KB subject was shown to the user as its first few hundred characters.
-    // The limits are deliberately generous: the
-    // last refusal rule added here broke every ordinary send.
+    // The reply path has capped its inputs since it was written; the compose path capped
+    // nothing, so a 533-character "address" was accepted and a 50 KB subject was shown to the user
+    // as its first few hundred characters. The limits are deliberately generous: the last
+    // refusal rule added here broke every ordinary send.
     for (const [field, limit] of [["account", 200], ["subject", 400],
                                   ["signature", 200], ["body", 100000]]) {
         const value = String(args[field] || "");
@@ -519,19 +462,17 @@ function validateCompose(args, verb) {
                 + `nothing was ${verb}.`);
         }
     }
-    // The card strips invisible and bidi characters from the subject so what
-    // the user reads cannot be reordered or hidden. If this script sent them anyway the
+    // The card strips invisible and bidi characters from the subject so what the user
+    // reads cannot be reordered or hidden. If this script sent them anyway the
     // two would describe different mail, so the subject arrives here the same
     // way it reaches the card.
     if (args.subject !== undefined && args.subject !== null) {
         args = { ...args, subject: oneLineSubject(String(args.subject)) };
     }
     const account = String(args.account || "").trim();
-    // Starting a NEW mail, the user chooses the address it goes from. So a missing account is not a thing to guess at and
-    // not a thing to ask about in prose either — the refusal names the exact
-    // move: put the choice to the user as a question with their accounts as
-    // the options, and send only what they picked. A reply needs none of this; Mail
-    // answers from the account the original was addressed to.
+    // A new mail requires an explicit sending account. If missing, ask with the available
+    // accounts as choices and use only the selected one. For replies, Mail uses the account
+    // addressed by the original.
     if (!account || account.toLowerCase() === "ask") {
         throw new Error("No account named, and there is no default — he chooses which address a new "
             + "mail goes from. Call list_mail_accounts, then ASK HIM with your question tool, one "
@@ -551,9 +492,8 @@ function validateCompose(args, verb) {
             + "Put the mail's words in `body`.");
     }
     if (!to.length) throw new Error("at least one `to` address is required");
-    // No `|| []` here: absent means absent. Those defaults date from when this
-    // function accepted arrays, and once it stopped, they refused every mail
-    // that had no cc and no bcc — which is most of them.
+    // No `|| []` defaults: absent remains absent. Recipient fields accept strings, so an array
+    // default would incorrectly refuse messages without cc or bcc.
     const cc = normaliseAddresses("cc", args.cc, verb);
     const bcc = normaliseAddresses("bcc", args.bcc, verb);
     const signature = String(args.signature || "").trim();
@@ -574,10 +514,9 @@ async function compose(mode, args) {
                                             to.join(","), cc.join(","), bcc.join(","),
                                             signature])).trim();
     } catch (err) {
-        // A TIMEOUT is not a refusal: execFile kills the
-        // child after 60s, but `send m` may already have handed the message to
-        // Mail — reporting it as a clean failure invites a retry and a
-        // DUPLICATE send as the user. Likeliest trigger: the first-use
+        // A TIMEOUT is not a refusal: execFile kills the child after 60s, but `send m` may
+        // already have handed the message to Mail — reporting it as a clean failure invites a
+        // retry and a DUPLICATE send as the user. Likeliest trigger: the first-use
         // Automation→Mail permission prompt sitting unanswered.
         if (err.killed || err.signal) {
             // Deliberately NOT an error: `is_error` becomes "failed" on the
@@ -594,8 +533,7 @@ async function compose(mode, args) {
                           + "permission prompt. The draft may or may not have been saved." };
         }
         const detail = (err.stderr || err.message || "").trim();
-        // "Mail.app refused" only when Mail actually spoke (a helper crash was
-        // once mislabelled as a Mail refusal).
+        // "Mail.app refused" only when Mail actually spoke.
         const label = detail.includes("execution error") ? "Mail.app refused" : "The mail helper failed";
         return { isError: true,
                  text: `${label}: ${detail}\n(If this names permissions, Automation → Mail `
@@ -614,9 +552,9 @@ async function compose(mode, args) {
 
 /// Subjects as a person compares them: same words, ignoring the reply prefix
 /// Mail adds, the case, and any run of spaces. Exact after that — a substring
-/// test let a one-letter claim match anything.
-/// Built on `oneLineSubject`, the card's own rule: this used JavaScript's `\s` and kept the invisibles, so two
-/// subjects the card drew alike were two messages here.
+/// test would let a one-letter claim match anything.
+/// Built on `oneLineSubject`, the card's own rule: JavaScript's `\s` alone
+/// keeps invisibles and would distinguish subjects the card draws alike.
 function normaliseSubject(value) {
     // Composed after the invisibles are gone: one standing between a letter
     // and its accent would block NFC.
@@ -642,7 +580,7 @@ async function replyTo(mode, args) {
     const rfc = String(args.rfc_message_id || "").trim().replace(/^<|>$/g, "");
     const raw = String(args.body ?? "");
     refuseLeadingByteOrderMark(raw, "written");
-    // The compose path's limit, which the reply path once lacked.
+    // Apply the same body limit to compose and reply.
     if (raw.length > 100000) {
         throw new Error(`\`body\` is implausibly long (${raw.length} characters, the limit is 100000). `
             + "The approval card is built from these values, so nothing was written.");
@@ -662,10 +600,9 @@ async function replyTo(mode, args) {
             + "again and pass its `rfc_message_id` — the internal id is not unique across accounts.");
     }
     if (!hasWords(body)) throw new Error("`body` is required: a reply with no words is not a reply");
-    // The card says "its sender" or "everyone on that thread" from this flag,
-    // and it reads a real boolean. A string "false" is truthy in JavaScript, so
-    // accepting one meant the card could say "its sender" while the reply went
-    // to the whole thread.
+    // The card says "its sender" or "everyone on that thread" from this flag, and it reads a
+    // real boolean. A string "false" is truthy in JavaScript, so accepting one meant the card
+    // could say "its sender" while the reply went to the whole thread.
     if (args.reply_all !== undefined && args.reply_all !== null
             && typeof args.reply_all !== "boolean") {
         throw new Error("`reply_all` must be true or false, not "
@@ -684,9 +621,9 @@ async function replyTo(mode, args) {
     if (rfc.length > 400 || claimed.length > 400 || hint.length > 200) {
         throw new Error("`rfc_message_id`, `expect_subject` or `account` is implausibly long");
     }
-    // This depends on nothing the lookup returns, so it belongs with the other
-    // cheap guards rather than after a Mail round trip: a claim that is only a reply prefix would match any message with
-    // no subject.
+    // This depends on nothing the lookup returns, so it belongs with the other cheap guards
+    // rather than after a Mail round trip: a claim that is only a reply prefix would match any
+    // message with no subject.
     if (!normaliseSubject(claimed)) {
         throw new Error("`expect_subject` is only a reply prefix, which would match any message "
             + "with no subject. Read the message again and use its exact subject. Nothing was "
@@ -875,12 +812,10 @@ const HANDLERS = {
 
 function write(obj) { process.stdout.write(JSON.stringify(obj) + "\n"); }
 
-/// One request per 0x0A, split on that byte and nowhere else: the fence proxy's
-/// own framing. `readline` also ends a line at U+000D, U+2028 and U+2029, and
-/// JSON.stringify leaves the last two raw inside a string, so a call carrying
-/// one arrived as halves that were each a parse error, and the call itself was
-/// never answered (Node v26.8.2). Split as bytes, a
-/// character cut across two reads is whole again before it is decoded.
+/// Use one request per 0x0A byte, matching fence-proxy framing. `readline` also splits at
+/// U+000D, U+2028 and U+2029, while JSON.stringify can leave the last two inside strings. Byte
+/// framing prevents valid calls from splitting into parse errors and rejoins split UTF-8
+/// characters before decoding.
 function onRequestLine(input, handle) {
     let pending = Buffer.alloc(0);
     input.on("data", (chunk) => {

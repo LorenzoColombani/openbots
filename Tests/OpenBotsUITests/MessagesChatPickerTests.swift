@@ -5,8 +5,8 @@ import OpenBotsServices
 import Testing
 
 private let alice = "any;-;+33612345678"
-private let family = "any;+;chat123456789012345678"
-private let carrierInfo = "any;-;Carrier Info"
+private let exampleGroup = "any;+;chat123456789012345678"
+private let exampleSender = "any;-;Example Sender"
 
 private actor FakeChatDirectory: MessagesChatDirectory {
     var list: [MessagesChatChoice]?
@@ -27,10 +27,10 @@ private actor FakeChatDirectory: MessagesChatDirectory {
 }
 
 private func choices() -> [MessagesChatChoice] {
-    [MessagesChatChoice(guid: family, title: "Family", detail: "Group: Alice, +14155550100", lastMessageAt: nil,
+    [MessagesChatChoice(guid: exampleGroup, title: "Example Group", detail: "Group: Alice, +14155550100", lastMessageAt: nil,
                         isChoosable: true),
      MessagesChatChoice(guid: alice, title: "+33612345678", detail: nil, lastMessageAt: nil, isChoosable: true),
-     MessagesChatChoice(guid: carrierInfo, title: "Carrier Info", detail: nil, lastMessageAt: nil, isChoosable: true)]
+     MessagesChatChoice(guid: exampleSender, title: "Example Sender", detail: nil, lastMessageAt: nil, isChoosable: true)]
 }
 
 private actor MemoryRepository: ConnectorAccessRepository {
@@ -87,15 +87,14 @@ struct MessagesChatPickerTests {
         #expect(!model.offersChatChoice(rowID: "connector:openbots:apple-mail:apple-mail"))
         #expect(model.row("connector:openbots:apple-mail:apple-mail")?.notes.contains(BotAccessCopy.messagesNoChats) == false)
 
-        await model.setMessagesChats([alice, family])
-        #expect(await store.messagesChats(teammateID: bot) == AppleMessagesChatScope(guids: [alice, family]))
+        await model.setMessagesChats([alice, exampleGroup])
+        #expect(await store.messagesChats(teammateID: bot) == AppleMessagesChatScope(guids: [alice, exampleGroup]))
         // In the order the picker lists them, newest first.
-        #expect(model.row(messagesRow)?.notes.last == BotAccessCopy.messagesChats(["Family", "+33612345678"]))
-        #expect(BotAccessCopy.messagesChats(["Family", "+33612345678"]) == "Reads only these chats: Family, +33612345678.")
+        #expect(model.row(messagesRow)?.notes.last == BotAccessCopy.messagesChats(["Example Group", "+33612345678"]))
+        #expect(BotAccessCopy.messagesChats(["Example Group", "+33612345678"]) == "Reads only these chats: Example Group, +33612345678.")
         #expect(BotAccessCopy.messagesChats(["A", "B", "C", "D", "E"]) == "Reads only these chats: A, B, C and 2 more.")
 
-        // A chat the user chose that Messages no longer keeps is still named, so
-        // the user can take it out.
+        // A chat the user chose that Messages no longer keeps is still named, so they can take it out.
         await model.setMessagesChats([alice, "any;-;+19999999999"])
         #expect(model.row(messagesRow)?.notes.last
                 == BotAccessCopy.messagesChats(["+33612345678", BotAccessCopy.chatGone]))
@@ -124,10 +123,10 @@ struct MessagesChatPickerTests {
         #expect(picker.visible[1].title == BotAccessCopy.chatGone)
         #expect(picker.countLine == "2 of \(AppleMessagesChatScope.maximumChats) chosen")
 
-        picker.search = "famil"
-        #expect(picker.visible.map(\.guid) == [family])
-        picker.search = "  CARRIER  "
-        #expect(picker.visible.map(\.guid) == [carrierInfo])
+        picker.search = "grou"
+        #expect(picker.visible.map(\.guid) == [exampleGroup])
+        picker.search = "  SENDER  "
+        #expect(picker.visible.map(\.guid) == [exampleSender])
         picker.search = ""
 
         #expect(!picker.canToggle(long.guid))
@@ -137,24 +136,23 @@ struct MessagesChatPickerTests {
         for choice in many where picker.canToggle(choice.guid) { picker.toggle(choice.guid) }
         #expect(picker.selected.count == AppleMessagesChatScope.maximumChats)
         #expect(picker.limitReached)
-        #expect(!picker.canToggle(family))
+        #expect(!picker.canToggle(exampleGroup))
         #expect(picker.canToggle(alice), "a chosen chat can always be unticked")
         picker.toggle(alice)
-        #expect(!picker.limitReached && picker.canToggle(family))
+        #expect(!picker.limitReached && picker.canToggle(exampleGroup))
     }
 
-    /// tccd's log on an installed build: without the Contacts entitlement
-    /// the hardened-runtime app cannot raise the Contacts prompt, so a Mac that has
-    /// never been asked may show no switch to turn on.
+    /// Without the Contacts entitlement the hardened-runtime app cannot raise the Contacts
+    /// prompt, so a Mac that has never been asked may show no switch to turn on.
     @Test("With Contacts closed to the app, the picker says so and sends the user to no switch")
-    func namesOffSendsTheUserNowhere() {
+    func namesOffSendsHimNowhere() {
         #expect(!BotAccessCopy.contactNamesOff.contains("System Settings"))
         #expect(BotAccessCopy.contactNamesOff == "Names from Contacts are not shown: macOS does not let "
                 + "OpenBots Next read Contacts. Each chat is listed by its number or address.")
     }
 
     @Test("Names from Contacts are asked for only when the user presses, and the list reads them at once")
-    func namesAreAskedForOnlyOnTheUsersPress() async throws {
+    func namesAreAskedForOnlyOnHisPress() async throws {
         let directory = FakeChatDirectory(choices(), names: .notAsked)
         let (model, _, _) = try await model(directory)
         defer { model.stopObserving() }
@@ -187,6 +185,7 @@ private struct MessagesAndContactsCatalog: ConnectorCatalogReading {
         ])
     }
 }
+
 
 /// The Messages read takes a number or an address, and a bot finds those through Contacts.
 @MainActor

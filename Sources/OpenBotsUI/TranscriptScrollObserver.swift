@@ -139,10 +139,9 @@ final class TranscriptScrollProbeView: NSView {
               let documentView = scrollView.documentView else { return }
         let visible = scrollView.documentVisibleRect
         let bounds = documentView.bounds
-        // A box of no height is not a box the user has read to the end of, and it is
-        // not one they have left unread either: it has not been laid out. Saying
-        // "not at the end" here left an approval card with three short lines
-        // asking the user to scroll something that does not scroll; the card keeps the first no until a real scroll.
+        // A zero-height box has not been laid out, so it proves neither that the end was seen
+        // nor that it remains unread. Reporting false here could leave a short card requiring a
+        // scroll that is impossible.
         guard visible.height > 0, bounds.height > 0 else { return }
         let distance: CGFloat
         if documentView.isFlipped {

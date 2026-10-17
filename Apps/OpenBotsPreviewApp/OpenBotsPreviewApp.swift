@@ -5,6 +5,7 @@ import OpenBotsContent
 import OpenBotsDomain
 import OpenBotsPersistence
 import OpenBotsServices
+import OpenBotsRuntime
 import OpenBotsUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -29,11 +30,30 @@ struct OpenBotsPreviewApp: App {
             }, showSettingsSection: { section in
                 settingsNavigation.selection = section
             })
+                .modifier(AppUpdateInteractionGuard(model: composition.appUpdates))
+                .modifier(ClaudeRuntimeInteractionGuard(model: composition.claudeRuntime))
                 .background(WorkspaceWindowReporter { window in
                     applicationDelegate.observeWorkspaceWindow(window)
                     composition.workspaceWindow = window
                 })
                 .onAppear {
+                    composition.startUpdater()
+                    applicationDelegate.cancelUpdateBeforeQuitting = { [weak composition] reply in
+                        composition?.cancelUpdateBeforeQuitting(reply: reply) ?? false
+                    }
+                    applicationDelegate.updateNeedsCancellation = { [weak composition] in
+                        composition?.updateNeedsCancellation ?? false
+                    }
+                    applicationDelegate.cancelInstallationAfterRefusedQuit = { [weak composition] reply in
+                        guard let composition else { reply(true); return }
+                        composition.updateTerminationWasCanceled(reply: reply)
+                    }
+                    applicationDelegate.cancelRuntimeBeforeQuitting = { [weak composition] reply in
+                        composition?.claudeRuntime.cancelBeforeQuitting(reply: reply) ?? false
+                    }
+                    applicationDelegate.runtimeNeedsCancellation = { [weak composition] in
+                        composition?.claudeRuntime.isBusy ?? false
+                    }
                     applyAppearance()
                     applicationDelegate.beginShutdown = { [weak composition] in composition?.beginShutdown() }
                     applicationDelegate.saveAvailableState = { [weak composition] in
@@ -42,11 +62,17 @@ struct OpenBotsPreviewApp: App {
                     applicationDelegate.finishShutdown = { [weak composition] in composition?.workspace?.finishShutdown() }
                 }
                 .onChange(of: appearance.selection) { _, _ in applyAppearance() }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    composition.runtimeAppBecameActive()
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1080, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(after: .appInfo) {
+                UpdateMenuAction(model: composition.appUpdates)
+            }
             CommandGroup(after: .newItem) {
                 Button("New Bot") {
                     composition.beginTeammateCreation()
@@ -139,6 +165,8 @@ struct OpenBotsPreviewApp: App {
 
         Settings {
             PreviewSettingsWindow(composition: composition, navigation: settingsNavigation, appearance: appearance)
+                .modifier(AppUpdateInteractionGuard(model: composition.appUpdates))
+                .modifier(ClaudeRuntimeInteractionGuard(model: composition.claudeRuntime))
                 .preferredColorScheme(appearance.selection.colorScheme)
                 .onAppear { applyAppearance() }
                 .onChange(of: appearance.selection) { _, _ in applyAppearance() }
@@ -167,10 +195,12 @@ private struct PreviewSettingsWindow: View {
             PreviewWorkspaceSettings(composition: composition, workspace: workspace,
                                      sidebar: workspace.sidebar, navigation: navigation, appearance: appearance)
         } else {
-            WorkspaceSettingsView(navigation: navigation, model: composition.claudeSetup,
+            WorkspaceSettingsView(navigation: navigation, model: composition.presentedClaudeSetup,
                                   usesReviewFixtures: composition.usesReviewFixtures,
                                   textRepliesEnabled: !composition.usesReviewFixtures,
-                                  appearance: appearance)
+                                  appearance: appearance,
+                                  updatesContent: AnyView(AppUpdateSettings(model: composition.appUpdates)),
+                                  runtimeContent: composition.runtimeSettingsContent)
         }
     }
 }
@@ -185,7 +215,7 @@ private struct PreviewWorkspaceSettings: View {
 
     var body: some View {
         WorkspaceSettingsView(
-            navigation: navigation, model: composition.claudeSetup,
+            navigation: navigation, model: composition.presentedClaudeSetup,
             usesReviewFixtures: composition.usesReviewFixtures,
             textRepliesEnabled: !composition.usesReviewFixtures,
             agenticJobAccess: composition.usesReviewFixtures ? nil : composition.agenticJobAccess,
@@ -199,7 +229,9 @@ private struct PreviewWorkspaceSettings: View {
                 AnyView(AppConnectorControl(store: $0,
                                             googleAuthorization: composition.googleAuthorization))
             },
-            notificationsContent: composition.usesReviewFixtures ? nil : AnyView(BotNotificationSettingsView(model: composition.notifications))
+            notificationsContent: composition.usesReviewFixtures ? nil : AnyView(BotNotificationSettingsView(model: composition.notifications)),
+            updatesContent: AnyView(AppUpdateSettings(model: composition.appUpdates)),
+            runtimeContent: composition.runtimeSettingsContent
         )
     }
 
@@ -222,19 +254,25 @@ private struct PreviewWorkspaceSettings: View {
 /// failed/stalled saving cannot veto Quit or leave a hidden running task.
 @MainActor
 private final class PreviewApplicationDelegate: NSObject, NSApplicationDelegate {
+    var cancelUpdateBeforeQuitting: ((@escaping (Bool) -> Void) -> Bool)?
+    var updateNeedsCancellation: (() -> Bool)?
+    var cancelInstallationAfterRefusedQuit: ((@escaping (Bool) -> Void) -> Void)?
+    var cancelRuntimeBeforeQuitting: ((@escaping (Bool) -> Void) -> Bool)?
+    var runtimeNeedsCancellation: (() -> Bool)?
     var beginShutdown: (@MainActor () -> Void)?
     var saveAvailableState: (@MainActor () async -> Bool)?
     var finishShutdown: (@MainActor () -> Void)?
     private let draftQuitGuard = DraftQuitGuard()
     private var workspaceWindows: [ObjectIdentifier: NSObjectProtocol] = [:]
+    private var lastClosedWorkspaceWindow: NSWindow?
 
     func observeWorkspaceWindow(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         guard workspaceWindows[id] == nil else { return }
         #if DEBUG
         // A development launch may name where the window goes, in AppKit
-        // screen coordinates (`--window-origin=x,y`), so it can be kept on a
-        // second display without accessibility or activation.
+        // screen coordinates (`--window-origin=x,y`), so an assistant can keep
+        // it on the external display without accessibility or activation.
         if let origin = Self.requestedWindowOrigin { window.setFrameOrigin(origin) }
         #endif
         workspaceWindows[id] = NotificationCenter.default.addObserver(
@@ -248,7 +286,10 @@ private final class PreviewApplicationDelegate: NSObject, NSApplicationDelegate 
                 // Settings and preview sheets are not workspace windows. A
                 // dismissed pane never enters this route.
                 if self.workspaceWindows.isEmpty {
-                    self.beginShutdown?()
+                    self.lastClosedWorkspaceWindow = window
+                    if self.updateNeedsCancellation?() != true && self.runtimeNeedsCancellation?() != true {
+                        self.beginShutdown?()
+                    }
                     NSApplication.shared.terminate(nil)
                 }
             }
@@ -282,6 +323,54 @@ private final class PreviewApplicationDelegate: NSObject, NSApplicationDelegate 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if cancelRuntimeBeforeQuitting?({ [weak self, weak sender] stopped in
+            guard let self, let sender else { return }
+            guard stopped else { self.cancelTermination(sender); return }
+            if self.requestUpdateTermination(sender) == .terminateNow {
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }) == true { return .terminateLater }
+        return requestUpdateTermination(sender)
+    }
+
+    private func cancelTermination(_ sender: NSApplication) {
+        // An acknowledged source installer must be disarmed before admission
+        // reopens. Failure keeps its lease closed, but still refuses Quit and
+        // restores the window so the cancellation status remains visible.
+        if let cancelInstallationAfterRefusedQuit {
+            cancelInstallationAfterRefusedQuit { [weak self, weak sender] _ in
+                guard let self, let sender else { return }
+                self.restoreWindowAfterRefusedQuit(sender)
+            }
+        } else {
+            restoreWindowAfterRefusedQuit(sender)
+        }
+    }
+
+    private func restoreWindowAfterRefusedQuit(_ sender: NSApplication) {
+        if let window = lastClosedWorkspaceWindow {
+            lastClosedWorkspaceWindow = nil
+            observeWorkspaceWindow(window)
+            window.makeKeyAndOrderFront(nil)
+        }
+        sender.reply(toApplicationShouldTerminate: false)
+    }
+
+    private func requestUpdateTermination(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if cancelUpdateBeforeQuitting?({ [weak self, weak sender] canceled in
+            guard let self, let sender else { return }
+            guard canceled else {
+                self.cancelTermination(sender)
+                return
+            }
+            if self.requestNormalTermination(sender) == .terminateNow {
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+        }) == true { return .terminateLater }
+        return requestNormalTermination(sender)
+    }
+
+    private func requestNormalTermination(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if draftQuitGuard.outcome != nil { return .terminateNow }
         guard let saveAvailableState else { beginShutdown?(); finishShutdown?(); return .terminateNow }
         guard draftQuitGuard.request(begin: { self.beginShutdown?() }, flush: saveAvailableState,
@@ -328,6 +417,68 @@ final class AppCompositionRoot: ObservableObject {
 
     private let layout: PreviewStorageLayout
     private var claudeSetupSupportRoot: VerifiedOwnedRoot?
+
+    lazy var managedClaudeRuntime = ManagedClaudeRuntimeService(
+        layout: layout,
+        applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot },
+        appBuild: "\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown")/\(Bundle.main.object(forInfoDictionaryKey: "OpenBotsSourceCommit") as? String ?? "unknown")",
+        compatibilityRunner: ClaudeRuntimeCompatibilityService(),
+        blocker: { [weak self] in
+            await MainActor.run {
+                guard let self else { return "OpenBots is not ready." }
+                return self.runtimeCheckBlocker
+            }
+        },
+        acquirePromotion: { [weak self] token in
+            await MainActor.run {
+                guard let self, !self.usesReviewFixtures else { return false }
+                return AppUpdateAdmission.shared.acquire(token, blocker: { self.runtimeActivityBlocker })
+            }
+        },
+        releasePromotion: { token in await MainActor.run { AppUpdateAdmission.shared.release(token) } }
+    )
+    lazy var runtimeSelection = ManagedClaudeRuntimeSelector(service: managedClaudeRuntime)
+    lazy var compatibilitySelection = ManagedClaudeRuntimeSelector(service: managedClaudeRuntime, purpose: .compatibilityCandidate)
+    /// The two sign-ins of a first install, the suite's start after a sign-in,
+    /// and the bots' check for each new working version live in OpenBotsUI.
+    lazy var claudeSetupFlow: ClaudeSetupFlow = {
+        let flow = ClaudeSetupFlow(runtime: ClaudeRuntimeModel(service: managedClaudeRuntime),
+                                   bots: claudeSetup, compatibility: compatibilitySetup,
+                                   usesReviewFixtures: usesReviewFixtures)
+        flow.onChange = { [weak self] in
+            guard let self, !self.isClosing else { return }
+            self.objectWillChange.send()
+        }
+        return flow
+    }()
+    var claudeRuntime: ClaudeRuntimeModel { claudeSetupFlow.runtime }
+    lazy var compatibilitySetup: ClaudeSetupModel = {
+        let validation = layout.withClaudeProfilePurpose(.compatibility)
+        let installation = SetupClaudeInstallationInspector(selected: compatibilitySelection,
+                                                            homeDirectory: layout.homeDirectory)
+        return ClaudeSetupModel(service: OfficialClaudeConnectionService(
+            inspector: NativeClaudeOfflineSetupInspector(layout: validation,
+                installationInspector: installation,
+                applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot }),
+            preparer: NativeClaudeConnectionPreparer(layout: validation,
+                installationInspector: installation,
+                applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot }),
+            admission: UserInitiatedClaudeConnectionAdmission(),
+            signInHandoff: NativeClaudeConnectionSignInHandoff(layout: validation,
+                applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot },
+                opener: NativeClaudeTerminalSignInOpener())
+        ))
+    }()
+    var presentedClaudeSetup: ClaudeSetupModel { claudeSetupFlow.presented }
+    var runtimeSettingsContent: AnyView? {
+        usesReviewFixtures ? nil : AnyView(ClaudeRuntimeSettings(model: claudeRuntime, authentication: compatibilitySetup))
+    }
+    func runtimeAppBecameActive() {
+        guard showsWorkspace, !isClosing, !usesReviewFixtures else { return }
+        compatibilitySetup.appBecameActive()
+        claudeSetup.appBecameActive()
+        claudeRuntime.check()
+    }
     let agenticJobAccess = AgenticJobAccessStore()
     /// The connector grants, and the browser they let a bot drive. Unlike the
     /// web switches these cannot be built before the database is open: the
@@ -338,18 +489,20 @@ final class AppCompositionRoot: ObservableObject {
     let notifications = BotNotificationModel()
     weak var workspaceWindow: NSWindow?
     private var pendingNotificationConversationID: UUID?
-    /// Settings owns a separate setup model; local chat/storage readiness never
+    /// Workspace and Settings share setup state; local chat/storage readiness never
     /// depends on a Claude connection. Constructing this model performs no I/O.
     lazy var claudeSetup = ClaudeSetupModel(
         service: OfficialClaudeConnectionService(
             inspector: NativeClaudeOfflineSetupInspector(
                 layout: layout,
+                installationInspector: runtimeSelection,
                 applicationSupportRoot: { [weak self] in
                     await self?.claudeSetupSupportRoot
                 }
             ),
             preparer: NativeClaudeConnectionPreparer(
                 layout: layout,
+                installationInspector: runtimeSelection,
                 applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot }
             ),
             admission: UserInitiatedClaudeConnectionAdmission(),
@@ -357,7 +510,8 @@ final class AppCompositionRoot: ObservableObject {
                 layout: layout,
                 applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot },
                 opener: NativeClaudeTerminalSignInOpener()
-            )
+            ),
+            modelDiscovery: NativeClaudeModelCatalogDiscoverer()
         )
     )
     let launchReadiness = LaunchReadinessModel(
@@ -374,6 +528,8 @@ final class AppCompositionRoot: ObservableObject {
     @Published private(set) var memoryRecoveryNotice: String?
     /// Set only when the launch sweep could not close every turn a dead process left busy.
     @Published private(set) var textTurnRecoveryNotice: String?
+    /// Set once, on the launch that adopted a different built-in Google client ID.
+    @Published private(set) var googleClientNotice: String?
     /// The lease owner every reply service of this process uses; the launch sweep
     /// treats any other owner as a process that is no longer running.
     private let replyServiceOwnerID = UUID()
@@ -383,6 +539,82 @@ final class AppCompositionRoot: ObservableObject {
     private var sessionRecovery: LocalSessionRecoveryService?
     private var backups: ControlDatabaseBackupService?
     private var backupSchedule: Task<Void, Never>?
+    private var updater: (any NativeAppUpdating)?
+    private var googleConfigurationService: GoogleWorkspaceConfigurationService?
+    private var googleConfiguration: GoogleWorkspaceConfigurationResolution?
+    lazy var appUpdates = AppUpdateModel(
+        configuration: usesReviewFixtures ? nil : AppUpdateConfiguration(info: Bundle.main.infoDictionary ?? [:]),
+        blocker: { [weak self] in
+            guard let self else { return "OpenBots is not ready." }
+            return self.applicationUpdateBlocker
+        },
+        save: { [weak self] in await self?.saveForApplicationUpdate() ?? false }
+    )
+
+    func startUpdater() {
+        guard updater == nil, !isClosing, !usesReviewFixtures, workspace != nil,
+              appUpdates.configuration != nil, let service = googleConfigurationService,
+              let configuration = googleConfiguration?.updateConfiguration else { return }
+        let verify: @Sendable () async throws -> GoogleWorkspaceUpdateConfiguration = {
+            try await service.freshlyVerifiedUpdateConfiguration(matching: configuration)
+        }
+        updater = SourceAppUpdater(model: appUpdates, googleConfiguration: configuration,
+                                   verifyGoogleConfiguration: verify)
+        if updater == nil {
+            appUpdates.setDriverAvailability(false)
+            if let cycle = appUpdates.checking() { appUpdates.finished(cycle: cycle, failed: true) }
+        }
+    }
+
+    func cancelUpdateBeforeQuitting(reply: @escaping (Bool) -> Void) -> Bool {
+        updater?.cancelUpdateBeforeQuitting(reply: reply) ?? false
+    }
+    var updateNeedsCancellation: Bool { updater?.requiresCancellationBeforeQuit ?? false }
+    func updateTerminationWasCanceled(reply: @escaping (Bool) -> Void) {
+        guard let updater else { reply(true); return }
+        updater.terminationWasCanceled(reply: reply)
+    }
+
+    private var applicationUpdateBlocker: String? {
+        guard googleConfiguration?.updateConfiguration != nil else {
+            return "OpenBots could not confirm its saved Google configuration. Reopen the app before updating."
+        }
+        if claudeRuntime.isBusy || claudeRuntime.isCancelingForQuit {
+            return "Wait for Claude's compatibility check to stop."
+        }
+        return runtimeActivityBlocker
+    }
+
+    private var runtimeActivityBlocker: String? {
+        guard !isClosing, let workspace, showsWorkspace else { return "Wait for OpenBots to finish opening." }
+        if NSApplication.shared.modalWindow != nil
+            || NSApplication.shared.windows.contains(where: { $0.attachedSheet != nil || $0.sheetParent != nil }) {
+            return "Finish the open dialog first."
+        }
+        if claudeSetup.preventsApplicationUpdate { return "Finish or cancel the Claude connection first." }
+        if compatibilitySetup.preventsApplicationUpdate { return "Finish or cancel the compatibility sign-in first." }
+        if notifications.isRequesting { return "Finish the notification permission request first." }
+        if ApplicationUpdateGate.shared.hasOperations { return "Wait for the current save, connection or file operation to finish." }
+        return workspace.applicationUpdateBlocker
+    }
+
+    private var runtimeCheckBlocker: String? {
+        guard ApplicationUpdateGate.shared.allowsWork else { return "OpenBots is preparing an app update." }
+        return runtimeActivityBlocker
+    }
+
+    private func saveForApplicationUpdate() async -> Bool {
+        guard let workspace, await workspace.saveDraftsForApplicationUpdate(),
+              !Task.isCancelled, await agenticJobAccess.confirmSavedSettings(),
+              !Task.isCancelled, let service = googleConfigurationService,
+              let expected = googleConfiguration?.updateConfiguration else { return false }
+        // The model has frozen admission. Re-read durable authority after the
+        // final saves, so startup success cannot authorize a later broken state.
+        do { _ = try await service.freshlyVerifiedUpdateConfiguration(matching: expected) }
+        catch { return false }
+        guard !Task.isCancelled else { return false }
+        return applicationUpdateBlocker == nil
+    }
     var settingsBackupSummary: String? {
         guard backups != nil, backupSchedule != nil, !isClosing else { return nil }
         return "Local database backups are scheduled five minutes after launch, then hourly; a backup is also attempted during normal quit. If the database cannot open, launch recovery offers verified backups."
@@ -429,10 +661,14 @@ final class AppCompositionRoot: ObservableObject {
     func beginShutdown() {
         guard !isClosing else { return }
         isClosing = true
+        updater?.beginShutdown()
         notifications.stop()
         backupSchedule?.cancel()
         backupSchedule = nil
         claudeSetup.beginShutdown()
+        compatibilitySetup.beginShutdown()
+        claudeSetupFlow.close()
+        claudeRuntime.beginShutdown()
         googleAuthorization?.cancel()
         claudeSetupSupportRoot = nil
         workspace?.beginShutdown()
@@ -450,6 +686,11 @@ final class AppCompositionRoot: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled, let self, !self.isClosing else { return }
+                guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else {
+                    delay = Self.scheduledBackupInterval
+                    continue
+                }
+                defer { withExtendedLifetime(updateOperation) {} }
                 do {
                     let record = try await service.backupNow(reason: .scheduled)
                     AgenticDiagnosticsLog.note("backup", "scheduled backup written \(record.fileName) bytes=\(record.byteCount) pruned=\(record.prunedFileNames.count)")
@@ -504,11 +745,13 @@ final class AppCompositionRoot: ObservableObject {
     /// Restores one verified backup after the screen's confirmation, then tries the
     /// startup again. The current files move into a Damaged folder; nothing is deleted.
     func restoreBackup(_ option: LaunchRecoveryRestoreOption) {
+        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { return }
         guard !isClosing, workspace == nil, launchReadiness.state != .opening,
               let backup = restoreCandidates[option.id] else { return }
         let layout = self.layout
         launchReadiness.setPreviewReviewState(.opening)
         Task { [weak self] in
+            defer { withExtendedLifetime(updateOperation) {} }
             let outcome: Result<DatabaseBackupRestoreReceipt, any Error> = await Task.detached(priority: .userInitiated) {
                 Result { try DatabaseBackupRestoreService(layout: layout).restore(backup) }
             }.value
@@ -529,7 +772,9 @@ final class AppCompositionRoot: ObservableObject {
 
     private func requireOpen() throws {
         guard !isClosing, !Task.isCancelled else { throw CancellationError() }
+        guard ApplicationUpdateGate.shared.allowsWork else { throw CancellationError() }
     }
+
 
     /// The stuck-busy sweep. Runs once per launch before the reply
     /// service exists, so no lease in the journal can be this process's own.
@@ -561,7 +806,7 @@ final class AppCompositionRoot: ObservableObject {
         let extensions = ClaudeExtensionConnectorPreparation(extensionsRootURL: extensionsRoot)
         let preparations: [any ConnectorLaunchPreparing] = [browser, mail, mailSender, contacts,
                                                             calendar, messages, macControl, google, extensions]
-        let googleClientID = GoogleWorkspaceClientConfiguration.clientID()
+        let googleClientID = googleConfiguration?.clientID
         let googleHelper = AppOwnedConnectorCatalog.resolvedGoogleWorkspaceHelperURL()
         // All three sources, and the pane says what a turn would find: the same
         // resolution the launch does, read early, so a pinned version that is
@@ -625,6 +870,7 @@ final class AppCompositionRoot: ObservableObject {
     }
 
     func saveAvailableStateForShutdown() async -> Bool {
+        await claudeRuntime.finishShutdown()
         let saved = await workspace?.flushForShutdown() ?? true
         guard !Task.isCancelled else { return false }
         // A switch flipped just before Quit lands before the backup copies the database.
@@ -636,6 +882,7 @@ final class AppCompositionRoot: ObservableObject {
         return saved && recorded
     }
 
+
     /// The user has read the recovery paragraphs at the top of the window:
     /// one OK clears all three. Nothing they describe is undone; the
     /// notices only stop showing until the next launch.
@@ -643,6 +890,7 @@ final class AppCompositionRoot: ObservableObject {
         sessionRecoveryNotice = nil
         memoryRecoveryNotice = nil
         textTurnRecoveryNotice = nil
+        googleClientNotice = nil
     }
 
     func start() async {
@@ -659,6 +907,21 @@ final class AppCompositionRoot: ObservableObject {
             // below this line, and an already-open Settings pane observes the
             // store, so it catches up.
             if !usesReviewFixtures {
+                let configurationService = GoogleWorkspaceConfigurationService(
+                    repository: context.googleWorkspaceConfigurationRepository,
+                    legacyClientID: Bundle.main.object(forInfoDictionaryKey: GoogleWorkspaceClientConfiguration.infoDictionaryKey) as? String)
+                let configuration = await configurationService.bootstrap()
+                try requireOpen()
+                googleConfigurationService = configurationService
+                googleConfiguration = configuration
+                if configuration.clientIDReplaced {
+                    googleClientNotice = "This build uses a different Google sign-in client. To use Gmail, Google Calendar and Google Drive again, import the new client's Google Desktop OAuth client JSON in Settings, then connect again."
+                }
+                if configuration.issue != nil {
+                    AgenticDiagnosticsLog.error("updates", "Google configuration preservation could not be confirmed; updates are disabled.")
+                    appUpdates.setDriverAvailability(false)
+                    if let cycle = appUpdates.checking() { appUpdates.finished(cycle: cycle, failed: true) }
+                }
                 await agenticJobAccess.restore(from: context.agenticWebSwitchRepository)
                 await startConnectorAccess(context)
             }
@@ -709,7 +972,7 @@ final class AppCompositionRoot: ObservableObject {
                 teams: context.teamRepository, provisioning: context.teamProvisioningRepository,
                 teamConversations: context.teamConversationRepository, teammates: context.teammateRepository,
                 selection: context.chatSelectionRepository)
-            // Bots that hire bots: a bot holding both hire
+            // A bot holding both hire
             // switches asks from its reply; this makes the bot, sealed, with its
             // desk and chat, and joins it to the team it was hired in.
             let teammateHiring = TeammateHiringService(
@@ -726,6 +989,7 @@ final class AppCompositionRoot: ObservableObject {
                 applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot },
                 connection: NativeClaudeConnectionPreparer(
                     layout: layout,
+                    installationInspector: runtimeSelection,
                     applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot }
                 )
             )
@@ -736,7 +1000,7 @@ final class AppCompositionRoot: ObservableObject {
                 access: agenticJobAccess, teammates: context.teammateRepository,
                 conversations: context.conversationRepository, preparer: textLaunchPreparer)
             if !usesReviewFixtures { AgenticDiagnosticsLog.recordStreamRefusals() }
-            // The last few failed replies keep what led to them, for diagnosis.
+            // Retain bounded diagnostics for the most recent failed replies.
             let failedTurnRecords = usesReviewFixtures ? nil : FailedTurnRecords.inApplicationSupport()
             failedTurnRecords?.holdRefusedFrames()
             let providerTextReplyService: (any ClaudeTextReplyServing)? = usesReviewFixtures ? nil :
@@ -840,13 +1104,18 @@ final class AppCompositionRoot: ObservableObject {
                     messages: context.messageRepository,
                     driver: NativeAgenticJobDriver(
                         preparation: NativeAgenticJobPreparation(layout: layout,
-                            applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot }),
+                            applicationSupportRoot: { [weak self] in await self?.claudeSetupSupportRoot },
+                            installationInspector: runtimeSelection),
                         access: agenticJobAccess))
             } else { agenticJobService = nil }
             let workspace = DurableWorkspaceModel(
                 mode: chatMode,
                 service: service,
                 textReplyService: textReplyService,
+                claudeAuthenticationEpoch: { [weak self] in self?.claudeSetup.authenticationEpoch ?? 0 },
+                claudeAuthenticationRequired: { [weak self] epoch in
+                    self?.claudeSetup.requireSignInAfterTurnFailure(observedEpoch: epoch)
+                },
                 agenticJobService: agenticJobService,
                 agenticJobAccess: agenticJobAccess,
                 connectorAccess: connectorAccess,
@@ -927,6 +1196,8 @@ final class AppCompositionRoot: ObservableObject {
                         NSWorkspace.shared.open(copy)
                     },
                     save: { [weak self] messageID, partID, attachmentID in
+                        guard let updateOperation = ApplicationUpdateGate.shared.beginOperation() else { throw CancellationError() }
+                        defer { withExtendedLifetime(updateOperation) {} }
                         guard let self else { throw CancellationError() }
                         try self.requireOpen()
                         guard let attachmentService else { throw ConversationAttachmentError.unavailable }
@@ -950,7 +1221,7 @@ final class AppCompositionRoot: ObservableObject {
                         try FileManager.default.copyItem(at: url, to: destination)
                     }
                 ),
-                cardFixtureFactory: usesReviewFixtures ? PreviewCardFixture.make(conversationID:) : nil,
+                cardFixtureFactory: usesReviewFixtures ? ConversationCardsFixture.make(conversationID:) : nil,
                 exportService: ConversationExportService(
                     teammates: context.teammateRepository, conversations: context.conversationRepository,
                     messages: context.messageRepository),
@@ -971,10 +1242,12 @@ final class AppCompositionRoot: ObservableObject {
             self.workspace = workspace
             if !usesReviewFixtures { workspace.notifications = notifications }
             showsWorkspace = true
+            if !usesReviewFixtures { claudeRuntime.start() }
             openPendingNotification()
             startupDiagnosticCode = nil
             knowledgeAvailabilityNotice = nil
             launchReadiness.setPreviewReviewState(.ready)
+            startUpdater()
         } catch {
             guard !isClosing, !Task.isCancelled else { return }
             workspace = nil
@@ -1245,7 +1518,7 @@ final class AppCompositionRoot: ObservableObject {
                 let author: KnowledgeDocumentAuthorPresentation
                 switch item.document.author {
                 case .user:
-                    author = .user(displayName: "Alex")
+                    author = .user(displayName: "You")
                 case let .teammate(teammateID):
                     author = .teammate(
                         id: teammateID.rawValue,
@@ -1316,11 +1589,11 @@ private actor PreviewKnowledgeSeeder {
     ) async throws {
         if try await repository.documents(scope: .user).isEmpty {
             _ = try await service.publishRevision(
-                title: "How Alex likes updates",
+                title: "Example update preferences",
                 scope: .user,
                 author: .user,
                 markdown: """
-                # How Alex likes updates
+                # Example update preferences
 
                 This is preview sample knowledge stored in the real app-owned Markdown authority.
 
@@ -1401,8 +1674,13 @@ struct PreviewWindow: View {
                 Text(notice).font(.callout).padding(8).fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Saved reply recovery. " + notice)
             }
+            if !composition.isClosing, let notice = composition.googleClientNotice {
+                Text(notice).font(.callout).padding(8).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Google connection. " + notice)
+            }
             if !composition.isClosing, composition.sessionRecoveryNotice != nil
-                || composition.memoryRecoveryNotice != nil || composition.textTurnRecoveryNotice != nil {
+                || composition.memoryRecoveryNotice != nil || composition.textTurnRecoveryNotice != nil
+                || composition.googleClientNotice != nil {
                 // One OK for all of them: they are news, not a standing state.
                 HStack {
                     Spacer()
@@ -1414,7 +1692,7 @@ struct PreviewWindow: View {
             }
             if composition.usesReviewFixtures || composition.isClosing
                 || composition.sessionRecoveryNotice != nil || composition.memoryRecoveryNotice != nil
-                || composition.textTurnRecoveryNotice != nil {
+                || composition.textTurnRecoveryNotice != nil || composition.googleClientNotice != nil {
                 Divider()
             }
             content
@@ -1430,6 +1708,12 @@ struct PreviewWindow: View {
     private var content: some View {
         if composition.showsWorkspace {
             if let workspace = composition.workspace {
+                if !composition.usesReviewFixtures {
+                    ClaudeConnectionBanner(model: composition.presentedClaudeSetup) {
+                        showClaudeSetup()
+                        openSettings()
+                    }
+                }
                 DurableWorkspaceView(
                     model: workspace,
                     openSettings: { openSettings() },

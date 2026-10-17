@@ -1,5 +1,6 @@
 import Foundation
 
+
 /// Interpreters the Mac already has that a Work-on-this-Mac bot may run
 /// code with. Discovery only — never installs anything.
 public struct ClaudeTextInterpreter: Equatable, Sendable, Identifiable {
@@ -38,7 +39,7 @@ public enum ClaudeTextInterpreterCatalog: Sendable {
             found.append(ClaudeTextInterpreter(name: name, path: resolved, kind: kind))
         }
 
-        // Fixed locations first, then PATH lookups.
+        // Check supported fixed locations, then PATH.
         add("Python 3", "/usr/bin/python3", .python)
         for brew in ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"] {
             add("Homebrew Python 3", brew, .python)
@@ -84,6 +85,7 @@ public enum ClaudeTextInterpreterCatalog: Sendable {
         return resolve(fileManager: fileManager, pathEnvironment: pathEnvironment)
             .contains { $0.path.hasSuffix("/\(token)") || URL(fileURLWithPath: $0.path).lastPathComponent == token }
     }
+
 
     /// Plain-language install suggestion when an interpreter is missing.
     /// Names the install; never runs it.

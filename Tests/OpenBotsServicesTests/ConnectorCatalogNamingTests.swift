@@ -31,8 +31,8 @@ struct ConnectorCatalogNamingTests {
         ]))
         let definition = try #require(try await catalog.loadConnectorCatalog().connectors.first).definition
         #expect(definition.title == "Browser")
-        // The server's key is still the row's identity underneath; only what the
-        // user reads changed.
+        // The server's key is still the row's identity underneath; only what the user
+        // reads changed.
         #expect(definition.serverName == "chrome-devtools")
     }
 
@@ -136,7 +136,7 @@ struct ConnectorCatalogNamingTests {
 struct ConnectorListOrderTests {
     @Test("A row this build cannot drive sinks below the rows that work")
     func theDeadRowSinks() throws {
-        // Exactly the list a user met: browser-use sorts first by name and cannot
+        // Exactly the list the user met: browser-use sorts first by name and cannot
         // be driven at all, and the browser that works sat underneath it.
         let rows = [
             try namedConnector("claude-plugin:browser-use@claude-plugins-official:browser-use", server: "browser-use",

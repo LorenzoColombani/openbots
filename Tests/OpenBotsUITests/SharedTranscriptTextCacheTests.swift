@@ -29,7 +29,7 @@ final class SharedTranscriptTextCacheTests: XCTestCase {
 
     // MARK: - The height a rebuilt row is given
 
-    /// The claim the whole cache rests on: a second label showing text a first
+    /// The claim the whole lane rests on: a second label showing text a first
     /// label already measured is answered from memory, and answered with exactly
     /// the height a complete text layout would have produced.
     func testARebuiltRowIsAnsweredWithTheHeightALayoutWouldHaveProduced() {
@@ -118,7 +118,7 @@ final class SharedTranscriptTextCacheTests: XCTestCase {
 
     // MARK: - When a label must stop trusting what it was declared to be
 
-    /// A past failure mode: a font written through the cell, which
+    /// A font written through the cell is a change which
     /// the label's own `font` property never sees. It is checked at the moment
     /// the declaration would be used, so the label stops reading from and
     /// writing to a store shared with every other row.
@@ -157,7 +157,7 @@ final class SharedTranscriptTextCacheTests: XCTestCase {
 
     /// The one invalidation that is not taken at face value. Writing
     /// `preferredMaxLayoutWidth` to follow the frame changes no character and no
-    /// metric, and treating it as a text change cost two thirds of the win.
+    /// metric, so treating it as a text change would needlessly invalidate the cache.
     func testFollowingTheFrameWidthKeepsTheDeclaration() throws {
         let label = try XCTUnwrap(Self.declaredLabel(Self.reply) as? StableWrappingLabel)
         let digest = label.contentDigest

@@ -14,10 +14,8 @@ import XCTest
 /// while the end of the words is known to be past the box; Deny never waits.
 @MainActor
 final class ApprovalCardReadingTests: XCTestCase {
-    /// A card once said "Waits until 3:42 PM", a clock time to subtract in
-    /// the user's head, and its buttons only
-    /// greyed when something else redrew the card. It now says how long is left,
-    /// ticking every 30 seconds, with one tick landing on the deadline itself.
+    /// Cards say how long is left, ticking every 30 seconds with one tick on
+    /// the deadline itself so the buttons disable at expiry.
     func testCardDeadlinesSayHowLongIsLeft() {
         let now = Date(timeIntervalSince1970: 1_000_000)
         func left(_ seconds: TimeInterval) -> String {
@@ -171,18 +169,16 @@ final class ApprovalCardReadingTests: XCTestCase {
                                  "a two-line card fits its box in the composer, so nothing waits")
     }
 
-    /// Seen live on a Gmail send card: in a window 652
-    /// points tall the words' box was squeezed to no height beside the
-    /// transcript, the words ran past it, nothing could scroll, and Approve
-    /// stayed grey until the user made the window taller. The box now keeps the
-    /// height of its words, up to its cap; the transcript above gives way.
+    /// In a short window, the transcript must yield space to the words' box.
+    /// Keeping the words' height up to the cap makes scrolling and approval
+    /// possible without enlarging the window.
     func testTheBoxKeepsItsWordsHeightWhenTheWindowIsShort() throws {
-        let detail = "Sends as soon as you approve, from bot@example.com to owner@example.com.\n"
+        let detail = "Sends as soon as you approve, from sender@example.test to recipient@example.test.\n"
             + "Subject: OpenBots Next: Gmail send test\n\nHello Alex, this is Mailcheck."
         let approval = ClaudeTextApproval(id: UUID(), runID: RunID(UUID()), requestID: "req-1",
                                           toolName: "mcp__\(messagesServerKey)__send_gmail_message",
                                           title: "Send a Gmail message", detail: detail,
-                                          target: "owner@example.com", expiresAt: Date().addingTimeInterval(600))
+                                          target: "recipient@example.test", expiresAt: Date().addingTimeInterval(600))
         let conversation = ConversationModel(conversationID: UUID(), submit: { _, _, _ in })
         // A transcript that would take every point it is given, above the card.
         let column = VStack(alignment: .leading, spacing: 8) {
@@ -256,9 +252,8 @@ final class ApprovalCardReadingTests: XCTestCase {
         XCTAssertEqual(broken.host.fittingSize.height, plain.host.fittingSize.height, accuracy: 0.5)
     }
 
-    /// Seen live: beside a transcript in a real window the screenshot once got
-    /// no height at all; only its caption
-    /// showed. The picture keeps its own height, as the words' box does.
+    /// The picture keeps its own height beside a transcript, as the words'
+    /// box does, so both the image and its caption remain visible.
     func testTheScreenshotKeepsItsHeightBesideATranscript() throws {
         let image = NSImage(size: NSSize(width: 800, height: 500))
         image.lockFocus(); NSColor.systemTeal.setFill(); NSRect(x: 0, y: 0, width: 800, height: 500).fill(); image.unlockFocus()
@@ -286,8 +281,8 @@ final class ApprovalCardReadingTests: XCTestCase {
 
     /// The target line sat under the words' box as a plain line with no clamp,
     /// so a target the bot shaped could push Approve and Deny off the card
-    /// while the words above it were held to 140 points. The target takes the
-    /// same clamp.
+    /// while the words above it were held to 140 points. The target takes
+    /// the same clamp.
     func testTheTargetLineTakesTheWordsClamp() throws {
         let short = composerCard(detail: "It goes out from your own number.", target: "one line")
         defer { short.window.close() }
@@ -454,9 +449,8 @@ private extension NSView {
     var approvalDescendants: [NSView] { subviews + subviews.flatMap(\.approvalDescendants) }
 }
 
-/// Seen live: a card whose words were three short lines showed
-/// "Scroll to the end of the words above to approve." with Approve dead and
-/// nothing to scroll. The probe had answered while its box had no height yet —
+/// A short card must not require scrolling when all its words fit. Measuring
+/// before its box has a height can produce the wrong answer:
 /// a document taller than a zero-height clip reads as "not at the end", and the
 /// card remembers that answer until a real scroll clears it, which a card with
 /// nothing to scroll can never give.
@@ -486,9 +480,8 @@ final class ApprovalCardScrollProbeTests: XCTestCase {
 }
 
 extension ApprovalCardScrollProbeTests {
-    /// The words' box needs a scroll bar you can see. With a trackpad
-    /// macOS hides the scroller until something scrolls, so a card whose words
-    /// run past its box looked complete.
+    /// With a trackpad, macOS hides the scroller until something scrolls.
+    /// Keep it visible so a card's overflow is discoverable.
     @MainActor
     func testTheWordsBoxKeepsItsScrollerDrawn() throws {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 280, height: 140))
@@ -514,12 +507,9 @@ extension ApprovalCardScrollProbeTests {
 }
 
 extension ApprovalCardScrollProbeTests {
-    /// Seen live on a Gmail send card: Approve grey, the
-    /// hint asking for a scroll, and nothing to scroll; widening the window
-    /// cleared it. The box was measured while it was still short, the words ran
-    /// past it, and when the box then grew to hold them nothing measured again:
-    /// the probe listened for the words changing size and for a scroll, not for
-    /// the box itself growing. It measures again when the box changes size.
+    /// A box can grow to fit words that initially overflowed. The probe must
+    /// measure again when the box changes size, not only when the words change
+    /// or the user scrolls, so Approve becomes available once all words fit.
     @MainActor
     func testTheBoxGrowingToHoldTheWordsIsMeasuredAgain() throws {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 280, height: 40))
@@ -547,7 +537,7 @@ private final class FlippedWords: NSView {
     override var isFlipped: Bool { true }
 }
 
-/// Every card's words were once in code type. Only a shell command
+/// Only a shell command
 /// or a script run reads as code; everything else is set in the body font.
 final class ApprovalDetailTypeTests: XCTestCase {
     @MainActor

@@ -1,6 +1,7 @@
 import Testing
 @testable import OpenBotsUI
 
+
 /// Diagnostics once read the same build number for every build, so it could
 /// not say which build was installed. The build
 /// script now stamps the source commit (and the commit's date as the build number);

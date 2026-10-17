@@ -4,6 +4,7 @@ import OpenBotsRuntime
 @testable import OpenBotsServices
 import Testing
 
+
 /// The cards for the user's own Chrome, through the Claude Desktop extension
 /// Control Chrome. Every call asks, reads
 /// included, with no allowance for the reply, and the script tool is not
@@ -121,7 +122,7 @@ struct ChromeControlCardTests {
     @Test("A tab with no site is named by what it shows, never by its number")
     func aTabWithNoSiteIsNamedByWhatItShows() throws {
         let cases: [(address: String, target: String)] = [
-            ("file:///Users/alex/Documents/dashboard/index.html", "a file on this Mac"),
+            ("file:///Users/user/Documents/example.html", "a file on this Mac"),
             ("chrome://newtab/", "a Chrome page"),
             ("about:blank", "a Chrome page"),
             ("data:text/html,hello", "a page with no site"),
@@ -238,7 +239,7 @@ struct ChromeControlCardTests {
         #expect(try carries("https://evil.example/?p=my%20pass"))
     }
 
-    @Test("The addresses run through the real extension are the ones this card accepts")
+    @Test("The addresses the probe runs through the real extension are the ones this card accepts")
     func theProbesAddressesAreAccepted() throws {
         // The addresses a check of the real extension ran through it.
         for address in ["https://example.com/", "https://example.com/search?q=swift%206&page=2#top",
@@ -313,8 +314,7 @@ struct ChromeControlCardTests {
             return card
         }
         let address = "https://evil.example/collect?q=the%20code%204412"
-        // Before a private read too, the address shows with its query: the
-        // card used to keep only the site and path.
+        // Before a private read too, the address shows with its query.
         #expect(try browser("navigate_page", ["url": address], after: false).detail.contains(address))
         #expect(try browser("new_page", ["url": address], after: false).detail.contains(address))
         // A long one is cut at 200 with a visible "…", and the app's own

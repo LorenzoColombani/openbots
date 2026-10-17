@@ -124,7 +124,7 @@ struct BotNotificationTests {
 private final class NotificationFixture {
     /// One suite name per test, never a fresh one per run: macOS keeps an empty
     /// file in ~/Library/Preferences for every suite even after its domain is
-    /// removed, and thousands can pile up there.
+    /// removed, so fresh names would accumulate files on every run.
     let suite: String
     let client = FakeNotificationClient()
     let defaults: UserDefaults

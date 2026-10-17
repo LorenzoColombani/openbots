@@ -56,19 +56,13 @@ let sqliteOpenReadOnly: Int32 = 0x0000_0001
 let sqliteOpenURI: Int32 = 0x0000_0040
 
 /// Read-only, symbolic-link-refusing, and `immutable=1`.
-///
-/// A file produced by SQLite's online backup API inherits the source database's
-/// file-format header, so a snapshot of this WAL workspace is itself a WAL-mode
-/// file (header bytes 18/19 are `02 02`). A plain read-only open of such a file
-/// fails with SQLITE_CANTOPEN, because a read-only connection may not create
-/// the `-shm` it would otherwise need. `immutable=1` tells SQLite the file
-/// cannot change, so it reads the pages directly, takes no locks, and creates
-/// no sidecar at all. Verified against the system SQLite 3.51.0;
-/// `SQLiteBackupInspectionTests` guards both halves of that observation.
-///
-/// The flag is only sound for a file that is genuinely static. Callers inspect
-/// backup snapshots, never the live workspace: a database with a live `-wal`
-/// would be read as its pre-WAL contents without any error.
+/// SQLite's online backup API preserves the source file-format header, so a snapshot of a WAL
+/// workspace is itself WAL-mode (header bytes 18/19 are `02 02`). A plain read-only open can
+/// fail with SQLITE_CANTOPEN because it cannot create a required `-shm`. `immutable=1` reads
+/// pages directly without locks or sidecars. `SQLiteBackupInspectionTests` covers opening such
+/// snapshots without creating sidecars.
+/// This flag is sound only for static backup snapshots. A live database with a `-wal` would
+/// otherwise be read as its pre-WAL contents without an error.
 let sqliteBackupInspectionOpenFlags =
     sqliteOpenReadOnly | sqliteOpenURI | sqliteOpenFullMutex | sqliteOpenNoFollow
 

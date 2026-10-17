@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 
+
 /// A work turn's temporary folder for the CLI and every command it runs.
 ///
 /// The CLI hands each shell command its own temporary folder, `CLAUDE_CODE_TMPDIR`
@@ -27,6 +28,7 @@ enum ClaudeTextShellTemporaryDirectory {
     enum LaunchFolder: Equatable {
         case notNeeded, ready(URL), unavailable
     }
+
 
     /// A work turn launches only with its folder: without one its commands
     /// would get the run's own folder, which the sandbox denies, and print

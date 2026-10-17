@@ -7,7 +7,7 @@ import OpenBotsDomain
 /// statement at a time, which is right for the one record a claim or a
 /// checkpoint touches. `.page` answers from rows read ahead for a whole
 /// page of runs in a handful of statements, so a transcript's provenance no
-/// longer costs ten statements per turn. Both hand the very same rows
+/// longer costs ten statements per turn (F8a). Both hand the very same rows
 /// to the very same decoders, so a record reads identically either way; a
 /// row the page never covered is fetched live, never invented or skipped.
 enum JournalRowSource {
